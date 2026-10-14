@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TikTok Direct Downloader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="header-branding">
+        <div class="header-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v11m0 0l-4-4m4 4l4-4" />
+            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+          </svg>
+        </div>
+        <div class="header-text">
+          <h1>TikTok Downloader</h1>
+          <span class="version-tag">v1.0.0</span>
+        </div>
+      </div>
+      <div class="status-indicator-badge">
+        <span class="status-dot online"></span>
+        <span class="status-label">Active</span>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="popup-content">
+      <!-- Active Tab / Platform Status Card -->
+      <section class="card platform-card" id="platform-card">
+        <div class="card-header">
+          <span class="card-icon" id="platform-icon">🌐</span>
+          <div class="card-title-group">
+            <span class="card-subtitle">Active Platform</span>
+            <h2 id="platform-title">Detecting tab...</h2>
+          </div>
+        </div>
+        <div class="card-body">
+          <p id="platform-desc">Checking current page compatibility.</p>
+          <button class="btn btn-primary" id="btn-open-tiktok" style="display: none;">
+            Open TikTok Web
+          </button>
+        </div>
+      </section>
+
+      <!-- Download Statistics Card -->
+      <section class="card stats-card">
+        <div class="stats-row">
+          <div class="stat-box">
+            <span class="stat-number" id="download-count">0</span>
+            <span class="stat-caption">Total Downloads</span>
+          </div>
+          <div class="stat-actions">
+            <button class="btn btn-secondary" id="btn-open-downloads" title="Open folder where videos are saved">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+              Downloads Folder
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Feature Checklist -->
+      <section class="features-list">
+        <div class="feature-item">
+          <span class="check-icon">✓</span>
+          <span>In-page 1-click video downloads</span>
+        </div>
+        <div class="feature-item">
+          <span class="check-icon">✓</span>
+          <span>NTFS clean filenames (<code>tiktok_@[author]_[id].mp4</code>)</span>
+        </div>
+        <div class="feature-item">
+          <span class="check-icon">✓</span>
+          <span>Zero third-party downloader websites or ads</span>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="popup-footer">
+      <span>Manifest V3 • Direct Stream Engine</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
