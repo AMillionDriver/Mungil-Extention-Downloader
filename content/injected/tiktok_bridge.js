@@ -44,8 +44,21 @@
       }
     }
 
-    const downloadUrl = video.downloadAddr || bestPlayUrl;
-    const resolvedPlayUrl = bestPlayUrl || downloadUrl;
+    // Check if item is a photo/slideshow post
+    let isPhotoPost = false;
+    let photoImages = [];
+    if (item.imagePostInfo && Array.isArray(item.imagePostInfo.images) && item.imagePostInfo.images.length > 0) {
+      isPhotoPost = true;
+      photoImages = item.imagePostInfo.images
+        .map((img) => {
+          const list = (img.displayImage && img.displayImage.urlList) || [];
+          return list[0] || '';
+        })
+        .filter(Boolean);
+    }
+
+    const downloadUrl = video.downloadAddr || bestPlayUrl || (photoImages.length > 0 ? photoImages[0] : '');
+    const resolvedPlayUrl = bestPlayUrl || downloadUrl || (photoImages.length > 0 ? photoImages[0] : '');
 
     if (!resolvedPlayUrl) return null;
 
@@ -57,7 +70,7 @@
     const nickname = authorObj.nickname || '';
     const description = item.desc || item.title || '';
     const bitrate = video.bitrate || 0;
-    const quality = video.ratio || video.definition || '';
+    const quality = video.ratio || video.definition || (isPhotoPost ? 'photo' : '');
     const duration = video.duration || 0;
 
     return {
@@ -67,6 +80,8 @@
       description,
       playUrl: resolvedPlayUrl,
       downloadUrl,
+      isPhotoPost,
+      images: photoImages,
       bitrate,
       quality,
       duration

@@ -269,12 +269,13 @@ async function runAllSuites() {
       assert.ok(typeof manifest.description === 'string' && manifest.description.length > 10);
     });
 
-    test('Permissions are minimally scoped (downloads, declarativeNetRequest, storage)', () => {
+    test('Permissions are minimally scoped (downloads, declarativeNetRequest, storage, contextMenus)', () => {
       assert.ok(Array.isArray(manifest.permissions), 'permissions must be an array');
       assert.ok(manifest.permissions.includes('downloads'), 'must include "downloads"');
       assert.ok(manifest.permissions.includes('declarativeNetRequest'), 'must include "declarativeNetRequest"');
       assert.ok(manifest.permissions.includes('storage'), 'must include "storage"');
-      assert.strictEqual(manifest.permissions.length, 3, 'permissions should only request minimal necessary APIs');
+      assert.ok(manifest.permissions.includes('contextMenus'), 'must include "contextMenus"');
+      assert.strictEqual(manifest.permissions.length, 4, 'permissions should only request minimal necessary APIs');
     });
 
     test('Host permissions declare TikTok web and ByteDance media CDNs', () => {

@@ -42,13 +42,13 @@
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M-TEST | E2E Testing Track: Test Infrastructure & Suites | F19: `test_extension.js`, `TEST_INFRA.md`, `TEST_READY.md` (Tiers 1-4) | none | IN_PROGRESS (`ce50ab15`) |
-| M1 | Manifest V3 Foundation, Project Packaging & Icons | F1, F2, F17, F18: `manifest.json`, `icons/generate_icons.js`, PNG icons, `README.md` skeleton | none | IN_PROGRESS (`b838178b`) |
-| M2 | Background Service Worker & Downloader Engine | F3, F4, F5, F6, F16: `background/service_worker.js` | M1 | IN_PROGRESS (`b838178b`) |
-| M3 | MAIN-World Bridge & Multi-Tier Stream Extraction | F11, F12, F13: `content/injected/tiktok_bridge.js`, bridge client in `content/platforms/tiktok.js` | M1 | IN_PROGRESS (`b838178b`) |
-| M4 | In-Page UI Injection & Button State Transitions | F7, F8, F9, F10, F14: `content/platforms/tiktok.js` (UI & Observer), `content/styles/tiktok.css` | M2, M3 | IN_PROGRESS (`b838178b`) |
-| M5 | Extension Toolbar Popup & Final Documentation | F15, F16, F18: `popup/popup.html`, `popup.css`, `popup.js`, `README.md` | M1, M2 | IN_PROGRESS (`b838178b`) |
-| M6 | Final Verification: 100% E2E Test Pass & Adversarial Hardening | Phase 1 (100% pass on Tiers 1-4) + Phase 2 (Adversarial Tier 5 coverage audit) | M-TEST, M1, M2, M3, M4, M5 | PLANNED |
+| M-TEST | E2E Testing Track: Test Infrastructure & Suites | F19: `test_extension.js`, `TEST_INFRA.md`, `TEST_READY.md` (Tiers 1-4) | none | DONE |
+| M1 | Manifest V3 Foundation, Project Packaging & Icons | F1, F2, F17, F18: `manifest.json`, `icons/generate_icons.js`, PNG icons, `README.md` skeleton | none | DONE |
+| M2 | Background Service Worker & Downloader Engine | F3, F4, F5, F6, F16: `background/service_worker.js` | M1 | DONE |
+| M3 | MAIN-World Bridge & Multi-Tier Stream Extraction | F11, F12, F13: `content/injected/tiktok_bridge.js`, bridge client in `content/platforms/tiktok.js` | M1 | DONE |
+| M4 | In-Page UI Injection & Button State Transitions | F7, F8, F9, F10, F14: `content/platforms/tiktok.js` (UI & Observer), `content/styles/tiktok.css` | M2, M3 | DONE |
+| M5 | Extension Toolbar Popup & Final Documentation | F15, F16, F18: `popup/popup.html`, `popup.css`, `popup.js`, `README.md` | M1, M2 | DONE |
+| M6 | Final Verification: 100% E2E Test Pass & Adversarial Hardening | Phase 1 (100% pass on Tiers 1-4) + Phase 2 (Adversarial Tier 5 coverage audit) | M-TEST, M1, M2, M3, M4, M5 | DONE |
 
 ---
 

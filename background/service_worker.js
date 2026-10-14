@@ -264,6 +264,42 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
   });
 }
 
+// Context Menu (Right-Click) Handler for TikTok Web
+if (typeof chrome !== 'undefined' && chrome.contextMenus) {
+  function setupContextMenu() {
+    try {
+      chrome.contextMenus.removeAll(() => {
+        chrome.contextMenus.create({
+          id: 'download-tiktok-active',
+          title: '⬇ Download Video/Konten TikTok Ini',
+          contexts: ['all'],
+          documentUrlPatterns: ['*://*.tiktok.com/*']
+        }, () => {
+          if (chrome.runtime.lastError) {
+            // Ignore duplicate menu warnings
+          }
+        });
+      });
+    } catch (_) {}
+  }
+
+  if (chrome.runtime && chrome.runtime.onInstalled) {
+    chrome.runtime.onInstalled.addListener(setupContextMenu);
+  } else {
+    setupContextMenu();
+  }
+
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === 'download-tiktok-active' && tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, { type: 'DOWNLOAD_ACTIVE_VIDEO' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[TikTok Downloader] Tab messaging error:', chrome.runtime.lastError);
+        }
+      });
+    }
+  });
+}
+
 // Export for unit tests in Node environment
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {

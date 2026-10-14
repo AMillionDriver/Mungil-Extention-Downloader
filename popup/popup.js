@@ -11,6 +11,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnOpenDownloads = document.getElementById('btn-open-downloads');
   const downloadCountEl = document.getElementById('download-count');
 
+  const btnDownloadActive = document.getElementById('btn-download-active');
+  const btnDownloadText = document.getElementById('btn-download-text');
+  const popupStatusMsg = document.getElementById('popup-status-msg');
+
+  function showStatus(text, type = 'info', duration = 4000) {
+    if (!popupStatusMsg) return;
+    popupStatusMsg.textContent = text;
+    popupStatusMsg.className = `popup-status-msg ${type}`;
+    popupStatusMsg.style.display = 'block';
+    if (duration > 0) {
+      setTimeout(() => {
+        popupStatusMsg.style.display = 'none';
+      }, duration);
+    }
+  }
+
   // 1. Detect Active Tab
   try {
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
@@ -34,6 +50,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             platformDesc.textContent = 'Ready! In-page download buttons are active in video action bars.';
           }
           if (btnOpenTikTok) btnOpenTikTok.style.display = 'none';
+          if (btnDownloadActive) {
+            btnDownloadActive.style.display = 'flex';
+            btnDownloadActive.addEventListener('click', () => {
+              btnDownloadActive.disabled = true;
+              if (btnDownloadText) btnDownloadText.textContent = 'Mengekstrak...';
+              showStatus('Mencari video/konten aktif di halaman TikTok...', 'info', 0);
+
+              chrome.tabs.sendMessage(activeTab.id, { type: 'DOWNLOAD_ACTIVE_VIDEO' }, (response) => {
+                btnDownloadActive.disabled = false;
+                if (btnDownloadText) btnDownloadText.textContent = '⬇ Unduh Video di Tab Ini';
+
+                if (chrome.runtime.lastError) {
+                  showStatus('Silakan refresh tab TikTok (tekan F5) sekali agar ekstensi terhubung.', 'error', 6000);
+                  return;
+                }
+
+                if (response && response.success) {
+                  showStatus(`✓ Memulai unduhan: ${response.filename || 'video'}`, 'success', 4000);
+                } else {
+                  showStatus(response?.error || 'Gagal mengekstrak video. Pastikan ada video yang tampil.', 'error', 5000);
+                }
+              });
+            });
+          }
         } else {
           if (platformTitle) {
             platformTitle.textContent = 'Not on TikTok';
@@ -44,6 +84,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             platformDesc.textContent = 'Open TikTok in this browser to download videos directly.';
           }
           if (btnOpenTikTok) btnOpenTikTok.style.display = 'block';
+          if (btnDownloadActive) btnDownloadActive.style.display = 'none';
         }
       }
     }

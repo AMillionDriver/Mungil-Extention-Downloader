@@ -3,14 +3,16 @@
  * Injected on *://*.tiktok.com/*
  * 
  * Responsibilities:
- * 1. 250ms debounced MutationObserver scanning FYP feed and modal video cards.
- * 2. Duplicate injection prevention using data-tt-dl-ready="true" and self-healing cleanup.
- * 3. Circular native-styled action button injection matching TikTok UI.
- * 4. 4-state visual lifecycle: Idle -> Loading -> Success (2.5s) / Error (3.0s) -> Idle.
- * 5. Multi-tier stream extraction cascade:
+ * 1. 250ms debounced MutationObserver scanning FYP feed, photo slideshows, and modal video cards.
+ * 2. Multi-strategy injection: Action-bar docking + In-Player Floating Overlay Button (Fullscreen compatible).
+ * 3. Duplicate injection prevention using data-tt-dl-ready="true" and self-healing cleanup.
+ * 4. Circular native-styled action button injection matching TikTok UI.
+ * 5. 4-state visual lifecycle: Idle -> Loading -> Success (2.5s) / Error (3.0s) -> Idle.
+ * 6. Multi-tier stream extraction cascade:
  *    - Tier 1: Query MAIN-world bridge (1500ms timeout)
- *    - Tier 2: HTML5 <video> currentSrc & DOM regex fallback
- * 6. IPC dispatch to background service worker via DOWNLOAD_VIDEO.
+ *    - Tier 2: HTML5 <video> currentSrc & DOM photo/regex fallback
+ * 7. Active tab listener for popup toolbar and context-menu 1-click downloads.
+ * 8. IPC dispatch to background service worker via DOWNLOAD_VIDEO.
  */
 
 (function () {
@@ -18,15 +20,23 @@
 
   // Robust DOM Selector Configuration
   const SELECTORS = {
-    // Video Card Containers (Feed & Modal)
+    // Video Card Containers (Feed, Photos, Search & Modal)
     videoCards: [
       '[data-e2e="recommend-list-item-container"]',
+      '[data-e2e="feed-video"]',
+      '[data-e2e="feed-photo"]',
+      '[data-e2e*="feed-item"]',
+      '[data-e2e*="video-item"]',
+      '[data-e2e="browse-video"]',
       'div[class*="DivItemContainer"]',
       'div[class*="DivVideoDetailContainer"]',
       'div[class*="DivBrowserModeContainer"]',
-      '[data-e2e="browse-video"]',
+      'div[class*="DivVideoWrapper"]',
+      'div[class*="PhotoContainer"]',
+      'div[class*="SlideItem"]',
       'div[role="dialog"] div[class*="DivVideoContainer"]',
-      'article[class*="DivItemContainer"]'
+      'article[class*="DivItemContainer"]',
+      'article'
     ].join(','),
 
     // Action Bar / Action Item Containers
@@ -37,17 +47,35 @@
       'div[class*="DivActionBarWrapper"]',
       'section[class*="DivActionItemContainer"]',
       '[data-e2e="browse-action-item"]',
-      'div[class*="DivVideoActionContainer"]'
+      'div[class*="DivVideoActionContainer"]',
+      'div[class*="ActionBar"]'
     ].join(','),
 
-    // Sibling Action Anchors (Used to locate parent container if container class changes)
+    // Sibling Action Anchors (Used to locate parent container directly)
     actionAnchors: [
-      'button[data-e2e="like-icon"]',
-      'button[data-e2e="browse-like-icon"]',
-      'button[data-e2e="comment-icon"]',
-      'button[data-e2e="share-icon"]',
-      'button[data-e2e="undefined-icon"]',
-      'button[aria-label*="Like" i]'
+      '[data-e2e*="like"]',
+      '[data-e2e*="comment"]',
+      '[data-e2e*="share"]',
+      '[data-e2e*="bookmark"]',
+      '[data-e2e*="favorite"]',
+      'button[aria-label*="Like" i]',
+      'button[aria-label*="Suka" i]',
+      'button[aria-label*="Share" i]',
+      'button[aria-label*="Bagikan" i]',
+      'button[aria-label*="Comment" i]',
+      'button[aria-label*="Komentar" i]',
+      'button[aria-label*="Favorit" i]'
+    ].join(','),
+
+    // Media Player Containers (for In-Player Floating Overlay Button)
+    mediaPlayers: [
+      'div[class*="DivVideoWrapper"]',
+      'div[class*="DivPlayerContainer"]',
+      'div[class*="basicPlayer"]',
+      'div[class*="PhotoContainer"]',
+      'div[class*="SlideItem"]',
+      '[data-e2e="feed-video"]',
+      '[data-e2e="feed-photo"]'
     ].join(',')
   };
 
@@ -107,20 +135,23 @@
     btn.classList.add(`tt-dl-state-${state}`);
     btn.setAttribute('data-state', state);
 
-    const iconBox = btn.querySelector('.tt-dl-icon-box');
+    const iconBox = btn.querySelector('.tt-dl-icon-box') || btn.querySelector('.tt-dl-fab-icon');
     const labelEl = btn.parentElement ? btn.parentElement.querySelector('.tt-dl-label') : null;
+    const fabText = btn.querySelector('.tt-dl-fab-text');
 
     switch (state) {
       case 'loading':
         btn.disabled = true;
         if (iconBox) iconBox.innerHTML = ICONS.loading;
         if (labelEl) labelEl.textContent = customLabel || 'Fetching...';
+        if (fabText) fabText.textContent = customLabel || 'Unduh...';
         break;
 
       case 'success':
         btn.disabled = true;
         if (iconBox) iconBox.innerHTML = ICONS.success;
         if (labelEl) labelEl.textContent = customLabel || 'Saved!';
+        if (fabText) fabText.textContent = 'Tersimpan!';
         // Revert to idle after 2.5 seconds
         btn._stateTimeout = setTimeout(() => {
           setButtonState(btn, 'idle');
@@ -131,6 +162,7 @@
         btn.disabled = false;
         if (iconBox) iconBox.innerHTML = ICONS.error;
         if (labelEl) labelEl.textContent = customLabel || 'Failed';
+        if (fabText) fabText.textContent = customLabel || 'Gagal';
         // Revert to idle after 3.0 seconds
         btn._stateTimeout = setTimeout(() => {
           setButtonState(btn, 'idle');
@@ -142,6 +174,7 @@
         btn.disabled = false;
         if (iconBox) iconBox.innerHTML = ICONS.download;
         if (labelEl) labelEl.textContent = 'Download';
+        if (fabText) fabText.textContent = 'Unduh';
         break;
     }
   }
@@ -157,9 +190,9 @@
     let videoId = String(Date.now());
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
 
-    // 1. Check window location pathname: /@username/video/1234567890
+    // 1. Check window location pathname: /@username/video/1234567890 or /@username/photo/1234567890
     if (typeof window !== 'undefined' && window.location.pathname) {
-      const urlMatch = window.location.pathname.match(/@([^/?#]+)\/video\/(\d+)/);
+      const urlMatch = window.location.pathname.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
       if (urlMatch) {
         author = urlMatch[1];
         videoId = urlMatch[2];
@@ -167,10 +200,10 @@
     }
 
     if (container) {
-      // 2. Check container anchor links: a[href*="/video/"]
-      const videoLink = container.querySelector('a[href*="/video/"]');
-      if (videoLink && videoLink.href) {
-        const linkMatch = videoLink.href.match(/@([^/?#]+)\/video\/(\d+)/);
+      // 2. Check container anchor links: a[href*="/video/"] or a[href*="/photo/"]
+      const postLink = container.querySelector('a[href*="/video/"], a[href*="/photo/"]');
+      if (postLink && postLink.href) {
+        const linkMatch = postLink.href.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
         if (linkMatch) {
           author = linkMatch[1];
           videoId = linkMatch[2];
@@ -188,7 +221,7 @@
 
       // 4. Check data-e2e author element
       if (author === 'unknown') {
-        const authorEl = container.querySelector('[data-e2e="video-author-uniqueid"], [data-e2e="browse-username"]');
+        const authorEl = container.querySelector('[data-e2e="video-author-uniqueid"], [data-e2e="browse-username"], [data-e2e*="author"]');
         if (authorEl && authorEl.textContent) {
           author = authorEl.textContent.trim().replace(/^@+/, '');
         }
@@ -252,7 +285,7 @@
   }
 
   /**
-   * Fallback extraction directly from active HTML5 <video> element.
+   * Fallback extraction directly from active HTML5 <video> element or photo slideshow.
    *
    * @param {HTMLElement} container
    * @param {object} domInfo
@@ -264,24 +297,35 @@
     const video = (container && container.querySelector('video')) ||
                   (typeof document !== 'undefined' ? document.querySelector('video') : null);
 
-    if (!video) return null;
+    if (video) {
+      let streamUrl = video.currentSrc || video.src || '';
+      if (!streamUrl) {
+        const source = video.querySelector('source');
+        if (source && source.src) streamUrl = source.src;
+      }
 
-    let streamUrl = video.currentSrc || video.src || '';
-    if (!streamUrl) {
-      const source = video.querySelector('source');
-      if (source && source.src) streamUrl = source.src;
+      if (streamUrl && !streamUrl.startsWith('blob:')) {
+        return {
+          url: streamUrl,
+          author: domInfo.author,
+          videoId: domInfo.videoId
+        };
+      }
     }
 
-    // Direct download does not support MSE blob: URLs
-    if (!streamUrl || streamUrl.startsWith('blob:')) {
-      return null;
+    // Check for photo/image post in container
+    if (container) {
+      const img = container.querySelector('img[src*="tiktokcdn"], img[src*="byteoversea"], img[class*="Photo"], img[class*="Slide"]');
+      if (img && img.src && !img.src.startsWith('data:')) {
+        return {
+          url: img.src,
+          author: domInfo.author,
+          videoId: domInfo.videoId
+        };
+      }
     }
 
-    return {
-      url: streamUrl,
-      author: domInfo.author,
-      videoId: domInfo.videoId
-    };
+    return null;
   }
 
   /**
@@ -385,7 +429,7 @@
     btn.className = 'tt-dl-btn tt-dl-state-idle';
     btn.type = 'button';
     btn.setAttribute('aria-label', 'Download TikTok Video');
-    btn.setAttribute('title', 'Direct 1-Click Download (without watermark)');
+    btn.setAttribute('title', 'Direct 1-Click Download');
     btn.setAttribute('data-state', 'idle');
 
     const iconBox = document.createElement('div');
@@ -407,6 +451,29 @@
     });
 
     return itemWrapper;
+  }
+
+  /**
+   * Creates an In-Player Floating Overlay Button (works in Fullscreen!)
+   */
+  function createFloatingDownloadButton(container) {
+    const fab = document.createElement('button');
+    fab.className = 'tt-dl-floating-btn tt-dl-state-idle';
+    fab.type = 'button';
+    fab.setAttribute('aria-label', 'Download Video/Photo');
+    fab.setAttribute('title', 'Direct 1-Click Download (Works in Fullscreen)');
+    fab.innerHTML = `
+      <span class="tt-dl-fab-icon">${ICONS.download}</span>
+      <span class="tt-dl-fab-text">Unduh</span>
+    `;
+
+    fab.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      handleDownloadClick(fab, container);
+    });
+
+    return fab;
   }
 
   /**
@@ -451,6 +518,26 @@
   }
 
   /**
+   * Injects floating overlay button into video players (fullscreen compatible).
+   */
+  function injectFloatingPlayerButtons() {
+    if (typeof document === 'undefined') return;
+
+    const players = document.querySelectorAll(SELECTORS.mediaPlayers);
+    players.forEach((player) => {
+      if (player.querySelector('.tt-dl-floating-btn')) return;
+
+      const computedPos = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(player).position : '';
+      if (computedPos === 'static') {
+        player.style.position = 'relative';
+      }
+
+      const fab = createFloatingDownloadButton(player);
+      player.appendChild(fab);
+    });
+  }
+
+  /**
    * Scans document for video cards and injects download button.
    */
   function scanAndInject() {
@@ -464,9 +551,109 @@
       }
     });
 
+    // Strategy 1: Iterate known card containers
     const cards = document.querySelectorAll(SELECTORS.videoCards);
     cards.forEach((card) => {
       injectIntoCard(card);
+    });
+
+    // Strategy 2: Direct Anchor-based Action Bar Discovery (catches any post where card container class changed)
+    const anchors = document.querySelectorAll(SELECTORS.actionAnchors);
+    anchors.forEach((anchor) => {
+      const actionBar =
+        anchor.closest('[data-e2e*="action-item"]') ||
+        anchor.closest('div[class*="DivActionItemContainer"]') ||
+        anchor.closest('div[class*="Action"]') ||
+        anchor.parentElement?.parentElement ||
+        anchor.parentElement;
+
+      if (actionBar && !actionBar.querySelector('.tt-dl-action-item') && actionBar.getAttribute('data-tt-dl-ready') !== 'true') {
+        const card = actionBar.closest('article, section, [data-e2e*="item"], [data-e2e*="feed"], [data-e2e*="video"], [data-e2e*="photo"], div[class*="Container"]') || actionBar.parentElement;
+        const downloadItem = createDownloadActionItem(card || actionBar);
+        actionBar.appendChild(downloadItem);
+        actionBar.setAttribute('data-tt-dl-ready', 'true');
+        if (card && card.setAttribute) card.setAttribute('data-tt-dl-ready', 'true');
+      }
+    });
+
+    // Strategy 3: In-Player Floating Overlay Button (Fullscreen Support)
+    injectFloatingPlayerButtons();
+  }
+
+  /**
+   * Handler for active video download triggered from extension popup or context menu.
+   */
+  async function handleActiveVideoDownload() {
+    if (typeof document === 'undefined') return { success: false, error: 'Document not ready' };
+
+    // 1. Find actively playing video
+    let targetCard = null;
+    const videos = Array.from(document.querySelectorAll('video'));
+    const playingVideo = videos.find((v) => !v.paused && v.currentTime > 0);
+    if (playingVideo) {
+      targetCard = playingVideo.closest('article, section, [data-e2e*="item"], [data-e2e*="feed"], [data-e2e*="video"], div[class*="Container"]') || playingVideo.parentElement;
+    }
+
+    // 2. Find post closest to center of viewport
+    if (!targetCard) {
+      const candidates = Array.from(document.querySelectorAll(SELECTORS.videoCards));
+      if (candidates.length > 0) {
+        const centerY = window.innerHeight / 2;
+        let closestDist = Infinity;
+        for (const c of candidates) {
+          const rect = c.getBoundingClientRect();
+          if (rect.height > 0) {
+            const center = rect.top + rect.height / 2;
+            const dist = Math.abs(center - centerY);
+            if (dist < closestDist) {
+              closestDist = dist;
+              targetCard = c;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Fallback to first video or document body
+    if (!targetCard) {
+      targetCard = document.querySelector('video') || document.body;
+    }
+
+    try {
+      const stream = await resolveStreamData(targetCard);
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            type: 'DOWNLOAD_VIDEO',
+            payload: {
+              url: stream.url,
+              author: stream.author,
+              videoId: stream.videoId
+            }
+          },
+          (res) => {
+            if (chrome.runtime.lastError) {
+              resolve({ success: false, error: chrome.runtime.lastError.message });
+            } else if (res && res.success) {
+              resolve({ success: true, filename: res.filename });
+            } else {
+              resolve({ success: false, error: res?.error || 'Gagal memulai unduhan' });
+            }
+          }
+        );
+      });
+    } catch (err) {
+      return { success: false, error: err.message || 'Gagal mengekstrak video' };
+    }
+  }
+
+  // Runtime message listener for active tab triggers
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message && (message.type === 'DOWNLOAD_ACTIVE_VIDEO' || message.type === 'TRIGGER_ACTIVE_DOWNLOAD')) {
+        handleActiveVideoDownload().then(sendResponse);
+        return true; // asynchronous
+      }
     });
   }
 
