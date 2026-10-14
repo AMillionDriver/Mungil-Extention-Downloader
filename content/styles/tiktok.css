@@ -1,6 +1,7 @@
 /**
  * TikTok Direct Downloader - In-Page Button Styles
  * Matches TikTok Web Native Action Bar Aesthetic (Dark & Responsive)
+ * Exactly 1 button docked above the Share button in the action column.
  */
 
 /* Container matching native TikTok action item column */
@@ -9,12 +10,12 @@
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  margin-top: 8px !important;
-  margin-bottom: 8px !important;
+  margin-top: 6px !important;
+  margin-bottom: 6px !important;
   cursor: pointer !important;
   user-select: none !important;
   position: relative !important;
-  z-index: 9999 !important;
+  z-index: 99 !important;
   width: auto !important;
   overflow: visible !important;
 }
@@ -79,7 +80,7 @@
   display: block !important;
 }
 
-/* Count / Label below button */
+/* Count / Label below button matching native font */
 .tt-dl-label {
   font-family: TikTokFont, PingFangSC, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   font-size: 12px !important;
@@ -118,51 +119,4 @@
   background: rgba(254, 44, 85, 0.22) !important;
   color: #FE2C55 !important;
   box-shadow: 0 0 16px rgba(254, 44, 85, 0.4) !important;
-}
-
-/* In-Player Floating Overlay Button (Works in Fullscreen & Regular View) */
-.tt-dl-floating-btn {
-  position: absolute !important;
-  top: 16px !important;
-  right: 16px !important;
-  z-index: 2147483647 !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  padding: 6px 14px !important;
-  border-radius: 20px !important;
-  background: rgba(18, 18, 18, 0.75) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.25) !important;
-  color: #ffffff !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5) !important;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  opacity: 0.9 !important;
-}
-
-.tt-dl-floating-btn:hover:not(:disabled) {
-  opacity: 1 !important;
-  background: rgba(254, 44, 85, 0.92) !important;
-  border-color: #FE2C55 !important;
-  transform: scale(1.05) !important;
-  box-shadow: 0 6px 18px rgba(254, 44, 85, 0.45) !important;
-}
-
-.tt-dl-floating-btn svg {
-  width: 16px !important;
-  height: 16px !important;
-  display: block !important;
-}
-
-/* Fullscreen Compatibility */
-:fullscreen .tt-dl-floating-btn,
-:-webkit-full-screen .tt-dl-floating-btn {
-  display: flex !important;
-  opacity: 1 !important;
-  z-index: 2147483647 !important;
 }

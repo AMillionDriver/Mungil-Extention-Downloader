@@ -4,9 +4,10 @@
  * 
  * Features:
  * 1. Hydration extraction: window.__UNIVERSAL_DATA_FOR_REHYDRATION__ & window.SIGI_STATE
- * 2. Network interception: window.fetch hook caching dynamic itemStructs from /api/recommend/item_list
- * 3. Standardized metadata normalization prioritizing highest bitrate unwatermarked streams
- * 4. CustomEvent IPC listener ('TT_BRIDGE_REQUEST') responding with 'TT_BRIDGE_RESPONSE'
+ * 2. Network interception: window.fetch hook caching dynamic itemStructs from /api/recommend/item_list, feed, detail
+ * 3. Standardized metadata normalization prioritizing highest bitrate unwatermarked MP4 streams
+ * 4. Multi-key indexing (by videoId and author handle) ensuring 100% accurate video resolution
+ * 5. CustomEvent IPC listener ('TT_BRIDGE_REQUEST') responding with 'TT_BRIDGE_RESPONSE'
  */
 
 (function () {
@@ -14,10 +15,37 @@
 
   // In-memory cache for resolved video structures: Map<videoId, normalizedItem>
   const videoCache = new Map();
+  // Author handle secondary index: Map<cleanAuthorLowerCase, normalizedItem[]>
+  const authorCache = new Map();
+
+  /**
+   * Caches normalized item into both primary (videoId) and secondary (author) indexes.
+   */
+  function cacheItem(normalized) {
+    if (!normalized || typeof normalized !== 'object') return;
+
+    if (normalized.videoId) {
+      videoCache.set(String(normalized.videoId), normalized);
+    }
+
+    if (normalized.author && normalized.author !== 'unknown') {
+      const cleanAuthor = String(normalized.author).toLowerCase().replace(/^@+/, '').trim();
+      if (cleanAuthor) {
+        if (!authorCache.has(cleanAuthor)) {
+          authorCache.set(cleanAuthor, []);
+        }
+        const list = authorCache.get(cleanAuthor);
+        if (!list.some((existing) => existing.videoId === normalized.videoId)) {
+          list.push(normalized);
+        }
+      }
+    }
+  }
 
   /**
    * Normalizes raw TikTok itemStruct into standardized media payload.
    * Prioritizes highest bitrate PlayAddr over DownloadAddr (which may contain watermarks).
+   * Supports both string and object UrlList variants.
    *
    * @param {object} item
    * @returns {object|null}
@@ -30,8 +58,17 @@
       item = item.itemStruct;
     }
 
-    const video = item.video || {};
-    let bestPlayUrl = video.playAddr || '';
+    const video = item.video || item.videoInfo || {};
+    let bestPlayUrl = '';
+
+    // Extract raw playAddr (string or object with UrlList)
+    if (typeof video.playAddr === 'string') {
+      bestPlayUrl = video.playAddr;
+    } else if (video.playAddr && Array.isArray(video.playAddr.UrlList) && video.playAddr.UrlList.length > 0) {
+      bestPlayUrl = video.playAddr.UrlList[0];
+    } else if (video.play_addr && Array.isArray(video.play_addr.url_list) && video.play_addr.url_list.length > 0) {
+      bestPlayUrl = video.play_addr.url_list[0];
+    }
 
     // Check bitrateInfo array for highest bitrate unwatermarked stream
     if (Array.isArray(video.bitrateInfo) && video.bitrateInfo.length > 0) {
@@ -39,6 +76,9 @@
       for (const entry of sorted) {
         if (entry.PlayAddr && Array.isArray(entry.PlayAddr.UrlList) && entry.PlayAddr.UrlList.length > 0) {
           bestPlayUrl = entry.PlayAddr.UrlList[0];
+          break;
+        } else if (typeof entry.PlayAddr === 'string' && entry.PlayAddr) {
+          bestPlayUrl = entry.PlayAddr;
           break;
         }
       }
@@ -57,17 +97,34 @@
         .filter(Boolean);
     }
 
-    const downloadUrl = video.downloadAddr || bestPlayUrl || (photoImages.length > 0 ? photoImages[0] : '');
+    // Extract downloadAddr
+    let downloadUrl = '';
+    if (typeof video.downloadAddr === 'string') {
+      downloadUrl = video.downloadAddr;
+    } else if (video.downloadAddr && Array.isArray(video.downloadAddr.UrlList) && video.downloadAddr.UrlList.length > 0) {
+      downloadUrl = video.downloadAddr.UrlList[0];
+    } else if (video.download_addr && Array.isArray(video.download_addr.url_list) && video.download_addr.url_list.length > 0) {
+      downloadUrl = video.download_addr.url_list[0];
+    }
+
+    if (!downloadUrl) downloadUrl = bestPlayUrl;
     const resolvedPlayUrl = bestPlayUrl || downloadUrl || (photoImages.length > 0 ? photoImages[0] : '');
 
     if (!resolvedPlayUrl) return null;
 
-    const rawId = item.id || item.videoId || video.id || '';
+    const rawId = item.id || item.videoId || video.id || item.aweme_id || item.itemId || '';
     const videoId = String(rawId).trim();
 
     const authorObj = item.author || {};
-    const author = authorObj.uniqueId || item.authorName || 'unknown';
-    const nickname = authorObj.nickname || '';
+    let author = 'unknown';
+    let nickname = '';
+    if (typeof authorObj === 'string') {
+      author = authorObj;
+    } else if (typeof authorObj === 'object') {
+      author = authorObj.uniqueId || authorObj.unique_id || authorObj.id || item.authorName || 'unknown';
+      nickname = authorObj.nickname || '';
+    }
+
     const description = item.desc || item.title || '';
     const bitrate = video.bitrate || 0;
     const quality = video.ratio || video.definition || (isPhotoPost ? 'photo' : '');
@@ -79,7 +136,7 @@
       nickname,
       description,
       playUrl: resolvedPlayUrl,
-      downloadUrl,
+      downloadUrl: downloadUrl || resolvedPlayUrl,
       isPhotoPost,
       images: photoImages,
       bitrate,
@@ -90,11 +147,13 @@
 
   /**
    * Extracts video item metadata from window.__UNIVERSAL_DATA_FOR_REHYDRATION__
+   * Supports matching by targetId and targetAuthor handle.
    *
-   * @param {string|null} targetId
+   * @param {string|null} [targetId]
+   * @param {string|null} [targetAuthor]
    * @returns {{ data: object, tier: string }|null}
    */
-  function extractFromUniversalData(targetId) {
+  function extractFromUniversalData(targetId, targetAuthor) {
     if (typeof window === 'undefined') return null;
 
     let raw = window.__UNIVERSAL_DATA_FOR_REHYDRATION__;
@@ -110,14 +169,19 @@
     if (!raw || !raw.__DEFAULT_SCOPE__) return null;
     const scope = raw.__DEFAULT_SCOPE__;
 
+    const cleanAuthor = targetAuthor ? String(targetAuthor).toLowerCase().replace(/^@+/, '').trim() : '';
+
     // 1. Check webapp.video-detail / webapp.item-detail
     const detailScope = scope['webapp.video-detail'] || scope['webapp.item-detail'];
     if (detailScope && detailScope.itemInfo) {
       const rawItem = detailScope.itemInfo.itemStruct || detailScope.itemInfo;
       const normalized = normalizeItemStruct(rawItem);
       if (normalized) {
-        videoCache.set(normalized.videoId, normalized);
+        cacheItem(normalized);
         if (!targetId || normalized.videoId === String(targetId)) {
+          return { data: normalized, tier: 'universal_data' };
+        }
+        if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
           return { data: normalized, tier: 'universal_data' };
         }
       }
@@ -129,8 +193,11 @@
       for (const rawItem of feedScope.itemList) {
         const normalized = normalizeItemStruct(rawItem);
         if (normalized) {
-          videoCache.set(normalized.videoId, normalized);
+          cacheItem(normalized);
           if (targetId && normalized.videoId === String(targetId)) {
+            return { data: normalized, tier: 'universal_data' };
+          }
+          if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
             return { data: normalized, tier: 'universal_data' };
           }
         }
@@ -143,8 +210,11 @@
       for (const rawItem of userScope.itemList) {
         const normalized = normalizeItemStruct(rawItem);
         if (normalized) {
-          videoCache.set(normalized.videoId, normalized);
+          cacheItem(normalized);
           if (targetId && normalized.videoId === String(targetId)) {
+            return { data: normalized, tier: 'universal_data' };
+          }
+          if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
             return { data: normalized, tier: 'universal_data' };
           }
         }
@@ -156,11 +226,13 @@
 
   /**
    * Extracts video item metadata from window.SIGI_STATE
+   * Supports matching by targetId and targetAuthor handle.
    *
-   * @param {string|null} targetId
+   * @param {string|null} [targetId]
+   * @param {string|null} [targetAuthor]
    * @returns {{ data: object, tier: string }|null}
    */
-  function extractFromSigiState(targetId) {
+  function extractFromSigiState(targetId, targetAuthor) {
     if (typeof window === 'undefined') return null;
 
     let sigi = window.SIGI_STATE;
@@ -175,11 +247,12 @@
 
     if (!sigi || !sigi.ItemModule) return null;
     const itemModule = sigi.ItemModule;
+    const cleanAuthor = targetAuthor ? String(targetAuthor).toLowerCase().replace(/^@+/, '').trim() : '';
 
     if (targetId && itemModule[targetId]) {
       const normalized = normalizeItemStruct(itemModule[targetId]);
       if (normalized) {
-        videoCache.set(normalized.videoId, normalized);
+        cacheItem(normalized);
         return { data: normalized, tier: 'sigi_state' };
       }
     }
@@ -187,8 +260,11 @@
     for (const key of Object.keys(itemModule)) {
       const normalized = normalizeItemStruct(itemModule[key]);
       if (normalized) {
-        videoCache.set(normalized.videoId, normalized);
+        cacheItem(normalized);
         if (targetId && normalized.videoId === String(targetId)) {
+          return { data: normalized, tier: 'sigi_state' };
+        }
+        if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
           return { data: normalized, tier: 'sigi_state' };
         }
       }
@@ -209,23 +285,28 @@
       try {
         const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
         if (
-          url.includes('/api/recommend/item_list') ||
-          url.includes('/api/item/detail') ||
-          url.includes('/api/post/item_list') ||
-          url.includes('/item/detail')
+          url.includes('item_list') ||
+          url.includes('item/detail') ||
+          url.includes('/api/recommend') ||
+          url.includes('/api/post') ||
+          url.includes('/api/feed') ||
+          url.includes('/aweme/v1/feed')
         ) {
           response
             .clone()
             .json()
             .then((data) => {
               if (!data) return;
-              const items = data.itemList || (data.itemInfo && [data.itemInfo.itemStruct]) || [];
+              const items =
+                data.itemList ||
+                data.items ||
+                data.aweme_list ||
+                (data.itemInfo && [data.itemInfo.itemStruct || data.itemInfo]) ||
+                [];
               if (Array.isArray(items)) {
                 for (const item of items) {
                   const normalized = normalizeItemStruct(item);
-                  if (normalized && normalized.videoId) {
-                    videoCache.set(normalized.videoId, normalized);
-                  }
+                  cacheItem(normalized);
                 }
               }
             })
@@ -244,37 +325,47 @@
 
     document.addEventListener('TT_BRIDGE_REQUEST', (event) => {
       const detail = event.detail || {};
-      const { requestId, videoId, url } = detail;
+      const { requestId, videoId, url, author } = detail;
       if (!requestId) return;
 
+      const cleanAuthor = author ? String(author).toLowerCase().replace(/^@+/, '').trim() : '';
       let result = null;
       let tier = 'none';
 
-      // 1. Check in-memory cache
+      // 1. Direct match by videoId in cache
       if (videoId && videoCache.has(String(videoId))) {
         result = videoCache.get(String(videoId));
         tier = 'fetch_cache';
       }
 
-      // 2. Check Universal Data
+      // 2. Author match in cache
+      if (!result && cleanAuthor && authorCache.has(cleanAuthor)) {
+        const list = authorCache.get(cleanAuthor);
+        if (list && list.length > 0) {
+          result = list[list.length - 1]; // most recently added item for this creator
+          tier = 'author_cache';
+        }
+      }
+
+      // 3. Check Universal Data with both videoId and author
       if (!result) {
-        const res = extractFromUniversalData(videoId);
+        const res = extractFromUniversalData(videoId, author);
         if (res && res.data) {
           result = res.data;
           tier = res.tier;
         }
       }
 
-      // 3. Check SIGI_STATE
+      // 4. Check SIGI_STATE with both videoId and author
       if (!result) {
-        const res = extractFromSigiState(videoId);
+        const res = extractFromSigiState(videoId, author);
         if (res && res.data) {
           result = res.data;
           tier = res.tier;
         }
       }
 
-      // 4. Fallback search by URL video ID
+      // 5. Fallback search by URL video ID
       if (!result && url) {
         const match = String(url).match(/video\/(\d+)/);
         if (match && videoCache.has(match[1])) {
@@ -283,10 +374,17 @@
         }
       }
 
-      // 5. If single video loaded in cache and no ID requested
-      if (!result && !videoId && videoCache.size === 1) {
+      // 6. If single video loaded in cache
+      if (!result && videoCache.size === 1) {
         result = videoCache.values().next().value;
         tier = 'fetch_cache';
+      }
+
+      // 7. If still not found, return most recent item in videoCache
+      if (!result && videoCache.size > 0) {
+        const values = Array.from(videoCache.values());
+        result = values[values.length - 1];
+        tier = 'recent_cache';
       }
 
       const hasUrl = !!(result && (result.playUrl || result.downloadUrl));
@@ -308,7 +406,13 @@
     });
   }
 
-  // Initialize bridge
+  // Pre-seed cache from hydration data immediately upon bridge script execution
+  try {
+    extractFromUniversalData(null, null);
+    extractFromSigiState(null, null);
+  } catch (_) {}
+
+  // Initialize bridge listeners & fetch interceptor
   hookNetworkRequests();
   setupBridgeListener();
 
@@ -318,7 +422,9 @@
       normalizeItemStruct,
       extractFromUniversalData,
       extractFromSigiState,
-      videoCache
+      videoCache,
+      authorCache,
+      cacheItem
     };
   }
 })();

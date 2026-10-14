@@ -53,29 +53,18 @@
 
     // Sibling Action Anchors (Used to locate parent container directly)
     actionAnchors: [
-      '[data-e2e*="like"]',
-      '[data-e2e*="comment"]',
       '[data-e2e*="share"]',
-      '[data-e2e*="bookmark"]',
-      '[data-e2e*="favorite"]',
-      'button[aria-label*="Like" i]',
-      'button[aria-label*="Suka" i]',
       'button[aria-label*="Share" i]',
-      'button[aria-label*="Bagikan" i]',
-      'button[aria-label*="Comment" i]',
-      'button[aria-label*="Komentar" i]',
-      'button[aria-label*="Favorit" i]'
+      'button[aria-label*="Bagikan" i]'
     ].join(','),
 
-    // Media Player Containers (for In-Player Floating Overlay Button)
-    mediaPlayers: [
-      'div[class*="DivVideoWrapper"]',
-      'div[class*="DivPlayerContainer"]',
-      'div[class*="basicPlayer"]',
-      'div[class*="PhotoContainer"]',
-      'div[class*="SlideItem"]',
-      '[data-e2e="feed-video"]',
-      '[data-e2e="feed-photo"]'
+    // Specific Share Button Selectors (Single Injection Anchor directly above Share)
+    shareButtons: [
+      '[data-e2e="feed-share-icon"]',
+      '[data-e2e*="share-icon"]',
+      '[data-e2e*="share"]',
+      'button[aria-label*="Share" i]',
+      'button[aria-label*="Bagikan" i]'
     ].join(',')
   };
 
@@ -187,7 +176,7 @@
    */
   function parseDomVideoInfo(container) {
     let author = 'unknown';
-    let videoId = String(Date.now());
+    let videoId = '';
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
 
     // 1. Check window location pathname: /@username/video/1234567890 or /@username/photo/1234567890
@@ -200,41 +189,67 @@
     }
 
     if (container) {
-      // 2. Check container anchor links: a[href*="/video/"] or a[href*="/photo/"]
-      const postLink = container.querySelector('a[href*="/video/"], a[href*="/photo/"]');
-      if (postLink && postLink.href) {
-        const linkMatch = postLink.href.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
-        if (linkMatch) {
-          author = linkMatch[1];
-          videoId = linkMatch[2];
+      // 2. Check author elements first
+      if (author === 'unknown') {
+        const authorEl = container.querySelector(
+          '[data-e2e="video-author-uniqueid"], [data-e2e="browse-username"], a[data-e2e="video-author-avatar"], [data-e2e*="author-uniqueid"]'
+        );
+        if (authorEl) {
+          const rawText = authorEl.textContent || authorEl.getAttribute('href') || '';
+          const match = rawText.match(/@?([a-zA-Z0-9_.-]+)/);
+          if (match && match[1] && match[1] !== 'video' && match[1] !== 'photo') {
+            author = match[1];
+          }
         }
       }
 
-      // 3. Check author handle links if author still unresolved: a[href*="/@"]
+      // 3. Fallback author check via anchor links
       if (author === 'unknown') {
         const authorLink = container.querySelector('a[href*="/@"]');
         if (authorLink && authorLink.href) {
-          const match = authorLink.href.match(/@([^/?#]+)/);
-          if (match) author = match[1];
+          const match = authorLink.href.match(/@([a-zA-Z0-9_.-]+)/);
+          if (match && match[1]) author = match[1];
         }
       }
 
-      // 4. Check data-e2e author element
-      if (author === 'unknown') {
-        const authorEl = container.querySelector('[data-e2e="video-author-uniqueid"], [data-e2e="browse-username"], [data-e2e*="author"]');
-        if (authorEl && authorEl.textContent) {
-          author = authorEl.textContent.trim().replace(/^@+/, '');
+      // 4. Check container anchor links for videoId
+      if (!videoId) {
+        const postLink = container.querySelector('a[href*="/video/"], a[href*="/photo/"]');
+        if (postLink && postLink.href) {
+          const linkMatch = postLink.href.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
+          if (linkMatch) {
+            if (author === 'unknown') author = linkMatch[1];
+            videoId = linkMatch[2];
+          } else {
+            const idOnly = postLink.href.match(/(?:video|photo)\/(\d+)/);
+            if (idOnly) videoId = idOnly[1];
+          }
         }
       }
 
-      // 5. Check video element attributes
-      const videoEl = container.querySelector('video');
-      if (videoEl) {
-        const vId = videoEl.getAttribute('data-id') || videoEl.getAttribute('id');
-        if (vId && /^\d+$/.test(vId)) {
-          videoId = vId;
+      // 5. Check video element attributes (id, data-id) or xgwrapper IDs
+      if (!videoId) {
+        const videoEl = container.querySelector('video');
+        if (videoEl) {
+          const vId = videoEl.getAttribute('data-id') || videoEl.getAttribute('id') || '';
+          const idMatch = vId.match(/(\d{15,22})/);
+          if (idMatch) videoId = idMatch[1];
         }
       }
+
+      // 6. Deep search in container id or data attributes for 19-digit snowflake ID
+      if (!videoId) {
+        const wrapperWithId = container.querySelector('[id*="xgwrapper"], [id*="player"], [data-id]');
+        if (wrapperWithId) {
+          const idAttr = wrapperWithId.getAttribute('id') || wrapperWithId.getAttribute('data-id') || '';
+          const idMatch = idAttr.match(/(\d{15,22})/);
+          if (idMatch) videoId = idMatch[1];
+        }
+      }
+    }
+
+    if (!videoId) {
+      videoId = String(Date.now());
     }
 
     return { author, videoId, url: currentUrl };
@@ -245,10 +260,11 @@
    *
    * @param {string} videoId
    * @param {string} url
-   * @param {number} [timeoutMs=1500]
+   * @param {string} [author]
+   * @param {number} [timeoutMs=2000]
    * @returns {Promise<object|null>}
    */
-  function queryBridge(videoId, url, timeoutMs = 1500) {
+  function queryBridge(videoId, url, author, timeoutMs = 2000) {
     return new Promise((resolve) => {
       if (typeof document === 'undefined') return resolve(null);
 
@@ -277,7 +293,8 @@
             source: 'TT_CONTENT_ISOLATED',
             requestId,
             videoId,
-            url
+            url,
+            author: author || 'unknown'
           }
         })
       );
@@ -286,6 +303,7 @@
 
   /**
    * Fallback extraction directly from active HTML5 <video> element or photo slideshow.
+   * NEVER extracts avatar profile pictures.
    *
    * @param {HTMLElement} container
    * @param {object} domInfo
@@ -297,6 +315,7 @@
     const video = (container && container.querySelector('video')) ||
                   (typeof document !== 'undefined' ? document.querySelector('video') : null);
 
+    // If HTML5 video is present, try direct src (non-blob)
     if (video) {
       let streamUrl = video.currentSrc || video.src || '';
       if (!streamUrl) {
@@ -311,14 +330,19 @@
           videoId: domInfo.videoId
         };
       }
+
+      // If video exists but is blob-based, do NOT fall back to images (avoids grabbing creator avatar)
+      return null;
     }
 
-    // Check for photo/image post in container
+    // Only if there is strictly NO video element, check for legitimate slideshow photo post
     if (container) {
-      const img = container.querySelector('img[src*="tiktokcdn"], img[src*="byteoversea"], img[class*="Photo"], img[class*="Slide"]');
-      if (img && img.src && !img.src.startsWith('data:')) {
+      const slideImg = container.querySelector(
+        'div[class*="SlideItem"] img, div[class*="PhotoContainer"] img, [data-e2e="feed-photo"] img:not([data-e2e*="avatar"]):not([class*="Avatar"])'
+      );
+      if (slideImg && slideImg.src && !slideImg.src.startsWith('data:') && !slideImg.src.includes('100x100')) {
         return {
-          url: img.src,
+          url: slideImg.src,
           author: domInfo.author,
           videoId: domInfo.videoId
         };
@@ -337,9 +361,9 @@
   async function resolveStreamData(card) {
     const domInfo = parseDomVideoInfo(card);
 
-    // Tier 1: MAIN-World Bridge extraction
+    // Tier 1: MAIN-World Bridge extraction (query with videoId + author handle)
     try {
-      const bridgeResponse = await queryBridge(domInfo.videoId, domInfo.url, 1500);
+      const bridgeResponse = await queryBridge(domInfo.videoId, domInfo.url, domInfo.author, 2000);
       if (bridgeResponse && bridgeResponse.success && bridgeResponse.data) {
         const streamUrl = bridgeResponse.data.playUrl || bridgeResponse.data.downloadUrl;
         if (streamUrl && !streamUrl.startsWith('blob:')) {
@@ -355,7 +379,7 @@
       console.warn('[TikTok Downloader] Bridge extraction error:', err);
     }
 
-    // Tier 2: HTML5 <video> & DOM fallback
+    // Tier 2: HTML5 <video> & DOM slideshow fallback
     const fallbackResult = extractFromHtml5Video(card, domInfo);
     if (fallbackResult && fallbackResult.url) {
       return {
@@ -454,91 +478,54 @@
   }
 
   /**
-   * Creates an In-Player Floating Overlay Button (works in Fullscreen!)
-   */
-  function createFloatingDownloadButton(container) {
-    const fab = document.createElement('button');
-    fab.className = 'tt-dl-floating-btn tt-dl-state-idle';
-    fab.type = 'button';
-    fab.setAttribute('aria-label', 'Download Video/Photo');
-    fab.setAttribute('title', 'Direct 1-Click Download (Works in Fullscreen)');
-    fab.innerHTML = `
-      <span class="tt-dl-fab-icon">${ICONS.download}</span>
-      <span class="tt-dl-fab-text">Unduh</span>
-    `;
-
-    fab.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      handleDownloadClick(fab, container);
-    });
-
-    return fab;
-  }
-
-  /**
-   * Injects download action item into the card's action bar.
+   * Injects download action item directly above the Share button container.
    *
    * @param {HTMLElement} card
    */
   function injectIntoCard(card) {
     if (!card) return;
 
-    // Check if container was already processed
+    // Check if card was already injected
     if (card.querySelector('.tt-dl-action-item')) {
       return;
     }
 
-    // Locate action bar within card
+    // 1. Primary Strategy: Locate the Share button directly
+    const shareBtn = card.querySelector(SELECTORS.shareButtons);
+    if (shareBtn) {
+      const shareItem =
+        shareBtn.closest('[data-e2e*="action-item"]') ||
+        shareBtn.closest('div[class*="DivActionItemContainer"]') ||
+        shareBtn.closest('button')?.parentElement ||
+        shareBtn.parentElement;
+
+      if (shareItem && shareItem.parentElement) {
+        const actionBar = shareItem.parentElement;
+        if (actionBar.querySelector('.tt-dl-action-item') || actionBar.getAttribute('data-tt-dl-ready') === 'true') {
+          return;
+        }
+
+        const downloadItem = createDownloadActionItem(card);
+        // Insert directly BEFORE the shareItem container (positions it directly ABOVE Share in the column)
+        actionBar.insertBefore(downloadItem, shareItem);
+        actionBar.setAttribute('data-tt-dl-ready', 'true');
+        card.setAttribute('data-tt-dl-ready', 'true');
+        return;
+      }
+    }
+
+    // 2. Secondary Strategy: Locate action bar and append if Share button selector differed
     let actionBar = card.querySelector(SELECTORS.actionBars);
-
-    // If not found by primary actionBars selector, locate via sibling button anchor
-    if (!actionBar) {
-      const anchor = card.querySelector(SELECTORS.actionAnchors);
-      if (anchor) {
-        actionBar =
-          anchor.closest('div[class*="DivActionItemContainer"]') ||
-          anchor.closest('div[class*="Action"]') ||
-          anchor.parentElement?.parentElement ||
-          anchor.parentElement;
-      }
+    if (actionBar && !actionBar.querySelector('.tt-dl-action-item') && actionBar.getAttribute('data-tt-dl-ready') !== 'true') {
+      const downloadItem = createDownloadActionItem(card);
+      actionBar.appendChild(downloadItem);
+      actionBar.setAttribute('data-tt-dl-ready', 'true');
+      card.setAttribute('data-tt-dl-ready', 'true');
     }
-
-    if (!actionBar) return;
-
-    // Duplicate check on action bar element itself
-    if (actionBar.getAttribute('data-tt-dl-ready') === 'true' || actionBar.querySelector('.tt-dl-action-item')) {
-      return;
-    }
-
-    const downloadItem = createDownloadActionItem(card);
-    actionBar.appendChild(downloadItem);
-    actionBar.setAttribute('data-tt-dl-ready', 'true');
-    card.setAttribute('data-tt-dl-ready', 'true');
   }
 
   /**
-   * Injects floating overlay button into video players (fullscreen compatible).
-   */
-  function injectFloatingPlayerButtons() {
-    if (typeof document === 'undefined') return;
-
-    const players = document.querySelectorAll(SELECTORS.mediaPlayers);
-    players.forEach((player) => {
-      if (player.querySelector('.tt-dl-floating-btn')) return;
-
-      const computedPos = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(player).position : '';
-      if (computedPos === 'static') {
-        player.style.position = 'relative';
-      }
-
-      const fab = createFloatingDownloadButton(player);
-      player.appendChild(fab);
-    });
-  }
-
-  /**
-   * Scans document for video cards and injects download button.
+   * Scans document for video cards and injects exactly 1 download button above Share.
    */
   function scanAndInject() {
     if (typeof document === 'undefined') return;
@@ -557,27 +544,32 @@
       injectIntoCard(card);
     });
 
-    // Strategy 2: Direct Anchor-based Action Bar Discovery (catches any post where card container class changed)
-    const anchors = document.querySelectorAll(SELECTORS.actionAnchors);
-    anchors.forEach((anchor) => {
-      const actionBar =
-        anchor.closest('[data-e2e*="action-item"]') ||
-        anchor.closest('div[class*="DivActionItemContainer"]') ||
-        anchor.closest('div[class*="Action"]') ||
-        anchor.parentElement?.parentElement ||
-        anchor.parentElement;
+    // Strategy 2: Direct Share-Button Discovery (catches feeds where card container selector changed)
+    const shareButtons = document.querySelectorAll(SELECTORS.shareButtons);
+    shareButtons.forEach((shareBtn) => {
+      const shareItem =
+        shareBtn.closest('[data-e2e*="action-item"]') ||
+        shareBtn.closest('div[class*="DivActionItemContainer"]') ||
+        shareBtn.closest('button')?.parentElement ||
+        shareBtn.parentElement;
 
-      if (actionBar && !actionBar.querySelector('.tt-dl-action-item') && actionBar.getAttribute('data-tt-dl-ready') !== 'true') {
-        const card = actionBar.closest('article, section, [data-e2e*="item"], [data-e2e*="feed"], [data-e2e*="video"], [data-e2e*="photo"], div[class*="Container"]') || actionBar.parentElement;
-        const downloadItem = createDownloadActionItem(card || actionBar);
-        actionBar.appendChild(downloadItem);
-        actionBar.setAttribute('data-tt-dl-ready', 'true');
-        if (card && card.setAttribute) card.setAttribute('data-tt-dl-ready', 'true');
+      if (!shareItem || !shareItem.parentElement) return;
+      const actionBar = shareItem.parentElement;
+
+      // Strict Guard: ensure only 1 download button exists per action bar
+      if (actionBar.querySelector('.tt-dl-action-item') || actionBar.getAttribute('data-tt-dl-ready') === 'true') {
+        return;
       }
-    });
 
-    // Strategy 3: In-Player Floating Overlay Button (Fullscreen Support)
-    injectFloatingPlayerButtons();
+      const card =
+        shareItem.closest('article, section, [data-e2e*="item"], [data-e2e*="feed"], [data-e2e*="video"], [data-e2e*="photo"], div[class*="Container"]') ||
+        actionBar;
+
+      const downloadItem = createDownloadActionItem(card);
+      actionBar.insertBefore(downloadItem, shareItem);
+      actionBar.setAttribute('data-tt-dl-ready', 'true');
+      if (card && card.setAttribute) card.setAttribute('data-tt-dl-ready', 'true');
+    });
   }
 
   /**
