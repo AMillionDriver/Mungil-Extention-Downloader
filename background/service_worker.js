@@ -57,6 +57,55 @@ const TIKTOK_CDN_RULES = [
   }
 ];
 
+// Dynamic declarativeNetRequest rules for Bstation (Bilibili.tv) CDNs
+const BSTATION_CDN_RULES = [
+  {
+    id: 11,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://www.bilibili.tv/' },
+        { header: 'Origin', operation: 'set', value: 'https://www.bilibili.tv' }
+      ]
+    },
+    condition: {
+      urlFilter: '*biliapi.net*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  },
+  {
+    id: 12,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://www.bilibili.tv/' },
+        { header: 'Origin', operation: 'set', value: 'https://www.bilibili.tv' }
+      ]
+    },
+    condition: {
+      urlFilter: '*bilivideo.com*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  },
+  {
+    id: 13,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://www.bilibili.tv/' },
+        { header: 'Origin', operation: 'set', value: 'https://www.bilibili.tv' }
+      ]
+    },
+    condition: {
+      urlFilter: '*akamaized.net*',
+      resourceTypes: ['xmlhttprequest', 'media', 'other']
+    }
+  }
+];
+
 /**
  * Sanitizes author username for Windows NTFS compatibility.
  * Strips leading '@', removes forbidden Win32 characters (\ / : * ? " < > |),
@@ -120,21 +169,132 @@ function formatFilename(author, id) {
 }
 
 /**
- * Fetches video stream from URL with TikTok Referer & Origin headers,
+ * Sanitizes Bstation Anime / Video title for Windows NTFS compatibility.
+ * Replaces illegal colons (Re:Zero -> Re - Zero), slashes, quotes, and control codes.
+ *
+ * @param {string} title
+ * @returns {string} Sanitized title
+ */
+function sanitizeBstationTitle(title) {
+  if (title === null || title === undefined) return 'Anime';
+  let str = String(title).trim();
+  if (!str) return 'Anime';
+
+  // Normalize colons and slashes to dashes/spaces (e.g. "Re:Zero" -> "Re - Zero")
+  str = str.replace(/[:：]/g, ' - ');
+  str = str.replace(/[/\\|]/g, '-');
+
+  // Strip remaining Win32 forbidden characters (* ? " < >) and control codes (0x00-0x1F, 0x7F-0x9F)
+  str = str.replace(/[*?"<>|\x00-\x1f\x7f-\x9f]/g, '');
+
+  // Collapse consecutive whitespace and dashes
+  str = str.replace(/\s+/g, ' ');
+  str = str.replace(/-{2,}/g, '-');
+  str = str.replace(/\s*-\s*/g, ' - ');
+
+  // Trim leading/trailing dots, spaces, underscores, and hyphens to prevent Win32 subsystem errors
+  str = str.replace(/^[.\s_-]+|[.\s_-]+$/g, '');
+
+  // Truncate to maximum safe length (120 chars)
+  str = str.slice(0, 120).trim();
+
+  // Re-trim trailing dots/spaces/hyphens if truncation left any
+  str = str.replace(/[.\s_-]+$/, '');
+
+  return str || 'Anime';
+}
+
+/**
+ * Normalizes episode identifier (e.g. 1 -> "E01", "05" -> "E05", "Episode 12" -> "E12").
+ *
+ * @param {string|number} ep
+ * @returns {string} Normalized episode string (e.g. "E01")
+ */
+function formatBstationEpisode(ep) {
+  if (ep === null || ep === undefined) return 'E01';
+  const str = String(ep).trim();
+  if (!str) return 'E01';
+
+  // If already matches E01 or E101
+  const eMatch = str.match(/^E(\d+)$/i);
+  if (eMatch) {
+    const num = parseInt(eMatch[1], 10);
+    return num < 10 ? `E0${num}` : `E${num}`;
+  }
+
+  // Extract digits
+  const digits = str.match(/\d+/);
+  if (digits) {
+    const num = parseInt(digits[0], 10);
+    return num < 10 ? `E0${num}` : `E${num}`;
+  }
+
+  return 'E01';
+}
+
+/**
+ * Formats Bstation standard output filename: [Judul Anime] - E01 [720p].mp4
+ * Supports either an options object or positional arguments (title, episode, quality).
+ *
+ * @param {object|string} titleOrParams
+ * @param {string|number} [epArg]
+ * @param {string} [qArg]
+ * @returns {string}
+ */
+function formatBstationFilename(titleOrParams, epArg, qArg) {
+  let title = 'Anime';
+  let episode = 'E01';
+  let quality = '720p';
+
+  if (titleOrParams && typeof titleOrParams === 'object' && !Array.isArray(titleOrParams)) {
+    title = titleOrParams.title;
+    episode = titleOrParams.episode !== undefined ? titleOrParams.episode : (titleOrParams.epIndex !== undefined ? titleOrParams.epIndex : 'E01');
+    quality = titleOrParams.quality || '720p';
+  } else {
+    title = titleOrParams;
+    episode = epArg !== undefined ? epArg : 'E01';
+    quality = qArg || '720p';
+  }
+
+  const safeTitle = sanitizeBstationTitle(title);
+  const safeEp = formatBstationEpisode(episode);
+  const rawQuality = quality ? String(quality).trim().toLowerCase() : '720p';
+  const cleanQuality = rawQuality.replace(/[^a-z0-9+]/g, '') || '720p';
+
+  return `[${safeTitle}] - ${safeEp} [${cleanQuality}].mp4`;
+}
+
+/**
+ * Fetches video stream from URL with authentic Referer & Origin headers,
  * returning a Blob object.
  *
  * @param {string} url
+ * @param {object} [options]
  * @returns {Promise<Blob>}
  */
-async function fetchVideoBlob(url) {
+async function fetchVideoBlob(url, options = {}) {
   const cleanUrl = typeof url === 'string' ? url.trim() : '';
+  const isBstation = cleanUrl.includes('bilivideo.com') ||
+                     cleanUrl.includes('biliapi.net') ||
+                     cleanUrl.includes('bilibili.tv') ||
+                     cleanUrl.includes('bstation.tv') ||
+                     cleanUrl.includes('akamaized.net') ||
+                     (options && options.platform === 'bstation');
+
+  const referer = (options && options.referer)
+    ? options.referer
+    : (isBstation ? 'https://www.bilibili.tv/' : 'https://www.tiktok.com/');
+  const origin = (options && options.origin)
+    ? options.origin
+    : (isBstation ? 'https://www.bilibili.tv' : 'https://www.tiktok.com');
+
   const response = await fetch(cleanUrl, {
     method: 'GET',
     headers: {
-      'Referer': 'https://www.tiktok.com/',
-      'Origin': 'https://www.tiktok.com'
+      'Referer': referer,
+      'Origin': origin
     },
-    referrer: 'https://www.tiktok.com/',
+    referrer: referer,
     referrerPolicy: 'origin-when-cross-origin'
   });
 
@@ -293,8 +453,22 @@ async function executeDownload(params) {
     throw new Error('URL must be an HTTP or HTTPS stream');
   }
 
+  const isBstation = params.platform === 'bstation' ||
+                     cleanUrl.includes('bilivideo.com') ||
+                     cleanUrl.includes('biliapi.net') ||
+                     cleanUrl.includes('bilibili.tv') ||
+                     cleanUrl.includes('bstation.tv');
+
   const videoId = params.videoId || params.id;
-  const filename = formatFilename(params.author, videoId);
+  const filename = params.filename || (
+    isBstation
+      ? formatBstationFilename({
+          title: params.title,
+          episode: params.episode || params.epIndex,
+          quality: params.quality
+        })
+      : formatFilename(params.author, videoId)
+  );
 
   if (typeof chrome === 'undefined' || !chrome.downloads || !chrome.downloads.download) {
     throw new Error('chrome.downloads API is unavailable in this context');
@@ -393,13 +567,13 @@ async function ensureDnrRules() {
   try {
     if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest && chrome.declarativeNetRequest.updateDynamicRules) {
       await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: [1, 2, 3],
-        addRules: TIKTOK_CDN_RULES
+        removeRuleIds: [1, 2, 3, 11, 12, 13],
+        addRules: [...TIKTOK_CDN_RULES, ...BSTATION_CDN_RULES]
       });
-      console.log('[TikTok Downloader SW] Dynamic DNR rules registered for ByteDance CDNs');
+      console.log('[Downloader SW] Dynamic DNR rules registered for ByteDance & Bstation CDNs');
     }
   } catch (err) {
-    console.warn('[TikTok Downloader SW] Failed to update dynamic DNR rules:', err);
+    console.warn('[Downloader SW] Failed to update dynamic DNR rules:', err);
   }
 }
 
@@ -426,6 +600,8 @@ function handleMessage(message, sender, sendResponse) {
     recordDownloadTelemetry({
       author: payload.author,
       videoId: payload.videoId || payload.id,
+      title: payload.title,
+      platform: payload.platform,
       filename: payload.filename,
       downloadId: payload.downloadId
     })
@@ -450,7 +626,11 @@ function handleMessage(message, sender, sendResponse) {
       url: payload.url,
       author: payload.author,
       videoId: payload.videoId || payload.id,
-      title: payload.title || payload.desc
+      title: payload.title || payload.desc,
+      platform: payload.platform,
+      episode: payload.episode || payload.epIndex,
+      quality: payload.quality,
+      filename: payload.filename
     })
       .then((result) => {
         sendResponse(result);
@@ -543,6 +723,10 @@ if (typeof module !== 'undefined' && module.exports) {
     executeDownload,
     recordDownloadTelemetry,
     handleMessage,
-    TIKTOK_CDN_RULES
+    TIKTOK_CDN_RULES,
+    BSTATION_CDN_RULES,
+    sanitizeBstationTitle,
+    formatBstationEpisode,
+    formatBstationFilename
   };
 }

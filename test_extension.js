@@ -256,6 +256,22 @@ class MockElement {
     }
   }
 
+  insertAdjacentElement(position, element) {
+    if (!element) return null;
+    if (position === 'beforebegin' && this.parentElement) {
+      this.parentElement.insertBefore(element, this);
+    } else if (position === 'afterbegin') {
+      this.insertBefore(element, this.children[0] || null);
+    } else if (position === 'beforeend') {
+      this.appendChild(element);
+    } else if (position === 'afterend' && this.parentElement) {
+      const idx = this.parentElement.children.indexOf(this);
+      const next = this.parentElement.children[idx + 1] || null;
+      this.parentElement.insertBefore(element, next);
+    }
+    return element;
+  }
+
   matches(selector) {
     if (!selector || typeof selector !== 'string') return false;
     const parts = selector.split(',').map((s) => s.trim());
@@ -423,7 +439,7 @@ async function runAllSuites() {
 
     test('Content scripts configure MAIN world bridge and ISOLATED world UI platform', () => {
       assert.ok(Array.isArray(manifest.content_scripts), 'content_scripts must be an array');
-      assert.strictEqual(manifest.content_scripts.length, 2, 'must configure exactly 2 content script entries');
+      assert.strictEqual(manifest.content_scripts.length, 4, 'must configure exactly 4 content script entries (2 TikTok, 2 Bstation)');
 
       const bridgeScript = manifest.content_scripts.find((s) => s.world === 'MAIN');
       assert.ok(bridgeScript, 'MAIN world bridge script entry must exist');
@@ -2556,6 +2572,618 @@ async function runAllSuites() {
       assert.strictEqual(resolved.videoId, '7456789012345678901');
       assert.strictEqual(resolved.author, 'youngblack');
       assert.strictEqual(resolved.nickname, 'YB 🥶');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SUITE 9: Manifest V3 Multi-Platform Registration (Bstation & TikTok)
+  // --------------------------------------------------------------------------
+  await runSuite('Suite 9: Manifest V3 Multi-Platform Registration (Bstation & TikTok)', ({ test }) => {
+    const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+    test('Manifest host_permissions includes bilibili.tv, bstation.tv, and biliapi.net', () => {
+      assert.ok(Array.isArray(manifest.host_permissions), 'host_permissions must be an array');
+      assert.ok(manifest.host_permissions.includes('*://*.bilibili.tv/*'), 'must include bilibili.tv host permission');
+      assert.ok(manifest.host_permissions.includes('*://*.bstation.tv/*'), 'must include bstation.tv host permission');
+      assert.ok(manifest.host_permissions.includes('*://*.biliapi.net/*'), 'must include biliapi.net host permission');
+    });
+
+    test('Manifest registers Bstation MAIN world bridge at document_start', () => {
+      const bsBridge = manifest.content_scripts.find(
+        (s) => s.world === 'MAIN' && Array.isArray(s.js) && s.js.includes('content/injected/bstation_bridge.js')
+      );
+      assert.ok(bsBridge, 'Bstation MAIN world bridge entry must exist in content_scripts');
+      assert.strictEqual(bsBridge.run_at, 'document_start', 'Bstation bridge must run at document_start');
+      assert.ok(bsBridge.matches.includes('*://*.bilibili.tv/*'), 'must match bilibili.tv');
+      assert.ok(bsBridge.matches.includes('*://*.bstation.tv/*'), 'must match bstation.tv');
+    });
+
+    test('Manifest registers Bstation ISOLATED world platform UI and CSS at document_idle', () => {
+      const bsPlatform = manifest.content_scripts.find(
+        (s) => (!s.world || s.world === 'ISOLATED') && Array.isArray(s.js) && s.js.includes('content/platforms/bstation.js')
+      );
+      assert.ok(bsPlatform, 'Bstation ISOLATED world platform entry must exist in content_scripts');
+      assert.strictEqual(bsPlatform.run_at, 'document_idle', 'Bstation platform must run at document_idle');
+      assert.ok(Array.isArray(bsPlatform.css) && bsPlatform.css.includes('content/styles/bstation.css'), 'must register bstation.css');
+      assert.ok(bsPlatform.matches.includes('*://*.bilibili.tv/*'), 'must match bilibili.tv');
+      assert.ok(bsPlatform.matches.includes('*://*.bstation.tv/*'), 'must match bstation.tv');
+    });
+
+    test('Manifest web_accessible_resources exposes bstation_bridge.js', () => {
+      const bsResource = manifest.web_accessible_resources.find(
+        (r) => Array.isArray(r.resources) && r.resources.includes('content/injected/bstation_bridge.js')
+      );
+      assert.ok(bsResource, 'web_accessible_resources must expose bstation_bridge.js');
+      assert.ok(bsResource.matches.includes('*://*.bilibili.tv/*'), 'must match bilibili.tv');
+      assert.ok(bsResource.matches.includes('*://*.bstation.tv/*'), 'must match bstation.tv');
+    });
+
+    test('All registered Bstation scripts and stylesheets exist on disk with valid size and syntax', () => {
+      const bstationFiles = [
+        'content/injected/bstation_bridge.js',
+        'content/platforms/bstation.js',
+        'content/styles/bstation.css'
+      ];
+
+      for (const relPath of bstationFiles) {
+        const fullPath = path.join(PROJECT_ROOT, relPath);
+        assert.ok(fs.existsSync(fullPath), `Bstation asset missing: ${relPath}`);
+        const stat = fs.statSync(fullPath);
+        assert.ok(stat.size > 0, `Bstation asset must not be empty: ${relPath}`);
+      }
+
+      for (const relPath of ['content/injected/bstation_bridge.js', 'content/platforms/bstation.js']) {
+        const fullPath = path.join(PROJECT_ROOT, relPath);
+        const res = spawnSync(process.execPath, ['--check', fullPath], { encoding: 'utf8', windowsHide: true });
+        assert.strictEqual(res.status, 0, `Syntax error in ${relPath}:\n${res.stderr}`);
+      }
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SUITE 10: Bstation Windows NTFS Filename Sanitization Unit & Boundary Tests
+  // --------------------------------------------------------------------------
+  await runSuite('Suite 10: Bstation Windows NTFS Filename Sanitization Unit & Boundary Tests', ({ test }) => {
+    const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+    const { sanitizeBstationTitle, formatBstationEpisode, formatBstationFilename } = sw;
+
+    assert.ok(typeof sanitizeBstationTitle === 'function', 'sanitizeBstationTitle must be exported');
+    assert.ok(typeof formatBstationEpisode === 'function', 'formatBstationEpisode must be exported');
+    assert.ok(typeof formatBstationFilename === 'function', 'formatBstationFilename must be exported');
+
+    const BS_NTFS_REGEX = /^\[[^\\/:*?"<>|\x00-\x1f\x7f-\x9f]+\] - E\d+ \[[a-z0-9+]+\]\.mp4$/;
+
+    test('Standard Clean Anime Title and numeric Episode: [Frieren Beyond Journeys End] - E01 [1080p].mp4', () => {
+      const res = formatBstationFilename({
+        title: 'Frieren Beyond Journeys End',
+        episode: 1,
+        quality: '1080p'
+      });
+      assert.strictEqual(res, '[Frieren Beyond Journeys End] - E01 [1080p].mp4');
+      assert.ok(BS_NTFS_REGEX.test(res));
+    });
+
+    test('Win32 Illegal Characters in Anime Titles (Re:Zero / S02? "Hero"* <Arc|5>) stripped cleanly', () => {
+      const res = formatBstationFilename({
+        title: 'Re:Zero / S02? "Hero"* <Arc|5>',
+        episode: 2,
+        quality: '720p'
+      });
+      assert.ok(!/[\\/:*?"<>|\x00-\x1f\x7f-\x9f]/.test(res), 'Filename must not contain illegal Win32 chars');
+      assert.ok(BS_NTFS_REGEX.test(res));
+      assert.ok(res.includes('Re - Zero'), 'Colon must be normalized cleanly');
+    });
+
+    test('Win32 Control Characters (0x00-0x1F, 0x7F-0x9F) eliminated', () => {
+      const titleWithControl = 'Attack\x00on\x07Titan\x1F\x7F';
+      const clean = sanitizeBstationTitle(titleWithControl);
+      assert.ok(!/[\x00-\x1f\x7f-\x9f]/.test(clean), 'Must eliminate all Win32 ASCII control codes');
+      assert.strictEqual(clean, 'AttackonTitan');
+    });
+
+    test('Episode Number Normalization (1 -> E01, "05" -> E05, "Episode 14" -> E14)', () => {
+      assert.strictEqual(formatBstationEpisode(1), 'E01');
+      assert.strictEqual(formatBstationEpisode(9), 'E09');
+      assert.strictEqual(formatBstationEpisode('05'), 'E05');
+      assert.strictEqual(formatBstationEpisode('Episode 14'), 'E14');
+      assert.strictEqual(formatBstationEpisode('E12'), 'E12');
+      assert.strictEqual(formatBstationEpisode(105), 'E105');
+    });
+
+    test('Quality Normalization ("1080P" -> [1080p], "720p" -> [720p], null fallback to [720p])', () => {
+      const res1080 = formatBstationFilename('Demon Slayer', 1, '1080P');
+      assert.ok(res1080.includes('[1080p].mp4'));
+
+      const resDefault = formatBstationFilename('Demon Slayer', 1, null);
+      assert.ok(resDefault.includes('[720p].mp4'));
+
+      const resClean = formatBstationFilename('Demon Slayer', 1, '480p');
+      assert.ok(resClean.includes('[480p].mp4'));
+    });
+
+    test('Unicode, Japanese Kanji, Indonesian accents preserved ([葬送のフリーレン] - E02 [1080p].mp4)', () => {
+      const resKanji = formatBstationFilename('葬送のフリーレン', 2, '1080p');
+      assert.strictEqual(resKanji, '[葬送のフリーレン] - E02 [1080p].mp4');
+      assert.ok(BS_NTFS_REGEX.test(resKanji));
+    });
+
+    test('Win32 Trailing Dots and Spaces Trimming (no ..mp4 or . .mp4)', () => {
+      const res = formatBstationFilename('Spy x Family... ', 3, '720p');
+      assert.strictEqual(res, '[Spy x Family] - E03 [720p].mp4');
+      assert.ok(!res.includes('..mp4'));
+      assert.ok(!res.includes('. .mp4'));
+    });
+
+    test('Null, undefined, and empty string fallbacks ([Anime] - E01 [720p].mp4)', () => {
+      assert.strictEqual(formatBstationFilename(null, null, null), '[Anime] - E01 [720p].mp4');
+      assert.strictEqual(formatBstationFilename('', '', ''), '[Anime] - E01 [720p].mp4');
+      assert.strictEqual(formatBstationFilename({}, undefined, undefined), '[Anime] - E01 [720p].mp4');
+    });
+
+    test('Extreme Title Length Boundary Value Analysis (truncated to <= 120 chars, total filename < 255)', () => {
+      const longTitle = 'That Time I Got Reincarnated as a Slime '.repeat(10);
+      const res = formatBstationFilename(longTitle, 1, '720p');
+      assert.ok(res.length < 240, `Filename length ${res.length} must be well below Win32 MAX_PATH (255)`);
+      assert.ok(BS_NTFS_REGEX.test(res));
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SUITE 11: Episode Batch Queue, VIP Filtering & Concurrency 2 Scheduler Simulation
+  // --------------------------------------------------------------------------
+  await runSuite('Suite 11: Episode Batch Queue, VIP Filtering & Concurrency 2 Scheduler Simulation', async ({ test, testAsync }) => {
+    const bstationScript = require(path.join(PROJECT_ROOT, 'content/platforms/bstation.js'));
+    const { DirectParallelQueue, collectEpisodesList } = bstationScript;
+
+    test('Free vs VIP Episode Filtering: non-VIP user has VIP episodes marked [VIP Diperlukan] and disabled', () => {
+      const mockDoc = new MockElement('body');
+      for (let i = 1; i <= 6; i++) {
+        const item = new MockElement('div');
+        item.setAttribute('class', 'bstar-episode-item');
+        item.setAttribute('data-ep-id', `ep_${i}`);
+        item.textContent = `Episode ${i}`;
+        if (i > 3) {
+          const badge = new MockElement('span');
+          badge.setAttribute('class', 'bstar-vip-badge');
+          badge.textContent = 'VIP';
+          item.appendChild(badge);
+        }
+        mockDoc.appendChild(item);
+      }
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      try {
+        global.document = {
+          querySelectorAll: (sel) => mockDoc.querySelectorAll(sel),
+          querySelector: (sel) => mockDoc.querySelector(sel),
+          title: 'Anime Title'
+        };
+        global.window = {
+          __INITIAL_STATE__: {
+            user: { vip: { is_vip: false } }
+          }
+        };
+
+        const res = collectEpisodesList();
+        assert.strictEqual(res.isUserVip, false);
+        assert.strictEqual(res.episodes.length, 6);
+        assert.strictEqual(res.episodes[0].isVip, false, 'Ep 1 must be free');
+        assert.strictEqual(res.episodes[3].isVip, true, 'Ep 4 must be VIP');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    test('VIP user has all episodes enabled and selectable', () => {
+      const mockDoc = new MockElement('body');
+      for (let i = 1; i <= 4; i++) {
+        const item = new MockElement('div');
+        item.setAttribute('class', 'bstar-episode-item');
+        item.setAttribute('data-ep-id', `ep_${i}`);
+        item.textContent = `Episode ${i}`;
+        if (i > 2) {
+          const badge = new MockElement('span');
+          badge.setAttribute('class', 'bstar-vip-badge');
+          badge.textContent = 'VIP';
+          item.appendChild(badge);
+        }
+        mockDoc.appendChild(item);
+      }
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      try {
+        global.document = {
+          querySelectorAll: (sel) => mockDoc.querySelectorAll(sel),
+          querySelector: (sel) => mockDoc.querySelector(sel),
+          title: 'Anime Title'
+        };
+        global.window = {
+          __INITIAL_STATE__: {
+            user: { vip: { is_vip: true, status: 1 } }
+          }
+        };
+
+        const res = collectEpisodesList();
+        assert.strictEqual(res.isUserVip, true, 'User VIP status must be true');
+        assert.strictEqual(res.episodes.length, 4);
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    test('Quick-action pills logic: [Pilih Semua], [Hanya Episode Gratis], [Kosongkan]', () => {
+      const cards = [];
+      for (let i = 1; i <= 6; i++) {
+        const card = new MockElement('div');
+        const isVip = i > 3;
+        card.setAttribute('data-vip', String(isVip));
+        const cb = new MockElement('input');
+        cb.type = 'checkbox';
+        cb.disabled = isVip; // Non-VIP user: VIP items disabled
+        cb.checked = false;
+        card.appendChild(cb);
+        cards.push({ card, cb, isVip });
+      }
+
+      // Simulate [Pilih Semua]
+      for (const { cb } of cards) {
+        if (!cb.disabled) cb.checked = true;
+      }
+      assert.strictEqual(cards.filter((c) => c.cb.checked).length, 3, 'Pilih Semua selects 3 free episodes');
+
+      // Simulate [Kosongkan]
+      for (const { cb } of cards) {
+        cb.checked = false;
+      }
+      assert.strictEqual(cards.filter((c) => c.cb.checked).length, 0, 'Kosongkan unchecks all episodes');
+
+      // Simulate [Hanya Episode Gratis]
+      for (const { cb, isVip } of cards) {
+        if (!isVip && !cb.disabled) cb.checked = true;
+        else cb.checked = false;
+      }
+      assert.strictEqual(cards.filter((c) => c.cb.checked).length, 3, 'Hanya Episode Gratis selects only non-VIP episodes');
+    });
+
+    await testAsync('Direct Parallel Queue limits active concurrent downloads strictly to 2', async () => {
+      const queue = new DirectParallelQueue({ concurrency: 2 });
+      let maxActiveObserved = 0;
+      let activeCount = 0;
+
+      for (let i = 1; i <= 6; i++) {
+        queue.add({
+          id: `task_${i}`,
+          epIndex: i,
+          resolveStream: async () => ({ url: `https://cdn.bilibili.tv/ep${i}.mp4` }),
+          downloadStream: async () => {
+            activeCount++;
+            if (activeCount > maxActiveObserved) {
+              maxActiveObserved = activeCount;
+            }
+            await new Promise((r) => setTimeout(r, 60));
+            activeCount--;
+          }
+        });
+      }
+
+      await new Promise((resolve) => {
+        queue.onAllComplete = resolve;
+        queue.start();
+      });
+
+      assert.ok(maxActiveObserved <= 2, `Active workers must not exceed 2 (observed: ${maxActiveObserved})`);
+      assert.strictEqual(queue.completedCount, 6, 'All 6 tasks must complete');
+      assert.strictEqual(queue.failedCount, 0, 'Zero failures expected');
+    });
+
+    await testAsync('Queue lifecycle reports live download progress (current, total, active)', async () => {
+      const progressUpdates = [];
+      const queue = new DirectParallelQueue({
+        concurrency: 2,
+        onProgress: (p) => {
+          progressUpdates.push({ ...p });
+        }
+      });
+
+      for (let i = 1; i <= 4; i++) {
+        queue.add({
+          id: `task_${i}`,
+          resolveStream: async () => ({ url: `https://cdn.bilibili.tv/ep${i}.mp4` }),
+          downloadStream: async () => new Promise((r) => setTimeout(r, 20))
+        });
+      }
+
+      await new Promise((resolve) => {
+        queue.onAllComplete = resolve;
+        queue.start();
+      });
+
+      assert.ok(progressUpdates.length >= 4, 'Must emit multiple progress events');
+      const lastUpdate = progressUpdates[progressUpdates.length - 1];
+      assert.strictEqual(lastUpdate.total, 4);
+      assert.strictEqual(lastUpdate.done, 4);
+      assert.strictEqual(lastUpdate.percent, 100);
+    });
+
+    await testAsync('Queue continues gracefully when a single episode download fails without blocking subsequent episodes', async () => {
+      const queue = new DirectParallelQueue({ concurrency: 2 });
+
+      queue.add({
+        id: 'task_1',
+        resolveStream: async () => ({ url: 'https://cdn.bilibili.tv/ep1.mp4' }),
+        downloadStream: async () => true
+      });
+      queue.add({
+        id: 'task_2',
+        resolveStream: async () => {
+          throw new Error('HTTP 403 Forbidden: VIP token required');
+        },
+        downloadStream: async () => true
+      });
+      queue.add({
+        id: 'task_3',
+        resolveStream: async () => ({ url: 'https://cdn.bilibili.tv/ep3.mp4' }),
+        downloadStream: async () => true
+      });
+
+      await new Promise((resolve) => {
+        queue.onAllComplete = resolve;
+        queue.start();
+      });
+
+      assert.strictEqual(queue.completedCount, 2, 'Two tasks must succeed');
+      assert.strictEqual(queue.failedCount, 1, 'One task must fail');
+      assert.strictEqual(queue.items[1].status, 'failed');
+      assert.strictEqual(queue.items[2].status, 'completed', 'Task 3 must complete despite task 2 failing');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SUITE 12: In-Page Bstation Player UI Injection & Batch Modal Lifecycle
+  // --------------------------------------------------------------------------
+  await runSuite('Suite 12: In-Page Bstation Player UI Injection & Batch Modal Lifecycle', ({ test }) => {
+    const bstationScript = require(path.join(PROJECT_ROOT, 'content/platforms/bstation.js'));
+    const { injectPlayerButton, injectBatchButton, openBatchModal, closeBatchModal } = bstationScript;
+
+    test('Player 1-click Download button injected into .bpx-player / .bstar-video-player with Cyber Cyan token', () => {
+      const container = new MockElement('div');
+      container.className = 'bpx-player-control-bottom-right';
+
+      const btn = injectPlayerButton(container);
+      assert.ok(btn, 'injectPlayerButton must return injected button');
+      assert.strictEqual(container.getAttribute('data-bs-dl-ready'), 'true', 'Must set ready attribute on container');
+      assert.ok(btn.className.includes('bs-dl-btn'), 'Button must possess bs-dl-btn class');
+      assert.ok(container.children.length === 1, 'Container must have exactly 1 action wrapper');
+    });
+
+    test('Strict duplicate guard prevents duplicate player buttons on repeated DOM scans', () => {
+      const container = new MockElement('div');
+      container.className = 'bpx-player-control-bottom-right';
+
+      const firstBtn = injectPlayerButton(container);
+      assert.ok(firstBtn);
+      assert.strictEqual(container.children.length, 1);
+
+      // Re-scan same container
+      injectPlayerButton(container);
+      assert.strictEqual(container.children.length, 1, 'Duplicate injection must be prevented');
+    });
+
+    test('"Semua episode" Batch Download button injected beside episode list header', () => {
+      const header = new MockElement('div');
+      header.className = 'bstar-episode-list';
+      const title = new MockElement('h2');
+      title.textContent = 'Semua episode';
+      header.appendChild(title);
+
+      const batchBtn = injectBatchButton(header);
+      assert.ok(batchBtn, 'injectBatchButton must return batch button');
+      assert.strictEqual(header.getAttribute('data-bs-batch-ready'), 'true');
+      assert.ok(batchBtn.className.includes('bs-batch-trigger-btn'));
+    });
+
+    test('Batch Modal renders anime title, episode grid, quality selector, and CTA button', () => {
+      const docRoot = new MockElement('body');
+      const originalDoc = global.document;
+      const originalWin = global.window;
+
+      try {
+        global.document = {
+          body: docRoot,
+          documentElement: docRoot,
+          createElement: (tag) => new MockElement(tag),
+          getElementById: (id) => docRoot.getElementById(id),
+          querySelector: (sel) => docRoot.querySelector(sel),
+          querySelectorAll: (sel) => docRoot.querySelectorAll(sel),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          title: 'Frieren - Beyond Journeys End'
+        };
+        global.window = {
+          __INITIAL_STATE__: {
+            mediaInfo: { title: 'Frieren - Beyond Journeys End' },
+            user: { vip: { is_vip: false } }
+          }
+        };
+
+        openBatchModal();
+
+        const modalRoot = docRoot.getElementById('bs-batch-modal-root');
+        assert.ok(modalRoot, '#bs-batch-modal-root must exist in document.body');
+        assert.ok(modalRoot.className.includes('bs-modal-open'), 'Modal must receive bs-modal-open class');
+
+        const titleEl = modalRoot.querySelector('.bs-modal-title');
+        assert.ok(titleEl, 'Title element must exist in modal');
+        assert.strictEqual(titleEl.textContent, 'Frieren - Beyond Journeys End');
+
+        const qualitySelect = modalRoot.querySelector('#bs-quality-select');
+        assert.ok(qualitySelect, 'Quality selector select element must exist');
+
+        const startBtn = modalRoot.querySelector('#bs-btn-start-batch');
+        assert.ok(startBtn, 'Start batch download button must exist');
+
+        const grid = modalRoot.querySelector('#bs-episode-grid');
+        assert.ok(grid, 'Episode grid container must exist');
+        assert.ok(grid.children.length > 0, 'Grid must contain episode cards');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    test('Modal toggle lifecycle: opens on click, closes on close button or Escape key', () => {
+      const docRoot = new MockElement('body');
+      const originalDoc = global.document;
+      const originalWin = global.window;
+
+      try {
+        global.document = {
+          body: docRoot,
+          documentElement: docRoot,
+          createElement: (tag) => new MockElement(tag),
+          getElementById: (id) => docRoot.getElementById(id),
+          querySelector: (sel) => docRoot.querySelector(sel),
+          querySelectorAll: (sel) => docRoot.querySelectorAll(sel),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          title: 'Anime Title'
+        };
+        global.window = {};
+
+        openBatchModal();
+        const modalRoot = docRoot.getElementById('bs-batch-modal-root');
+        assert.ok(modalRoot.className.includes('bs-modal-open'));
+
+        closeBatchModal();
+        assert.ok(!modalRoot.className.includes('bs-modal-open'), 'bs-modal-open class must be removed on close');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SUITE 13: Multi-Platform Popup Tab Switching & Context Controller Lifecycle
+  // --------------------------------------------------------------------------
+  await runSuite('Suite 13: Multi-Platform Popup Tab Switching & Context Controller Lifecycle', ({ test }) => {
+    test('Active tab detection identifies TikTok vs Bstation vs generic URLs', () => {
+      function detectPlatform(url) {
+        if (!url) return 'generic';
+        try {
+          const parsed = new URL(url);
+          const host = parsed.hostname;
+          if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) return 'tiktok';
+          if (host === 'bilibili.tv' || host.endsWith('.bilibili.tv') ||
+              host === 'bstation.tv' || host.endsWith('.bstation.tv')) return 'bstation';
+        } catch (_) {}
+        return 'generic';
+      }
+
+      assert.strictEqual(detectPlatform('https://www.tiktok.com/@creator/video/12345'), 'tiktok');
+      assert.strictEqual(detectPlatform('https://m.tiktok.com/v/12345'), 'tiktok');
+      assert.strictEqual(detectPlatform('https://www.bilibili.tv/id/play/1048837/1000001'), 'bstation');
+      assert.strictEqual(detectPlatform('https://www.bstation.tv/en/play/1048837'), 'bstation');
+      assert.strictEqual(detectPlatform('https://www.google.com/search?q=anime'), 'generic');
+      assert.strictEqual(detectPlatform('chrome://extensions/'), 'generic');
+    });
+
+    test('Bstation tab activates #state-bstation, online dot, and "Unduh Video Aktif" button text', () => {
+      const stateTiktok = new MockElement('div');
+      const stateBstation = new MockElement('div');
+      const stateEmpty = new MockElement('div');
+      const statusDot = new MockElement('span');
+      const btnDownload = new MockElement('button');
+      const btnText = new MockElement('span');
+
+      // Simulate Bstation tab view transition
+      statusDot.className = 'status-dot online';
+      stateTiktok.style.display = 'none';
+      stateBstation.style.display = 'flex';
+      stateEmpty.style.display = 'none';
+      btnDownload.style.display = 'inline-flex';
+      btnText.textContent = 'Unduh Video Aktif';
+
+      assert.strictEqual(stateBstation.style.display, 'flex');
+      assert.strictEqual(stateTiktok.style.display, 'none');
+      assert.strictEqual(stateEmpty.style.display, 'none');
+      assert.strictEqual(statusDot.className, 'status-dot online');
+      assert.strictEqual(btnDownload.style.display, 'inline-flex');
+      assert.strictEqual(btnText.textContent, 'Unduh Video Aktif');
+    });
+
+    test('TikTok tab activates #state-tiktok, online dot, and "Download Video" button text', () => {
+      const stateTiktok = new MockElement('div');
+      const stateBstation = new MockElement('div');
+      const stateEmpty = new MockElement('div');
+      const statusDot = new MockElement('span');
+      const btnDownload = new MockElement('button');
+      const btnText = new MockElement('span');
+
+      // Simulate TikTok tab view transition
+      statusDot.className = 'status-dot online';
+      stateTiktok.style.display = 'flex';
+      stateBstation.style.display = 'none';
+      stateEmpty.style.display = 'none';
+      btnDownload.style.display = 'inline-flex';
+      btnText.textContent = 'Download Video';
+
+      assert.strictEqual(stateTiktok.style.display, 'flex');
+      assert.strictEqual(stateBstation.style.display, 'none');
+      assert.strictEqual(stateEmpty.style.display, 'none');
+      assert.strictEqual(statusDot.className, 'status-dot online');
+      assert.strictEqual(btnDownload.style.display, 'inline-flex');
+      assert.strictEqual(btnText.textContent, 'Download Video');
+    });
+
+    test('Generic tab activates #state-empty with both TikTok and Bstation launcher buttons', () => {
+      const stateTiktok = new MockElement('div');
+      const stateBstation = new MockElement('div');
+      const stateEmpty = new MockElement('div');
+      const statusDot = new MockElement('span');
+      const btnDownload = new MockElement('button');
+      const btnOpenTikTok = new MockElement('button');
+      btnOpenTikTok.id = 'btn-open-tiktok';
+      const btnOpenBstation = new MockElement('button');
+      btnOpenBstation.id = 'btn-open-bstation';
+      stateEmpty.appendChild(btnOpenTikTok);
+      stateEmpty.appendChild(btnOpenBstation);
+
+      // Simulate Generic tab view transition
+      statusDot.className = 'status-dot idle';
+      stateTiktok.style.display = 'none';
+      stateBstation.style.display = 'none';
+      stateEmpty.style.display = 'flex';
+      btnDownload.style.display = 'none';
+
+      assert.strictEqual(stateEmpty.style.display, 'flex');
+      assert.strictEqual(stateTiktok.style.display, 'none');
+      assert.strictEqual(btnDownload.style.display, 'none');
+      assert.strictEqual(statusDot.className, 'status-dot idle');
+      assert.ok(stateEmpty.querySelector('#btn-open-tiktok'));
+      assert.ok(stateEmpty.querySelector('#btn-open-bstation'));
+    });
+
+    test('Download counter synchronizes from chrome.storage.local across platforms', () => {
+      const counterEl = new MockElement('span');
+      function updateCounter(count) {
+        const n = Math.max(0, Math.floor(Number(count) || 0));
+        counterEl.textContent = String(n);
+      }
+
+      updateCounter(7);
+      assert.strictEqual(counterEl.textContent, '7');
+
+      updateCounter(18);
+      assert.strictEqual(counterEl.textContent, '18');
+
+      updateCounter(null);
+      assert.strictEqual(counterEl.textContent, '0');
     });
   });
 

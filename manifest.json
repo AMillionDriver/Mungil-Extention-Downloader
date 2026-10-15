@@ -13,7 +13,10 @@
     "*://*.tiktok.com/*",
     "*://*.tiktokcdn.com/*",
     "*://*.byteoversea.com/*",
-    "*://*.ibytedtos.com/*"
+    "*://*.ibytedtos.com/*",
+    "*://*.bilibili.tv/*",
+    "*://*.bstation.tv/*",
+    "*://*.biliapi.net/*"
   ],
   "background": {
     "service_worker": "background/service_worker.js"
@@ -30,6 +33,18 @@
       "js": ["content/platforms/tiktok.js"],
       "css": ["content/styles/tiktok.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.bilibili.tv/*", "*://*.bstation.tv/*"],
+      "js": ["content/injected/bstation_bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.bilibili.tv/*", "*://*.bstation.tv/*"],
+      "js": ["content/platforms/bstation.js"],
+      "css": ["content/styles/bstation.css"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -41,6 +56,15 @@
         "icons/icon128.png"
       ],
       "matches": ["*://*.tiktok.com/*"]
+    },
+    {
+      "resources": [
+        "content/injected/bstation_bridge.js",
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": ["*://*.bilibili.tv/*", "*://*.bstation.tv/*"]
     }
   ],
   "action": {

@@ -1,5 +1,6 @@
 /**
- * TikTok Direct Downloader - Popup Controller
+ * Direct Downloader - Popup Controller
+ * Supports Multi-Platform Context Switching (TikTok & Bstation)
  * Implements Linear / Raycast Minimalist Context Architecture
  */
 
@@ -7,13 +8,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 1. Element Bindings (defensive dual-binding)
   const statusDot = document.getElementById('status-dot');
   const stateTiktok = document.getElementById('state-tiktok') || document.getElementById('context-active');
+  const stateBstation = document.getElementById('state-bstation');
   const stateEmpty = document.getElementById('state-empty') || document.getElementById('context-inactive') || document.getElementById('platform-card');
   const videoAuthor = document.getElementById('video-author') || document.getElementById('video-creator');
   const videoDesc = document.getElementById('video-desc') || document.getElementById('video-title');
   const videoStatusChip = document.getElementById('video-status-chip');
+  const bstationTitle = document.getElementById('bstation-title');
+  const bstationEpBadge = document.getElementById('bstation-ep-badge');
+  const bstationStatusChip = document.getElementById('bstation-status-chip');
   const btnDownloadActive = document.getElementById('btn-download-active');
   const btnDownloadText = document.getElementById('btn-download-text');
   const btnOpenTikTok = document.getElementById('btn-open-tiktok');
+  const btnOpenBstation = document.getElementById('btn-open-bstation');
   const btnOpenDownloads = document.getElementById('btn-open-downloads');
   const downloadCountEl = document.getElementById('download-count');
   const statusPill = document.getElementById('popup-status-msg');
@@ -95,9 +101,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 5. Active Tab Detection & TikTok Context Query
+  if (btnOpenBstation) {
+    btnOpenBstation.addEventListener('click', () => {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+          chrome.tabs.create({ url: 'https://www.bilibili.tv' });
+        } else if (typeof window !== 'undefined' && window.open) {
+          window.open('https://www.bilibili.tv', '_blank');
+        }
+      } catch (err) {
+        console.warn('[Popup] open Bstation tab failed:', err);
+      }
+    });
+  }
+
+  // 5. Active Tab Detection & Platform Resolution
   let activeTab = null;
   let isTikTok = false;
+  let isBstation = false;
 
   try {
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
@@ -107,9 +128,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tabUrl) {
         try {
           const parsed = new URL(tabUrl);
-          isTikTok = parsed.hostname === 'tiktok.com' || parsed.hostname.endsWith('.tiktok.com');
+          const host = parsed.hostname;
+          isTikTok = host === 'tiktok.com' || host.endsWith('.tiktok.com');
+          isBstation = host === 'bilibili.tv' || host.endsWith('.bilibili.tv') ||
+                       host === 'bstation.tv' || host.endsWith('.bstation.tv');
         } catch (_) {
           isTikTok = tabUrl.includes('tiktok.com');
+          isBstation = tabUrl.includes('bilibili.tv') || tabUrl.includes('bstation.tv');
         }
       }
     }
@@ -119,18 +144,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 6. View Rendering & Context State Setup
   if (isTikTok && activeTab && activeTab.id) {
-    // Online / Active State
+    // Online / Active TikTok State
     if (statusDot) statusDot.className = 'status-dot online';
     if (stateTiktok) stateTiktok.style.display = 'flex';
+    if (stateBstation) stateBstation.style.display = 'none';
     if (stateEmpty) stateEmpty.style.display = 'none';
     if (btnDownloadActive) btnDownloadActive.style.display = 'inline-flex';
-    if (btnOpenTikTok) btnOpenTikTok.style.display = 'none';
+    if (btnDownloadText) btnDownloadText.textContent = 'Download Video';
 
     // Query active video metadata via GET_ACTIVE_VIDEO_INFO
     try {
       chrome.tabs.sendMessage(activeTab.id, { type: 'GET_ACTIVE_VIDEO_INFO' }, (response) => {
         if (chrome.runtime.lastError) {
-          // Tab un-refreshed or content script uninitialized
           if (videoAuthor) videoAuthor.textContent = 'TikTok Web Active';
           if (videoDesc) videoDesc.textContent = 'Reload tab (F5) to enable 1-click download';
           if (videoStatusChip) {
@@ -168,7 +193,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.warn('[Popup] GET_ACTIVE_VIDEO_INFO query failed:', err);
     }
 
-    // Handle "Download Video" click with 5-state lifecycle
+    // Handle "Download Video" click
     if (btnDownloadActive) {
       btnDownloadActive.addEventListener('click', () => {
         if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
@@ -189,7 +214,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (btnDownloadText) btnDownloadText.textContent = 'Saved!';
             showStatus(`✓ Saved: ${res.filename || 'video.mp4'}`, 'success', 3500);
 
-            // Revert button after 2.5s
             setTimeout(() => {
               btnDownloadActive.disabled = false;
               if (btnDownloadText) btnDownloadText.textContent = 'Download Video';
@@ -208,14 +232,88 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       });
     }
+  } else if (isBstation && activeTab && activeTab.id) {
+    // Online / Active Bstation State
+    if (statusDot) statusDot.className = 'status-dot online';
+    if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'flex';
+    if (stateEmpty) stateEmpty.style.display = 'none';
+    if (btnDownloadActive) btnDownloadActive.style.display = 'inline-flex';
+    if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Aktif';
+
+    // Query active Bstation video metadata
+    try {
+      chrome.tabs.sendMessage(activeTab.id, { type: 'GET_BSTATION_ACTIVE_VIDEO_INFO' }, (response) => {
+        if (chrome.runtime.lastError) {
+          if (bstationTitle) bstationTitle.textContent = 'Bstation Anime Active';
+          if (bstationEpBadge) bstationEpBadge.textContent = 'Reload tab (F5) to enable 1-click download';
+          if (bstationStatusChip) {
+            bstationStatusChip.textContent = 'Connected';
+            bstationStatusChip.style.color = 'var(--text-muted)';
+          }
+          return;
+        }
+
+        if (response && response.success) {
+          if (bstationTitle) bstationTitle.textContent = response.title || 'Anime';
+          if (bstationEpBadge) bstationEpBadge.textContent = `${response.episode || 'E01'} • ${response.quality || '720p'}`;
+          if (bstationStatusChip) {
+            bstationStatusChip.textContent = response.isVip ? 'VIP Ready' : 'Ready';
+            bstationStatusChip.style.color = 'var(--accent-green)';
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('[Popup] Bstation query failed:', err);
+    }
+
+    // Handle "Unduh Video Aktif" click
+    if (btnDownloadActive) {
+      btnDownloadActive.addEventListener('click', () => {
+        if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
+
+        btnDownloadActive.disabled = true;
+        if (btnDownloadText) btnDownloadText.textContent = 'Mengunduh...';
+        showStatus('Mengunduh aliran video Bstation...', 'info', 0);
+
+        chrome.tabs.sendMessage(activeTab.id, { type: 'DOWNLOAD_ACTIVE_VIDEO' }, (res) => {
+          if (chrome.runtime.lastError) {
+            btnDownloadActive.disabled = false;
+            if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Aktif';
+            showStatus('Mohon refresh tab Bstation (F5).', 'error', 5000);
+            return;
+          }
+
+          if (res && res.success) {
+            if (btnDownloadText) btnDownloadText.textContent = 'Tersimpan!';
+            showStatus(`✓ Tersimpan: ${res.filename || 'video.mp4'}`, 'success', 3500);
+
+            setTimeout(() => {
+              btnDownloadActive.disabled = false;
+              if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Aktif';
+            }, 2500);
+          } else {
+            btnDownloadActive.disabled = false;
+            if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
+            showStatus(res?.error || 'Gagal mengunduh video.', 'error', 4500);
+
+            setTimeout(() => {
+              if (btnDownloadText && btnDownloadText.textContent === 'Coba Lagi') {
+                btnDownloadText.textContent = 'Unduh Video Aktif';
+              }
+            }, 4000);
+          }
+        });
+      });
+    }
   } else {
-    // Inactive / Non-TikTok State
+    // Inactive / Non-Supported State
     if (statusDot) statusDot.className = 'status-dot idle';
     if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'none';
     if (stateEmpty) stateEmpty.style.display = 'flex';
     if (btnDownloadActive) btnDownloadActive.style.display = 'none';
-    if (btnOpenTikTok) btnOpenTikTok.style.display = 'inline-flex';
-    if (platformTitle) platformTitle.textContent = 'Not on TikTok';
-    if (platformDesc) platformDesc.textContent = 'Open TikTok Web to start downloading videos directly.';
+    if (platformTitle) platformTitle.textContent = 'Not on Supported Platform';
+    if (platformDesc) platformDesc.textContent = 'Open TikTok or Bstation Web to start downloading videos directly.';
   }
 });

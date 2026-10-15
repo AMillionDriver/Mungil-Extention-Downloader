@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TikTok Downloader</title>
+  <title>TikTok & Bstation Downloader</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -18,8 +18,8 @@
           </svg>
         </div>
         <div class="header-title-group">
-          <h1>TikTok Downloader</h1>
-          <span class="version-badge">v1.0.0</span>
+          <h1>Direct Downloader</h1>
+          <span class="version-badge">v1.1.0</span>
         </div>
       </div>
       <div class="header-status" title="Connection Status">
@@ -34,7 +34,7 @@
         <div class="state-container" id="state-tiktok" style="display: none;">
           <div class="video-meta">
             <div class="video-meta-header">
-              <span class="meta-label">Active Video</span>
+              <span class="meta-label">TikTok Video</span>
               <span class="status-chip" id="video-status-chip">Ready</span>
             </div>
             <div class="video-author-group">
@@ -42,17 +42,32 @@
               <p class="video-desc" id="video-desc">Direct stream ready for download</p>
             </div>
           </div>
-
-          <button class="btn btn-primary" id="btn-download-active">
-            <svg class="btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 2.5v7m0 0l-2.5-2.5M8 9.5l2.5-2.5" />
-              <path d="M3 12.5h10" />
-            </svg>
-            <span id="btn-download-text">Download Video</span>
-          </button>
         </div>
 
-        <!-- State 2: Non-TikTok / Idle Tab -->
+        <!-- State 2: Active Bstation Anime / Video Detected -->
+        <div class="state-container" id="state-bstation" style="display: none;">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label">Bstation Anime</span>
+              <span class="status-chip" id="bstation-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="bstation-title">Anime Title</span>
+              <p class="video-desc" id="bstation-ep-badge">EP 01 • 720p</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Universal Primary Action Button -->
+        <button class="btn btn-primary" id="btn-download-active" style="display: none;">
+          <svg class="btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 2.5v7m0 0l-2.5-2.5M8 9.5l2.5-2.5" />
+            <path d="M3 12.5h10" />
+          </svg>
+          <span id="btn-download-text">Download Video</span>
+        </button>
+
+        <!-- State 3: Non-Supported / Idle Tab -->
         <div class="state-container" id="state-empty">
           <div class="empty-content">
             <div class="empty-icon" aria-hidden="true">
@@ -62,15 +77,23 @@
                 <path d="M10 2a13 13 0 0 1 4 8 13 13 0 0 1-4 8 13 13 0 0 1-4-8 13 13 0 0 1 4-8z" />
               </svg>
             </div>
-            <h2 class="empty-title" id="platform-title">Not on TikTok</h2>
-            <p class="empty-desc" id="platform-desc">Open TikTok Web to start downloading videos directly.</p>
+            <h2 class="empty-title" id="platform-title">Not on Supported Platform</h2>
+            <p class="empty-desc" id="platform-desc">Open TikTok or Bstation Web to start downloading videos directly.</p>
           </div>
-          <button class="btn btn-secondary" id="btn-open-tiktok">
-            <span>Open TikTok Web</span>
-            <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 11L11 3m0 0H5m6 0v6" />
-            </svg>
-          </button>
+          <div class="empty-action-group">
+            <button class="btn btn-secondary" id="btn-open-tiktok">
+              <span>Open TikTok Web</span>
+              <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 11L11 3m0 0H5m6 0v6" />
+              </svg>
+            </button>
+            <button class="btn btn-secondary" id="btn-open-bstation">
+              <span>Open Bstation Web</span>
+              <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 11L11 3m0 0H5m6 0v6" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <!-- Dynamic Feedback Pill -->
