@@ -120,7 +120,162 @@ function formatFilename(author, id) {
 }
 
 /**
- * Executes file download via chrome.downloads.download and updates telemetry in storage.
+ * Fetches video stream from URL with TikTok Referer & Origin headers,
+ * returning a Blob object.
+ *
+ * @param {string} url
+ * @returns {Promise<Blob>}
+ */
+async function fetchVideoBlob(url) {
+  const cleanUrl = typeof url === 'string' ? url.trim() : '';
+  const response = await fetch(cleanUrl, {
+    method: 'GET',
+    headers: {
+      'Referer': 'https://www.tiktok.com/',
+      'Origin': 'https://www.tiktok.com'
+    },
+    referrer: 'https://www.tiktok.com/',
+    referrerPolicy: 'origin-when-cross-origin'
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+
+  // Guard against HTML, XML, or JSON error pages returned with HTTP 200 (which cause .htm/.xml file downloads)
+  if (response.headers && typeof response.headers.get === 'function') {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html') || contentType.includes('application/xhtml+xml')) {
+      throw new Error('Received HTML error page instead of video stream');
+    }
+    if (contentType.includes('application/json')) {
+      throw new Error('Received JSON error response instead of video stream');
+    }
+    if (contentType.includes('text/xml') || contentType.includes('application/xml')) {
+      throw new Error('Received XML error response instead of video stream');
+    }
+  }
+
+  const blob = await response.blob();
+  if (blob && blob.type && (blob.type.includes('text/html') || blob.type.includes('application/xhtml+xml'))) {
+    throw new Error('Received HTML error page instead of video stream');
+  }
+  if (blob && blob.type && blob.type.includes('application/json')) {
+    throw new Error('Received JSON error response instead of video stream');
+  }
+  if (blob && blob.type && (blob.type.includes('text/xml') || blob.type.includes('application/xml'))) {
+    throw new Error('Received XML error response instead of video stream');
+  }
+  if (!blob || (typeof blob.size === 'number' && blob.size === 0)) {
+    throw new Error('Received empty video stream (0 bytes)');
+  }
+
+  return blob;
+}
+
+/**
+ * Converts a Blob to a Base64 Data URL.
+ * Required in environments like Chrome Manifest V3 Service Workers
+ * where URL.createObjectURL is unavailable.
+ *
+ * @param {Blob} blob
+ * @returns {Promise<string>}
+ */
+async function blobToDataUrl(blob) {
+  if (!blob) throw new Error('Blob is required');
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 16384;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  const base64 = typeof btoa === 'function' ? btoa(binary) : Buffer.from(buffer).toString('base64');
+  const mimeType = (blob.type && !blob.type.includes('text/html')) ? blob.type : 'video/mp4';
+  return `data:${mimeType};base64,${base64}`;
+}
+
+/**
+ * Records download telemetry in chrome.storage.local.
+ * Increments downloadCount and prepends metadata to recentDownloads history.
+ *
+ * @param {object} params
+ * @param {string} [params.author]
+ * @param {string|number} [params.videoId]
+ * @param {string|number} [params.id]
+ * @param {string} [params.filename]
+ * @param {number|null} [params.downloadId]
+ * @returns {Promise<{ success: boolean, downloadCount: number, filename: string }>}
+ */
+function recordDownloadTelemetry(params = {}) {
+  const p = (params && typeof params === 'object') ? params : {};
+  const safeAuthor = sanitizeAuthor(p.author);
+  const videoId = p.videoId || p.id;
+  const safeVideoId = sanitizeVideoId(videoId);
+  const safeFilename = (typeof p.filename === 'string' && p.filename.trim())
+    ? p.filename.trim()
+    : formatFilename(p.author, videoId);
+  const downloadId = p.downloadId || null;
+
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+      return resolve({
+        success: true,
+        downloadCount: 0,
+        filename: safeFilename
+      });
+    }
+
+    try {
+      chrome.storage.local.get(['downloadCount', 'recentDownloads'], (data) => {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+          console.warn('[TikTok Downloader SW] Storage get error:', chrome.runtime.lastError);
+        }
+
+        const rawCount = Number(data && data.downloadCount);
+        const count = (!isNaN(rawCount) && rawCount >= 0) ? Math.floor(rawCount) + 1 : 1;
+        const recent = (data && Array.isArray(data.recentDownloads)) ? data.recentDownloads : [];
+
+        recent.unshift({
+          downloadId,
+          filename: safeFilename,
+          author: safeAuthor,
+          videoId: safeVideoId,
+          timestamp: Date.now()
+        });
+
+        chrome.storage.local.set(
+          {
+            downloadCount: count,
+            recentDownloads: recent.slice(0, 50)
+          },
+          () => {
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+              console.warn('[TikTok Downloader SW] Storage set error:', chrome.runtime.lastError);
+            }
+            resolve({
+              success: true,
+              downloadCount: count,
+              filename: safeFilename
+            });
+          }
+        );
+      });
+    } catch (err) {
+      console.warn('[TikTok Downloader SW] Storage exception:', err);
+      resolve({
+        success: false,
+        error: err.message,
+        downloadCount: 0,
+        filename: safeFilename
+      });
+    }
+  });
+}
+
+/**
+ * Executes file download via Fetch-to-Blob and chrome.downloads.download,
+ * updating telemetry in storage.
  *
  * @param {object} params
  * @param {string} params.url
@@ -128,56 +283,99 @@ function formatFilename(author, id) {
  * @param {string|number} [params.videoId]
  * @returns {Promise<object>}
  */
-function executeDownload(params) {
+async function executeDownload(params) {
+  if (!params || !params.url || typeof params.url !== 'string') {
+    throw new Error('Invalid or missing video download URL');
+  }
+
+  const cleanUrl = params.url.trim();
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    throw new Error('URL must be an HTTP or HTTPS stream');
+  }
+
+  const videoId = params.videoId || params.id;
+  const filename = formatFilename(params.author, videoId);
+
+  if (typeof chrome === 'undefined' || !chrome.downloads || !chrome.downloads.download) {
+    throw new Error('chrome.downloads API is unavailable in this context');
+  }
+
+  // Fetch video stream directly to Blob to bypass direct CDN 403 Forbidden (.htm download bug)
+  let downloadUrl = cleanUrl;
+  let isBlobUrl = false;
+
+  try {
+    const blob = await fetchVideoBlob(cleanUrl);
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      downloadUrl = URL.createObjectURL(blob);
+      isBlobUrl = true;
+    } else {
+      // In Chrome Manifest V3 Service Worker where URL.createObjectURL is undefined,
+      // convert Blob to a Base64 Data URL so chrome.downloads.download receives
+      // the downloaded stream payload rather than reverting to the CDN URL (which causes 403 Forbidden .htm)
+      downloadUrl = await blobToDataUrl(blob);
+    }
+  } catch (fetchErr) {
+    throw new Error(`Video stream fetch failed: ${fetchErr.message}`);
+  }
+
   return new Promise((resolve, reject) => {
-    if (!params || !params.url || typeof params.url !== 'string') {
-      return reject(new Error('Invalid or missing video download URL'));
-    }
-
-    if (!params.url.startsWith('http://') && !params.url.startsWith('https://')) {
-      return reject(new Error('URL must be an HTTP or HTTPS stream'));
-    }
-
-    const filename = formatFilename(params.author, params.videoId);
-
-    if (typeof chrome === 'undefined' || !chrome.downloads || !chrome.downloads.download) {
-      return reject(new Error('chrome.downloads API is unavailable in this context'));
-    }
-
     chrome.downloads.download(
       {
-        url: params.url,
+        url: downloadUrl,
         filename: filename,
         conflictAction: 'uniquify',
         saveAs: false
       },
-      (downloadId) => {
+      async (downloadId) => {
         if (chrome.runtime.lastError) {
+          if (isBlobUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+            try { URL.revokeObjectURL(downloadUrl); } catch (_) {}
+          }
           return reject(new Error(chrome.runtime.lastError.message));
         }
         if (!downloadId) {
+          if (isBlobUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+            try { URL.revokeObjectURL(downloadUrl); } catch (_) {}
+          }
           return reject(new Error('Download failed to start'));
         }
 
-        // Persist download statistics in chrome.storage.local
-        if (chrome.storage && chrome.storage.local) {
-          chrome.storage.local.get(['downloadCount', 'recentDownloads'], (data) => {
-            const count = (data.downloadCount || 0) + 1;
-            const recent = Array.isArray(data.recentDownloads) ? data.recentDownloads : [];
-            recent.unshift({
-              downloadId,
-              filename,
-              author: sanitizeAuthor(params.author),
-              videoId: sanitizeVideoId(params.videoId),
-              timestamp: Date.now()
-            });
+        // Clean up blob URL once download finishes or after timeout
+        if (isBlobUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+          let listener = null;
+          let timer = null;
+          const cleanup = () => {
+            if (timer) {
+              clearTimeout(timer);
+              timer = null;
+            }
+            if (listener && chrome.downloads?.onChanged?.removeListener) {
+              try { chrome.downloads.onChanged.removeListener(listener); } catch (_) {}
+              listener = null;
+            }
+            try { URL.revokeObjectURL(downloadUrl); } catch (_) {}
+          };
 
-            chrome.storage.local.set({
-              downloadCount: count,
-              recentDownloads: recent.slice(0, 50)
-            });
-          });
+          if (chrome.downloads.onChanged) {
+            listener = (delta) => {
+              if (delta && delta.id === downloadId && (delta.state?.current === 'complete' || delta.state?.current === 'interrupted')) {
+                cleanup();
+              }
+            };
+            chrome.downloads.onChanged.addListener(listener);
+          }
+
+          timer = setTimeout(cleanup, 60000);
         }
+
+        // Persist download statistics in chrome.storage.local
+        await recordDownloadTelemetry({
+          author: params.author,
+          videoId: videoId,
+          filename,
+          downloadId
+        });
 
         resolve({
           success: true,
@@ -190,78 +388,112 @@ function executeDownload(params) {
   });
 }
 
-// Register dynamic declarativeNetRequest rules on install/update
-if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onInstalled) {
-  chrome.runtime.onInstalled.addListener(async () => {
-    try {
-      if (chrome.declarativeNetRequest && chrome.declarativeNetRequest.updateDynamicRules) {
-        await chrome.declarativeNetRequest.updateDynamicRules({
-          removeRuleIds: [1, 2, 3],
-          addRules: TIKTOK_CDN_RULES
-        });
-        console.log('[TikTok Downloader SW] Dynamic DNR rules registered for ByteDance CDNs');
-      }
-    } catch (err) {
-      console.warn('[TikTok Downloader SW] Failed to update dynamic DNR rules:', err);
+// Register dynamic declarativeNetRequest rules on install/update/startup
+async function ensureDnrRules() {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest && chrome.declarativeNetRequest.updateDynamicRules) {
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: [1, 2, 3],
+        addRules: TIKTOK_CDN_RULES
+      });
+      console.log('[TikTok Downloader SW] Dynamic DNR rules registered for ByteDance CDNs');
     }
-  });
+  } catch (err) {
+    console.warn('[TikTok Downloader SW] Failed to update dynamic DNR rules:', err);
+  }
+}
+
+if (typeof chrome !== 'undefined' && chrome.runtime) {
+  if (chrome.runtime.onInstalled) {
+    chrome.runtime.onInstalled.addListener(ensureDnrRules);
+  }
+  if (chrome.runtime.onStartup) {
+    chrome.runtime.onStartup.addListener(ensureDnrRules);
+  }
 }
 
 // Primary IPC Listener
-if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message || typeof message !== 'object') {
-      return false;
-    }
-
-    const actionType = message.type || message.action;
-
-    // Handle DOWNLOAD_VIDEO
-    if (actionType === 'DOWNLOAD_VIDEO') {
-      const payload = message.payload || message;
-      executeDownload({
-        url: payload.url,
-        author: payload.author,
-        videoId: payload.videoId || payload.id,
-        title: payload.title || payload.desc
-      })
-        .then((result) => {
-          sendResponse(result);
-        })
-        .catch((err) => {
-          sendResponse({
-            success: false,
-            error: err.message || 'Download failed'
-          });
-        });
-
-      return true; // Keep IPC channel open for asynchronous response
-    }
-
-    // Handle GET_STATS
-    if (actionType === 'GET_STATS') {
-      if (chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['downloadCount', 'recentDownloads'], (data) => {
-          sendResponse({
-            success: true,
-            downloadCount: data.downloadCount || 0,
-            recentDownloads: data.recentDownloads || []
-          });
-        });
-      } else {
-        sendResponse({ success: true, downloadCount: 0, recentDownloads: [] });
-      }
-      return true;
-    }
-
-    // Handle PING
-    if (actionType === 'PING') {
-      sendResponse({ success: true, message: 'PONG', timestamp: Date.now() });
-      return false;
-    }
-
+function handleMessage(message, sender, sendResponse) {
+  if (!message || typeof message !== 'object') {
     return false;
-  });
+  }
+
+  const actionType = message.type || message.action;
+
+  // Handle RECORD_DOWNLOAD (Telemetry from in-page content script downloads)
+  if (actionType === 'RECORD_DOWNLOAD') {
+    const payload = (message.payload && typeof message.payload === 'object') ? message.payload : message;
+    recordDownloadTelemetry({
+      author: payload.author,
+      videoId: payload.videoId || payload.id,
+      filename: payload.filename,
+      downloadId: payload.downloadId
+    })
+      .then((result) => {
+        sendResponse(result);
+      })
+      .catch((err) => {
+        console.error('[TikTok Downloader SW] RECORD_DOWNLOAD error:', err);
+        sendResponse({
+          success: false,
+          error: err.message || 'Failed to record download telemetry'
+        });
+      });
+
+    return true; // Keep IPC channel open for asynchronous response
+  }
+
+  // Handle DOWNLOAD_VIDEO (Fallback and direct downloads)
+  if (actionType === 'DOWNLOAD_VIDEO') {
+    const payload = (message.payload && typeof message.payload === 'object') ? message.payload : message;
+    executeDownload({
+      url: payload.url,
+      author: payload.author,
+      videoId: payload.videoId || payload.id,
+      title: payload.title || payload.desc
+    })
+      .then((result) => {
+        sendResponse(result);
+      })
+      .catch((err) => {
+        console.error('[TikTok Downloader SW] DOWNLOAD_VIDEO error:', err);
+        sendResponse({
+          success: false,
+          error: err.message || 'Download failed',
+          details: err.stack || undefined
+        });
+      });
+
+    return true; // Keep IPC channel open for asynchronous response
+  }
+
+  // Handle GET_STATS
+  if (actionType === 'GET_STATS') {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['downloadCount', 'recentDownloads'], (data) => {
+        sendResponse({
+          success: true,
+          downloadCount: (data && data.downloadCount) || 0,
+          recentDownloads: (data && Array.isArray(data.recentDownloads)) ? data.recentDownloads : []
+        });
+      });
+    } else {
+      sendResponse({ success: true, downloadCount: 0, recentDownloads: [] });
+    }
+    return true;
+  }
+
+  // Handle PING
+  if (actionType === 'PING') {
+    sendResponse({ success: true, message: 'PONG', timestamp: Date.now() });
+    return false;
+  }
+
+  return false;
+}
+
+if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener(handleMessage);
 }
 
 // Context Menu (Right-Click) Handler for TikTok Web
@@ -306,7 +538,11 @@ if (typeof module !== 'undefined' && module.exports) {
     sanitizeAuthor,
     sanitizeVideoId,
     formatFilename,
+    fetchVideoBlob,
+    blobToDataUrl,
     executeDownload,
+    recordDownloadTelemetry,
+    handleMessage,
     TIKTOK_CDN_RULES
   };
 }

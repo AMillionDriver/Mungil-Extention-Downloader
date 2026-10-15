@@ -41,12 +41,10 @@
 
     // Action Bar / Action Item Containers
     actionBars: [
-      '[data-e2e="feed-action-item"]',
       'div[class*="DivActionItemContainer"]',
       'div[class*="DivFlexCenterRow-StyledWrapper"]',
       'div[class*="DivActionBarWrapper"]',
       'section[class*="DivActionItemContainer"]',
-      '[data-e2e="browse-action-item"]',
       'div[class*="DivVideoActionContainer"]',
       'div[class*="ActionBar"]'
     ].join(','),
@@ -150,8 +148,10 @@
       case 'error':
         btn.disabled = false;
         if (iconBox) iconBox.innerHTML = ICONS.error;
-        if (labelEl) labelEl.textContent = customLabel || 'Failed';
-        if (fabText) fabText.textContent = customLabel || 'Gagal';
+        const displayErrorLabel = customLabel && customLabel.length <= 15 ? customLabel : 'Failed';
+        if (labelEl) labelEl.textContent = displayErrorLabel;
+        if (fabText) fabText.textContent = customLabel && customLabel.length <= 15 ? customLabel : 'Gagal';
+        if (customLabel) btn.setAttribute('title', customLabel);
         // Revert to idle after 3.0 seconds
         btn._stateTimeout = setTimeout(() => {
           setButtonState(btn, 'idle');
@@ -161,6 +161,7 @@
       case 'idle':
       default:
         btn.disabled = false;
+        btn.setAttribute('title', 'Direct 1-Click Download');
         if (iconBox) iconBox.innerHTML = ICONS.download;
         if (labelEl) labelEl.textContent = 'Download';
         if (fabText) fabText.textContent = 'Unduh';
@@ -394,9 +395,242 @@
   }
 
   /**
-   * Dispatches download request to background service worker.
+   * Sanitizes author username for Windows NTFS compatibility.
+   *
+   * @param {string} author
+   * @returns {string} Sanitized author handle
+   */
+  function sanitizeAuthor(author) {
+    if (author === null || author === undefined) return 'unknown';
+    let str = String(author).trim();
+    if (!str) return 'unknown';
+    str = str.replace(/^[@.\s]+/, '');
+    str = str.replace(/[/\\:*?"<>|\x00-\x1f\x7f-\x9f]/g, '_');
+    str = str.replace(/\s+/g, '_');
+    str = str.replace(/[.\s_]+$/, '');
+    str = str.slice(0, 64);
+    return str || 'unknown';
+  }
+
+  /**
+   * Sanitizes video ID for Windows NTFS compatibility.
+   *
+   * @param {string|number} id
+   * @returns {string} Sanitized video ID
+   */
+  function sanitizeVideoId(id) {
+    if (id === null || id === undefined) return String(Date.now());
+    let str = String(id).trim();
+    if (!str) return String(Date.now());
+    str = str.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    return str || String(Date.now());
+  }
+
+  /**
+   * Formats standard output filename: tiktok_@[author]_[id].mp4
+   *
+   * @param {string} author
+   * @param {string|number} id
+   * @returns {string}
+   */
+  function formatFilename(author, id) {
+    const safeAuthor = sanitizeAuthor(author);
+    const safeId = sanitizeVideoId(id);
+    return `tiktok_@${safeAuthor}_${safeId}.mp4`;
+  }
+
+  /**
+   * Fetches stream directly in content script context (with native cookies and origin)
+   * and triggers blob download via programmatic anchor click.
+   * Falls back to background service worker DOWNLOAD_VIDEO on failure.
+   *
+   * @param {{ url: string, author?: string, videoId?: string, id?: string }|string} streamInput
+   * @returns {Promise<{ success: boolean, filename: string, source: string }>}
+   */
+  async function downloadStreamInPage(streamInput) {
+    const stream = (typeof streamInput === 'string') ? { url: streamInput } : streamInput;
+    if (!stream || !stream.url || typeof stream.url !== 'string') {
+      throw new Error('Invalid or missing stream URL');
+    }
+
+    const cleanUrl = stream.url.trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      throw new Error('Stream URL must be an HTTP or HTTPS stream');
+    }
+
+    const videoId = stream.videoId || stream.id;
+    const filename = formatFilename(stream.author, videoId);
+    let blobUrl = null;
+
+    try {
+      if (typeof fetch !== 'function') {
+        throw new Error('fetch API is unavailable');
+      }
+
+      // Step 1: In-page fetch with credentials: 'include' (Anti-403 Fix)
+      const response = await fetch(cleanUrl, { method: 'GET', credentials: 'include' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      }
+
+      // Guard against HTML, XML, or JSON error pages (e.g. 200 OK returning error markup)
+      if (response.headers && typeof response.headers.get === 'function') {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/html') || contentType.includes('application/xhtml+xml')) {
+          throw new Error('Received HTML error page instead of video stream');
+        }
+        if (contentType.includes('application/json')) {
+          throw new Error('Received JSON error response instead of video stream');
+        }
+        if (contentType.includes('text/xml') || contentType.includes('application/xml')) {
+          throw new Error('Received XML error response instead of video stream');
+        }
+      }
+
+      // Step 2: Convert fetched response into Blob
+      const blob = await response.blob();
+      if (blob && blob.type && (blob.type.includes('text/html') || blob.type.includes('application/xhtml+xml'))) {
+        throw new Error('Received HTML error page instead of video stream');
+      }
+      if (blob && blob.type && blob.type.includes('application/json')) {
+        throw new Error('Received JSON error response instead of video stream');
+      }
+      if (blob && blob.type && (blob.type.includes('text/xml') || blob.type.includes('application/xml'))) {
+        throw new Error('Received XML error response instead of video stream');
+      }
+      if (!blob || (typeof blob.size === 'number' && blob.size === 0)) {
+        throw new Error('Received empty video stream (0 bytes)');
+      }
+
+      // Step 3: Generate Object URL
+      if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        throw new Error('URL.createObjectURL is unavailable');
+      }
+      blobUrl = URL.createObjectURL(blob);
+
+      // Step 4: Trigger download using programmatic anchor click
+      if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+        throw new Error('Document environment is not available for in-page download');
+      }
+      const parent = document.body || document.documentElement;
+      if (!parent) {
+        throw new Error('Document root is not available for anchor attachment');
+      }
+
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = blobUrl;
+      a.download = filename;
+      if (typeof a.setAttribute === 'function') {
+        a.setAttribute('href', blobUrl);
+        a.setAttribute('download', filename);
+      }
+
+      try {
+        if (typeof parent.appendChild === 'function') {
+          parent.appendChild(a);
+        }
+        if (typeof a.click === 'function') {
+          a.click();
+        } else {
+          throw new Error('Anchor click method is unavailable');
+        }
+      } finally {
+        if (typeof a.remove === 'function') {
+          a.remove();
+        } else if (a.parentElement && typeof a.parentElement.removeChild === 'function') {
+          a.parentElement.removeChild(a);
+        }
+      }
+
+      // Step 5: Cleanly revoke Object URL after download initiation (15 seconds)
+      setTimeout(() => {
+        try {
+          if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+            URL.revokeObjectURL(blobUrl);
+          }
+        } catch (_) {}
+      }, 15000);
+
+      // Step 6: Send IPC notification (RECORD_DOWNLOAD) to background service worker
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            type: 'RECORD_DOWNLOAD',
+            payload: {
+              author: stream.author,
+              videoId: videoId,
+              filename: filename
+            }
+          },
+          (res) => {
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+              console.warn('[TikTok Downloader] Telemetry reporting warning:', chrome.runtime.lastError);
+            }
+          }
+        );
+      }
+
+      return { success: true, filename, source: 'in_page' };
+    } catch (inPageErr) {
+      // Immediately clean up allocated Object URL to prevent renderer memory leak if Step 4/5 failed
+      if (blobUrl) {
+        try {
+          if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+            URL.revokeObjectURL(blobUrl);
+          }
+        } catch (_) {}
+      }
+
+      console.warn('[TikTok Downloader] In-page stream fetch failed, falling back to background service worker:', inPageErr);
+
+      // Fallback: Dispatch DOWNLOAD_VIDEO to background service worker
+      return new Promise((resolve, reject) => {
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+          return reject(inPageErr);
+        }
+
+        chrome.runtime.sendMessage(
+          {
+            type: 'DOWNLOAD_VIDEO',
+            payload: {
+              url: cleanUrl,
+              author: stream.author,
+              videoId: videoId
+            }
+          },
+          (response) => {
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+              console.error('[TikTok Downloader] Background fallback runtime error:', chrome.runtime.lastError);
+              return reject(new Error(chrome.runtime.lastError.message));
+            }
+
+            if (response && response.success) {
+              resolve({
+                success: true,
+                filename: response.filename || filename,
+                source: 'background_fallback'
+              });
+            } else {
+              const errMsg = (response && response.error) || (inPageErr && inPageErr.message) || (typeof inPageErr === 'string' ? inPageErr : 'Download failed');
+              reject(new Error(errMsg));
+            }
+          }
+        );
+      });
+    }
+  }
+
+  /**
+   * Handles download button click: resolves stream data and initiates in-page download.
+   *
+   * @param {HTMLButtonElement} btn
+   * @param {HTMLElement} card
    */
   async function handleDownloadClick(btn, card) {
+    if (!btn || btn.disabled || btn.getAttribute('data-state') === 'loading') {
+      return;
+    }
     setButtonState(btn, 'loading', 'Extracting...');
 
     try {
@@ -404,37 +638,19 @@
 
       setButtonState(btn, 'loading', 'Saving...');
 
-      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
-        throw new Error('Chrome runtime messaging is not available');
+      const result = await downloadStreamInPage(stream);
+
+      if (result && result.success) {
+        setButtonState(btn, 'success', 'Saved!');
+      } else {
+        setButtonState(btn, 'error', 'Failed');
       }
-
-      chrome.runtime.sendMessage(
-        {
-          type: 'DOWNLOAD_VIDEO',
-          payload: {
-            url: stream.url,
-            author: stream.author,
-            videoId: stream.videoId
-          }
-        },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            console.error('[TikTok Downloader] Runtime error:', chrome.runtime.lastError);
-            setButtonState(btn, 'error', 'Error');
-            return;
-          }
-
-          if (response && response.success) {
-            setButtonState(btn, 'success', 'Saved!');
-          } else {
-            console.error('[TikTok Downloader] Background returned failure:', response);
-            setButtonState(btn, 'error', response?.error || 'Failed');
-          }
-        }
-      );
     } catch (err) {
-      console.error('[TikTok Downloader] Extraction failure:', err);
-      setButtonState(btn, 'error', 'Failed');
+      console.error('[TikTok Downloader] Download failure:', err);
+      const errMsg = (err && typeof err === 'object' && err.message)
+        ? err.message
+        : (typeof err === 'string' ? err : 'Failed');
+      setButtonState(btn, 'error', errMsg);
     }
   }
 
@@ -468,10 +684,17 @@
     itemWrapper.appendChild(btn);
     itemWrapper.appendChild(label);
 
-    btn.addEventListener('click', (e) => {
+    const onClick = (e) => {
       e.stopPropagation();
       e.preventDefault();
       handleDownloadClick(btn, card);
+    };
+
+    btn.addEventListener('click', onClick);
+    itemWrapper.addEventListener('click', (e) => {
+      if (e.target !== btn && !btn.contains?.(e.target)) {
+        onClick(e);
+      }
     });
 
     return itemWrapper;
@@ -479,96 +702,180 @@
 
   /**
    * Injects download action item directly above the Share button container.
+   * Strictly enforces exactly ONE download button per card and action bar.
    *
    * @param {HTMLElement} card
    */
   function injectIntoCard(card) {
     if (!card) return;
 
-    // Check if card was already injected
-    if (card.querySelector('.tt-dl-action-item')) {
+    // Strict Card-Level Guards & Self-Healing Deduplication:
+    // 1. If card already has duplicate download items, prune excess immediately
+    const existingInCard = card.querySelectorAll ? card.querySelectorAll('.tt-dl-action-item') : [];
+    if (existingInCard.length > 1) {
+      for (let i = 1; i < existingInCard.length; i++) {
+        if (typeof existingInCard[i].remove === 'function') {
+          existingInCard[i].remove();
+        } else if (existingInCard[i].parentElement) {
+          existingInCard[i].parentElement.removeChild(existingInCard[i]);
+        }
+      }
+    }
+    if (existingInCard.length >= 1) {
+      card.setAttribute('data-tt-dl-ready', 'true');
+      const bar = existingInCard[0].parentElement;
+      if (bar && typeof bar.setAttribute === 'function') {
+        bar.setAttribute('data-tt-dl-ready', 'true');
+      }
       return;
     }
 
-    // 1. Primary Strategy: Locate the Share button directly
-    const shareBtn = card.querySelector(SELECTORS.shareButtons);
-    if (shareBtn) {
-      const shareItem =
-        shareBtn.closest('[data-e2e*="action-item"]') ||
-        shareBtn.closest('div[class*="DivActionItemContainer"]') ||
-        shareBtn.closest('button')?.parentElement ||
-        shareBtn.parentElement;
-
-      if (shareItem && shareItem.parentElement) {
-        const actionBar = shareItem.parentElement;
-        if (actionBar.querySelector('.tt-dl-action-item') || actionBar.getAttribute('data-tt-dl-ready') === 'true') {
-          return;
-        }
-
-        const downloadItem = createDownloadActionItem(card);
-        // Insert directly BEFORE the shareItem container (positions it directly ABOVE Share in the column)
-        actionBar.insertBefore(downloadItem, shareItem);
-        actionBar.setAttribute('data-tt-dl-ready', 'true');
+    // 2. Skip if enclosing parent card is already marked ready with a button
+    if (card.parentElement && card.parentElement.closest) {
+      const parentReady = card.parentElement.closest('[data-tt-dl-ready="true"]');
+      if (parentReady && parentReady.querySelector('.tt-dl-action-item')) {
         card.setAttribute('data-tt-dl-ready', 'true');
         return;
       }
     }
 
-    // 2. Secondary Strategy: Locate action bar and append if Share button selector differed
-    let actionBar = card.querySelector(SELECTORS.actionBars);
-    if (actionBar && !actionBar.querySelector('.tt-dl-action-item') && actionBar.getAttribute('data-tt-dl-ready') !== 'true') {
-      const downloadItem = createDownloadActionItem(card);
-      actionBar.appendChild(downloadItem);
+    // 3. Locate the Share button directly inside this card
+    const shareBtn = card.querySelector(SELECTORS.shareButtons);
+    if (!shareBtn) {
+      return;
+    }
+
+    // 4. Resolve the Action Bar container & direct Share item child
+    const actionBarSelectors = [
+      'div[class*="DivActionItemContainer"]',
+      'div[class*="DivFlexCenterRow-StyledWrapper"]',
+      'div[class*="DivActionBarWrapper"]',
+      'section[class*="DivActionItemContainer"]',
+      'div[class*="DivVideoActionContainer"]',
+      'div[class*="ActionBar"]'
+    ].join(',');
+
+    let actionBar = shareBtn.closest ? shareBtn.closest(actionBarSelectors) : null;
+    let shareItem = null;
+
+    if (actionBar) {
+      // Find the direct child of actionBar containing shareBtn
+      let current = shareBtn;
+      while (current && current.parentElement && current.parentElement !== actionBar) {
+        current = current.parentElement;
+      }
+      if (current && current.parentElement === actionBar) {
+        shareItem = current;
+      }
+    }
+
+    // Fallback if explicit action bar was not resolved above
+    if (!shareItem) {
+      const e2eItem = shareBtn.closest ? shareBtn.closest('[data-e2e*="action-item"]') : null;
+      if (e2eItem && e2eItem.parentElement) {
+        shareItem = e2eItem;
+        actionBar = e2eItem.parentElement;
+      } else {
+        const btn = shareBtn.closest ? (shareBtn.closest('button') || shareBtn) : shareBtn;
+        const parent = btn.parentElement;
+        if (!parent) return;
+
+        // If parent has a grandparent inside card and few children, parent is the item wrapper;
+        // otherwise parent is the action bar itself and btn is the shareItem.
+        if (parent.parentElement && parent.parentElement !== card && parent.children && parent.children.length <= 3) {
+          shareItem = parent;
+          actionBar = parent.parentElement;
+        } else {
+          shareItem = btn;
+          actionBar = parent;
+        }
+      }
+    }
+
+    if (!actionBar || !shareItem) {
+      return;
+    }
+
+    // Strict Action-Bar-Level Guards & Deduplication:
+    const existingInBar = actionBar.querySelectorAll ? actionBar.querySelectorAll('.tt-dl-action-item') : [];
+    if (existingInBar.length > 1) {
+      for (let i = 1; i < existingInBar.length; i++) {
+        if (typeof existingInBar[i].remove === 'function') {
+          existingInBar[i].remove();
+        } else if (existingInBar[i].parentElement) {
+          existingInBar[i].parentElement.removeChild(existingInBar[i]);
+        }
+      }
       actionBar.setAttribute('data-tt-dl-ready', 'true');
       card.setAttribute('data-tt-dl-ready', 'true');
+      return;
+    }
+    if (existingInBar.length >= 1) {
+      actionBar.setAttribute('data-tt-dl-ready', 'true');
+      card.setAttribute('data-tt-dl-ready', 'true');
+      return;
+    }
+
+    const downloadItem = createDownloadActionItem(card);
+    // Insert directly BEFORE the shareItem container (positions it directly ABOVE Share in the column)
+    actionBar.insertBefore(downloadItem, shareItem);
+    actionBar.setAttribute('data-tt-dl-ready', 'true');
+    card.setAttribute('data-tt-dl-ready', 'true');
+
+    // Mark parent and child cards to prevent duplicate injection in nested containers
+    if (card.parentElement && card.parentElement.closest) {
+      const parentCard = card.parentElement.closest(SELECTORS.videoCards);
+      if (parentCard) parentCard.setAttribute('data-tt-dl-ready', 'true');
+    }
+    const childCards = card.querySelectorAll ? card.querySelectorAll(SELECTORS.videoCards) : [];
+    if (childCards && childCards.length) {
+      for (let i = 0; i < childCards.length; i++) {
+        childCards[i].setAttribute('data-tt-dl-ready', 'true');
+      }
     }
   }
 
   /**
    * Scans document for video cards and injects exactly 1 download button above Share.
+   * Strict single-scan architecture: iterates video card containers only,
+   * eliminating redundant secondary scan passes.
    */
   function scanAndInject() {
     if (typeof document === 'undefined') return;
 
-    // Self-healing: if an element has data-tt-dl-ready="true" but lost its button child, reset attribute
+    // Self-healing 1: if an element has data-tt-dl-ready="true" but lost its button child, reset attribute
     const markedElements = document.querySelectorAll('[data-tt-dl-ready="true"]');
     markedElements.forEach((el) => {
-      if (!el.classList.contains('tt-dl-action-item') && !el.querySelector('.tt-dl-action-item')) {
+      const isButton = el.classList?.contains ? el.classList.contains('tt-dl-action-item') : String(el.getAttribute?.('class') || '').includes('tt-dl-action-item');
+      if (!isButton && !el.querySelector('.tt-dl-action-item')) {
         el.removeAttribute('data-tt-dl-ready');
       }
     });
 
-    // Strategy 1: Iterate known card containers
+    // Self-healing 2: prune any duplicate download buttons on existing action bars across the document
+    const allDownloadButtons = document.querySelectorAll('.tt-dl-action-item');
+    if (allDownloadButtons && allDownloadButtons.length > 1) {
+      const seenBars = new Set();
+      allDownloadButtons.forEach((btn) => {
+        const bar = btn.parentElement;
+        if (bar) {
+          if (seenBars.has(bar)) {
+            if (typeof btn.remove === 'function') {
+              btn.remove();
+            } else if (bar.removeChild) {
+              bar.removeChild(btn);
+            }
+          } else {
+            seenBars.add(bar);
+          }
+        }
+      });
+    }
+
+    // Strict single strategy: iterate known video card containers
     const cards = document.querySelectorAll(SELECTORS.videoCards);
     cards.forEach((card) => {
       injectIntoCard(card);
-    });
-
-    // Strategy 2: Direct Share-Button Discovery (catches feeds where card container selector changed)
-    const shareButtons = document.querySelectorAll(SELECTORS.shareButtons);
-    shareButtons.forEach((shareBtn) => {
-      const shareItem =
-        shareBtn.closest('[data-e2e*="action-item"]') ||
-        shareBtn.closest('div[class*="DivActionItemContainer"]') ||
-        shareBtn.closest('button')?.parentElement ||
-        shareBtn.parentElement;
-
-      if (!shareItem || !shareItem.parentElement) return;
-      const actionBar = shareItem.parentElement;
-
-      // Strict Guard: ensure only 1 download button exists per action bar
-      if (actionBar.querySelector('.tt-dl-action-item') || actionBar.getAttribute('data-tt-dl-ready') === 'true') {
-        return;
-      }
-
-      const card =
-        shareItem.closest('article, section, [data-e2e*="item"], [data-e2e*="feed"], [data-e2e*="video"], [data-e2e*="photo"], div[class*="Container"]') ||
-        actionBar;
-
-      const downloadItem = createDownloadActionItem(card);
-      actionBar.insertBefore(downloadItem, shareItem);
-      actionBar.setAttribute('data-tt-dl-ready', 'true');
-      if (card && card.setAttribute) card.setAttribute('data-tt-dl-ready', 'true');
     });
   }
 
@@ -613,27 +920,8 @@
 
     try {
       const stream = await resolveStreamData(targetCard);
-      return new Promise((resolve) => {
-        chrome.runtime.sendMessage(
-          {
-            type: 'DOWNLOAD_VIDEO',
-            payload: {
-              url: stream.url,
-              author: stream.author,
-              videoId: stream.videoId
-            }
-          },
-          (res) => {
-            if (chrome.runtime.lastError) {
-              resolve({ success: false, error: chrome.runtime.lastError.message });
-            } else if (res && res.success) {
-              resolve({ success: true, filename: res.filename });
-            } else {
-              resolve({ success: false, error: res?.error || 'Gagal memulai unduhan' });
-            }
-          }
-        );
-      });
+      const result = await downloadStreamInPage(stream);
+      return { success: true, filename: result.filename };
     } catch (err) {
       return { success: false, error: err.message || 'Gagal mengekstrak video' };
     }
@@ -734,7 +1022,16 @@
       parseDomVideoInfo,
       extractFromHtml5Video,
       resolveStreamData,
-      DOMObserverManager
+      DOMObserverManager,
+      createDownloadActionItem,
+      injectIntoCard,
+      scanAndInject,
+      sanitizeAuthor,
+      sanitizeVideoId,
+      formatFilename,
+      downloadStreamInPage,
+      handleDownloadClick,
+      handleActiveVideoDownload
     };
   }
 })();
