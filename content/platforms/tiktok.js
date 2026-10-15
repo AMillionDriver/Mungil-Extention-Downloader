@@ -200,20 +200,34 @@
         'div[class*="DivItemContainer"]'
       ].join(',');
 
+      const OUTER_POST_SELECTORS = [
+        '[data-e2e="recommend-list-item-container"]',
+        '[data-e2e="browse-video"]',
+        'div[class*="DivItemContainer"]',
+        'article'
+      ].join(',');
+
+      // Prioritize outer card container so author avatar, caption, and video player are all enclosed
       const root = (typeof container.closest === 'function')
-        ? (container.closest(ROOT_CARD_SELECTORS) || (container.parentElement && container.parentElement.closest ? container.parentElement.closest(ROOT_CARD_SELECTORS) : null) || container)
+        ? (container.closest(OUTER_POST_SELECTORS) || container.closest(ROOT_CARD_SELECTORS) || (container.parentElement && container.parentElement.closest ? container.parentElement.closest(ROOT_CARD_SELECTORS) : null) || container)
         : (container.parentElement || container);
 
       // 1. Author UniqueId (Handle)
-      // Check author elements inside root first
+      // Check author elements inside root first, prioritizing href on <a> tags to avoid display nickname confusion
       const authorEl = (typeof root.querySelector === 'function') ? root.querySelector(
-        '[data-e2e="video-author-uniqueid"], [data-e2e*="author-uniqueid"], a[data-e2e="video-author-avatar"]'
+        'a[data-e2e="video-author-avatar"], [data-e2e="video-author-uniqueid"], [data-e2e*="author-uniqueid"], a[href*="/@"]'
       ) : null;
       if (authorEl) {
-        const rawText = authorEl.textContent || (typeof authorEl.getAttribute === 'function' ? authorEl.getAttribute('href') : '') || '';
-        const match = rawText.match(/@?([a-zA-Z0-9_.-]+)/);
-        if (match && match[1] && match[1] !== 'video' && match[1] !== 'photo') {
-          author = match[1].toLowerCase();
+        const href = (typeof authorEl.getAttribute === 'function' ? authorEl.getAttribute('href') : '') || authorEl.href || '';
+        const hrefMatch = href.match(/\/@([a-zA-Z0-9_.-]+)/);
+        if (hrefMatch && hrefMatch[1] && hrefMatch[1] !== 'video' && hrefMatch[1] !== 'photo') {
+          author = hrefMatch[1].toLowerCase();
+        } else {
+          const rawText = authorEl.textContent || '';
+          const match = rawText.match(/@?([a-zA-Z0-9_.-]+)/);
+          if (match && match[1] && match[1] !== 'video' && match[1] !== 'photo') {
+            author = match[1].toLowerCase();
+          }
         }
       }
 
@@ -230,9 +244,11 @@
         }
       }
 
-      // 2. Creator Display Nickname (e.g. "Qwangs™")
+      // 2. Creator Display Nickname (e.g. "YB 🥶", "Qwangs™")
       if (typeof root.querySelector === 'function') {
-        const nickEl = root.querySelector('[data-e2e="browse-username"], h4[data-e2e="browse-username"], [class*="H4AuthorTitle"]');
+        const nickEl = root.querySelector(
+          '[data-e2e="browse-username"], h4[data-e2e="browse-username"], [class*="H4AuthorTitle"], [data-e2e="video-author-uniqueid"], [class*="AuthorTitle"], [class*="AuthorUniqueId"], h3'
+        );
         if (nickEl && nickEl.textContent) {
           nickname = nickEl.textContent.trim();
         }
@@ -241,7 +257,7 @@
       // 3. Caption / Description text (e.g. "Small but mighty...")
       if (typeof root.querySelector === 'function') {
         const descEl = root.querySelector(
-          '[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e*="desc"], [class*="DivTextInfoContainer"], h1'
+          '[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e*="desc"], [class*="DivTextInfoContainer"], [class*="DivDescription"], h1'
         );
         if (descEl && descEl.textContent) {
           description = descEl.textContent.trim().replace(/\s+/g, ' ');
@@ -276,16 +292,26 @@
         }
       }
 
-      // 6. Deep search in root id or data attributes for 15-22 digit snowflake ID
+      // 6. Deep search in root id, data attributes, or child elements for 15-22 digit snowflake ID
       if (!videoId && typeof root.querySelectorAll === 'function') {
-        const idEls = Array.from(root.querySelectorAll('[id*="xgwrapper"], [id*="player"], [data-id], video') || []);
-        for (const el of idEls) {
-          const idAttr = (typeof el.getAttribute === 'function' ? (el.getAttribute('id') || el.getAttribute('data-id')) : '') || '';
-          const idMatch = idAttr.match(/(\d{15,22})/);
-          if (idMatch) {
-            videoId = idMatch[1];
-            break;
+        const allCandidates = Array.from(root.querySelectorAll('[id], [data-id], [data-aweme-id], [data-item-id], [data-video-id], video') || []);
+        if (root.getAttribute) allCandidates.unshift(root);
+        for (const el of allCandidates) {
+          const idAttrs = [
+            typeof el.getAttribute === 'function' ? el.getAttribute('id') : '',
+            typeof el.getAttribute === 'function' ? el.getAttribute('data-id') : '',
+            typeof el.getAttribute === 'function' ? el.getAttribute('data-aweme-id') : '',
+            typeof el.getAttribute === 'function' ? el.getAttribute('data-item-id') : '',
+            typeof el.getAttribute === 'function' ? el.getAttribute('data-video-id') : ''
+          ].filter(Boolean);
+          for (const attr of idAttrs) {
+            const idMatch = attr.match(/(\d{15,22})/);
+            if (idMatch) {
+              videoId = idMatch[1];
+              break;
+            }
           }
+          if (videoId) break;
         }
       }
     }
@@ -329,6 +355,7 @@
       let nickname = '';
       let description = '';
       let duration = 0;
+      let targetSelector = '';
       let effectiveTimeout = timeoutMs;
 
       if (infoOrVideoId && typeof infoOrVideoId === 'object') {
@@ -338,6 +365,7 @@
         nickname = infoOrVideoId.nickname || '';
         description = infoOrVideoId.description || '';
         duration = infoOrVideoId.duration || 0;
+        targetSelector = infoOrVideoId.targetSelector || '';
         if (typeof urlOrTimeout === 'number') effectiveTimeout = urlOrTimeout;
       } else {
         videoId = String(infoOrVideoId || '');
@@ -375,7 +403,8 @@
             author: targetAuthor,
             nickname,
             description,
-            duration
+            duration,
+            targetSelector
           }
         })
       );
@@ -440,11 +469,23 @@
    * @returns {Promise<{ url: string, author: string, videoId: string, tier: string }>}
    */
   async function resolveStreamData(card) {
+    let targetSelector = '';
+    if (card && typeof card.setAttribute === 'function') {
+      card.setAttribute('data-tt-dl-active-target', 'true');
+      targetSelector = '[data-tt-dl-active-target="true"]';
+    }
+
     const domInfo = parseDomVideoInfo(card);
+    if (targetSelector) {
+      domInfo.targetSelector = targetSelector;
+    }
 
     // Tier 1: MAIN-World Bridge extraction (query with complete card metadata context)
     try {
       const bridgeResponse = await queryBridge(domInfo, 2000);
+      if (card && typeof card.removeAttribute === 'function') {
+        card.removeAttribute('data-tt-dl-active-target');
+      }
       if (bridgeResponse && bridgeResponse.success && bridgeResponse.data) {
         const streamUrl = bridgeResponse.data.playUrl || bridgeResponse.data.downloadUrl;
         if (streamUrl && !streamUrl.startsWith('blob:')) {
@@ -457,6 +498,9 @@
         }
       }
     } catch (err) {
+      if (card && typeof card.removeAttribute === 'function') {
+        card.removeAttribute('data-tt-dl-active-target');
+      }
       console.warn('[TikTok Downloader] Bridge extraction error:', err);
     }
 
@@ -711,10 +755,16 @@
     if (!btn || btn.disabled || btn.getAttribute('data-state') === 'loading') {
       return;
     }
+
+    // Ensure we resolve the exact enclosing video card containing this specific button
+    const targetCard = (btn && typeof btn.closest === 'function')
+      ? (btn.closest('[data-e2e="recommend-list-item-container"], [data-e2e="browse-video"], [data-e2e="feed-video"], [data-e2e="feed-photo"], article, div[class*="DivItemContainer"]') || card)
+      : card;
+
     setButtonState(btn, 'loading', 'Extracting...');
 
     try {
-      const stream = await resolveStreamData(card);
+      const stream = await resolveStreamData(targetCard);
 
       setButtonState(btn, 'loading', 'Saving...');
 

@@ -178,10 +178,13 @@
       const normalized = normalizeItemStruct(rawItem);
       if (normalized) {
         cacheItem(normalized);
-        if (!targetId || normalized.videoId === String(targetId)) {
+        const idMatches = targetId && normalized.videoId === String(targetId);
+        const authorMatches = cleanAuthor && normalized.author.toLowerCase() === cleanAuthor;
+        if (idMatches || authorMatches) {
           return { data: normalized, tier: 'universal_data' };
         }
-        if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
+        const isSingleVideoPage = typeof window !== 'undefined' && window.location && window.location.pathname.includes('/video/');
+        if (isSingleVideoPage && !targetId && !cleanAuthor) {
           return { data: normalized, tier: 'universal_data' };
         }
       }
@@ -194,10 +197,9 @@
         const normalized = normalizeItemStruct(rawItem);
         if (normalized) {
           cacheItem(normalized);
-          if (targetId && normalized.videoId === String(targetId)) {
-            return { data: normalized, tier: 'universal_data' };
-          }
-          if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
+          const idMatches = targetId && normalized.videoId === String(targetId);
+          const authorMatches = cleanAuthor && normalized.author.toLowerCase() === cleanAuthor;
+          if (idMatches || authorMatches) {
             return { data: normalized, tier: 'universal_data' };
           }
         }
@@ -211,10 +213,9 @@
         const normalized = normalizeItemStruct(rawItem);
         if (normalized) {
           cacheItem(normalized);
-          if (targetId && normalized.videoId === String(targetId)) {
-            return { data: normalized, tier: 'universal_data' };
-          }
-          if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
+          const idMatches = targetId && normalized.videoId === String(targetId);
+          const authorMatches = cleanAuthor && normalized.author.toLowerCase() === cleanAuthor;
+          if (idMatches || authorMatches) {
             return { data: normalized, tier: 'universal_data' };
           }
         }
@@ -261,16 +262,184 @@
       const normalized = normalizeItemStruct(itemModule[key]);
       if (normalized) {
         cacheItem(normalized);
-        if (targetId && normalized.videoId === String(targetId)) {
-          return { data: normalized, tier: 'sigi_state' };
-        }
-        if (cleanAuthor && normalized.author.toLowerCase() === cleanAuthor) {
+        const idMatches = targetId && normalized.videoId === String(targetId);
+        const authorMatches = cleanAuthor && normalized.author.toLowerCase() === cleanAuthor;
+        if (idMatches || authorMatches) {
           return { data: normalized, tier: 'sigi_state' };
         }
       }
     }
 
     return null;
+  }
+
+  /**
+   * Directly extracts normalized itemStruct from React Fiber or Props of a DOM node.
+   * Runs in MAIN world with full access to React internals (__reactFiber$, __reactProps$).
+   * Searches the target element, its video/player children, and parent containers.
+   *
+   * @param {HTMLElement} domElement
+   * @returns {object|null}
+   */
+  function extractFromReactFiber(domElement) {
+    if (!domElement) return null;
+
+    // Collect candidate elements: domElement, video, player container, action container
+    const candidates = [domElement];
+    if (typeof domElement.querySelector === 'function') {
+      const v = domElement.querySelector('video');
+      if (v) candidates.push(v);
+      const feedV = domElement.querySelector('[data-e2e="feed-video"]');
+      if (feedV) candidates.push(feedV);
+      const playerC = domElement.querySelector('[class*="DivVideoWrapper"], [class*="DivPlayerContainer"], [class*="DivItemContainer"]');
+      if (playerC) candidates.push(playerC);
+      const actionC = domElement.querySelector('[class*="DivActionItemContainer"], [class*="ActionBar"]');
+      if (actionC) candidates.push(actionC);
+    }
+    if (typeof domElement.closest === 'function') {
+      const outerCard = domElement.closest('[data-e2e="recommend-list-item-container"], [data-e2e="browse-video"], article, div[class*="DivItemContainer"]');
+      if (outerCard && !candidates.includes(outerCard)) candidates.unshift(outerCard);
+    }
+
+    for (const el of candidates) {
+      let node = el;
+      let depth = 0;
+
+      while (node && depth < 8) {
+        const propKeys = Object.keys(node);
+        for (const key of propKeys) {
+          // 1. React Fiber tree search
+          if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
+            let fiber = node[key];
+            let fiberDepth = 0;
+            while (fiber && fiberDepth < 20) {
+              const props = fiber.memoizedProps || fiber.pendingProps;
+              if (props && typeof props === 'object') {
+                const candidate = props.item || props.itemStruct || props.videoInfo || props.aweme || props.post || props.videoData || props.currentVideo || props.feedItem || (props.data && (props.data.item || props.data.itemStruct));
+                if (candidate && typeof candidate === 'object') {
+                  const normalized = normalizeItemStruct(candidate);
+                  if (normalized && (normalized.playUrl || normalized.downloadUrl)) {
+                    cacheItem(normalized);
+                    return normalized;
+                  }
+                  // If candidate has an ID, look it up in videoCache
+                  const cId = String(candidate.id || candidate.videoId || candidate.awemeId || '');
+                  if (cId && videoCache.has(cId)) {
+                    return videoCache.get(cId);
+                  }
+                }
+                // Check if props directly contain video ID
+                const directId = String(props.id || props.videoId || props.awemeId || '');
+                if (directId && videoCache.has(directId)) {
+                  return videoCache.get(directId);
+                }
+              }
+
+              // Check fiber.memoizedState (React Hooks like useState)
+              let stateNode = fiber.memoizedState;
+              let stateDepth = 0;
+              while (stateNode && stateDepth < 10) {
+                const stateVal = stateNode.memoizedState;
+                if (stateVal && typeof stateVal === 'object') {
+                  const candidate = stateVal.item || stateVal.itemStruct || stateVal.videoInfo || stateVal.aweme || stateVal;
+                  if (candidate && typeof candidate === 'object') {
+                    const normalized = normalizeItemStruct(candidate);
+                    if (normalized && (normalized.playUrl || normalized.downloadUrl)) {
+                      cacheItem(normalized);
+                      return normalized;
+                    }
+                    const cId = String(candidate.id || candidate.videoId || '');
+                    if (cId && videoCache.has(cId)) {
+                      return videoCache.get(cId);
+                    }
+                  }
+                }
+                stateNode = stateNode.next;
+                stateDepth++;
+              }
+
+              fiber = fiber.return || fiber.parent;
+              fiberDepth++;
+            }
+          }
+
+          // 2. Direct React Props search
+          if (key.startsWith('__reactProps$')) {
+            const props = node[key];
+            if (props && typeof props === 'object') {
+              const candidate = props.item || props.itemStruct || props.videoInfo || props.aweme || props.post || (props.data && (props.data.item || props.data.itemStruct));
+              if (candidate && typeof candidate === 'object') {
+                const normalized = normalizeItemStruct(candidate);
+                if (normalized && (normalized.playUrl || normalized.downloadUrl)) {
+                  cacheItem(normalized);
+                  return normalized;
+                }
+                const cId = String(candidate.id || candidate.videoId || '');
+                if (cId && videoCache.has(cId)) {
+                  return videoCache.get(cId);
+                }
+              }
+              const directId = String(props.id || props.videoId || props.awemeId || '');
+              if (directId && videoCache.has(directId)) {
+                return videoCache.get(directId);
+              }
+            }
+          }
+        }
+
+        node = node.parentElement;
+        depth++;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Intercepts window.XMLHttpRequest to capture feed data loaded via XHR.
+   */
+  function hookXHR() {
+    if (typeof window === 'undefined' || typeof window.XMLHttpRequest !== 'function' || !window.XMLHttpRequest.prototype) return;
+    const originalOpen = window.XMLHttpRequest.prototype.open;
+    const originalSend = window.XMLHttpRequest.prototype.send;
+    if (typeof originalOpen !== 'function' || typeof originalSend !== 'function') return;
+
+    window.XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+      this._ttUrl = String(url || '');
+      return originalOpen.call(this, method, url, ...rest);
+    };
+
+    window.XMLHttpRequest.prototype.send = function (...args) {
+      this.addEventListener('load', function () {
+        try {
+          const url = this._ttUrl || '';
+          if (
+            url.includes('item_list') ||
+            url.includes('item/detail') ||
+            url.includes('/api/recommend') ||
+            url.includes('/api/post') ||
+            url.includes('/api/feed') ||
+            url.includes('/aweme/v1/feed')
+          ) {
+            const data = JSON.parse(this.responseText);
+            if (!data) return;
+            const items =
+              data.itemList ||
+              data.items ||
+              data.aweme_list ||
+              (data.itemInfo && [data.itemInfo.itemStruct || data.itemInfo]) ||
+              [];
+            if (Array.isArray(items)) {
+              for (const item of items) {
+                const normalized = normalizeItemStruct(item);
+                cacheItem(normalized);
+              }
+            }
+          }
+        } catch (_) {}
+      });
+      return originalSend.apply(this, args);
+    };
   }
 
   /**
@@ -325,7 +494,7 @@
 
     document.addEventListener('TT_BRIDGE_REQUEST', (event) => {
       const detail = event.detail || {};
-      const { requestId, videoId, url, author, nickname, description, duration } = detail;
+      const { requestId, videoId, url, author, nickname, description, duration, targetSelector } = detail;
       if (!requestId) return;
 
       const cleanAuthor = author && author !== 'unknown' ? String(author).toLowerCase().replace(/^@+/, '').trim() : '';
@@ -339,21 +508,50 @@
       let result = null;
       let tier = 'none';
 
+      // Tier 0: Direct React Fiber / Props resolution from target DOM element or playing video
+      if (typeof document !== 'undefined') {
+        let targetEl = null;
+        if (targetSelector && typeof document.querySelector === 'function') {
+          targetEl = document.querySelector(targetSelector);
+        }
+        if (!targetEl && typeof document.querySelectorAll === 'function') {
+          const videos = Array.from(document.querySelectorAll('video') || []);
+          targetEl = videos.find((v) => !v.paused && v.currentTime > 0) || videos[0];
+        }
+
+        if (targetEl) {
+          const fiberItem = extractFromReactFiber(targetEl);
+          if (fiberItem) {
+            result = fiberItem;
+            tier = 'react_fiber';
+          }
+        }
+      }
+
       // 1. Direct match by valid videoId in primary cache
-      if (isValidVideoId && videoCache.has(String(videoId))) {
+      if (!result && isValidVideoId && videoCache.has(String(videoId))) {
         result = videoCache.get(String(videoId));
         tier = 'fetch_cache_id';
       }
 
-      // 2. Exact or substring match by caption / description (Highly accurate on FYP feed)
-      if (!result && cleanDesc && cleanDesc.length >= 6) {
-        const snippet = cleanDesc.slice(0, 35);
+      // 2. Exact, substring, or token overlap match by caption / description (Highly accurate on FYP feed)
+      if (!result && cleanDesc && cleanDesc.length >= 4) {
+        const descWords = cleanDesc.split(/\s+/).filter((w) => w.length >= 3);
         for (const item of videoCache.values()) {
           const itemDesc = (item.description || '').toLowerCase().replace(/[#@\s]+/g, ' ').trim();
-          if (itemDesc && (itemDesc.includes(snippet) || snippet.includes(itemDesc.slice(0, 30)))) {
+          if (!itemDesc) continue;
+          if (itemDesc.includes(cleanDesc) || cleanDesc.includes(itemDesc)) {
             result = item;
             tier = 'fetch_cache_desc';
             break;
+          }
+          if (descWords.length > 0) {
+            const matches = descWords.filter((w) => itemDesc.includes(w));
+            if (matches.length >= Math.min(2, descWords.length)) {
+              result = item;
+              tier = 'fetch_cache_desc';
+              break;
+            }
           }
         }
       }
@@ -433,8 +631,9 @@
         }
       }
 
-      // 9. If strictly only a single video is loaded in entire page cache
-      if (!result && videoCache.size === 1) {
+      // 9. If strictly only a single video is loaded in entire page cache AND we are on a single video page
+      const isSingleVideoPage = typeof window !== 'undefined' && window.location && window.location.pathname.includes('/video/');
+      if (!result && videoCache.size === 1 && isSingleVideoPage) {
         result = videoCache.values().next().value;
         tier = 'single_video_cache';
       }
@@ -467,8 +666,9 @@
     extractFromSigiState(null, null);
   } catch (_) {}
 
-  // Initialize bridge listeners & fetch interceptor
+  // Initialize bridge listeners, fetch & XHR interceptors
   hookNetworkRequests();
+  hookXHR();
   setupBridgeListener();
 
   // Export for testing in Node.js environments
@@ -477,6 +677,7 @@
       normalizeItemStruct,
       extractFromUniversalData,
       extractFromSigiState,
+      extractFromReactFiber,
       videoCache,
       authorCache,
       cacheItem

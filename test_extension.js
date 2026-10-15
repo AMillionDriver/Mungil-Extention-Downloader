@@ -2488,6 +2488,75 @@ async function runAllSuites() {
       const cleanAuthor = 'nonexistent_user';
       assert.strictEqual(videoCache.has(queryId), false);
     });
+
+    test('extractFromUniversalData strictly returns null when videoId and author do not match on FYP feed', () => {
+      const bridge = require(path.join(PROJECT_ROOT, 'content/injected/tiktok_bridge.js'));
+      const { extractFromUniversalData } = bridge;
+
+      global.window = {
+        location: { pathname: '/foryou' },
+        __UNIVERSAL_DATA_FOR_REHYDRATION__: {
+          __DEFAULT_SCOPE__: {
+            'webapp.video-detail': {
+              itemInfo: {
+                itemStruct: {
+                  id: '7100000000000000001',
+                  desc: 'Initial SSR video zas860',
+                  author: { uniqueId: 'zas860', nickname: 'ZAS 860' },
+                  video: { playAddr: 'https://cdn.tiktok.com/zas860.mp4' }
+                }
+              }
+            }
+          }
+        }
+      };
+
+      // When query is for a different video on FYP feed without ID or matching author
+      const resUnmatched = extractFromUniversalData(null, 'youngblack');
+      assert.strictEqual(resUnmatched, null, 'Must NOT return zas860 when author is youngblack');
+
+      const resEmpty = extractFromUniversalData(null, null);
+      assert.strictEqual(resEmpty, null, 'Must NOT return zas860 when both ID and author are null on FYP feed');
+
+      // But when targetId matches, it should resolve
+      const resMatched = extractFromUniversalData('7100000000000000001', null);
+      assert.ok(resMatched !== null);
+      assert.strictEqual(resMatched.data.author, 'zas860');
+    });
+
+    test('extractFromReactFiber resolves item from nested player child or video component props', () => {
+      const bridge = require(path.join(PROJECT_ROOT, 'content/injected/tiktok_bridge.js'));
+      const { extractFromReactFiber, cacheItem, videoCache } = bridge;
+
+      // Seed cache with youngblack's video
+      const targetVideo = {
+        videoId: '7456789012345678901',
+        author: 'youngblack',
+        nickname: 'YB 🥶',
+        description: 'lfs come to campus only to do this #relatable #viral #uni',
+        playUrl: 'https://cdn.tiktok.com/stream_youngblack.mp4',
+        downloadUrl: 'https://cdn.tiktok.com/stream_youngblack.mp4',
+        duration: 6.2
+      };
+      cacheItem(targetVideo);
+
+      // Create a mock card container with a nested video child
+      const mockCard = new MockElement('div');
+      const mockVideo = new MockElement('video');
+      mockCard.children.push(mockVideo);
+      mockVideo.parentElement = mockCard;
+
+      // Attach React Fiber to the video child element
+      mockVideo['__reactProps$abc'] = {
+        id: '7456789012345678901'
+      };
+
+      const resolved = extractFromReactFiber(mockCard);
+      assert.ok(resolved !== null, 'extractFromReactFiber must resolve from child video element');
+      assert.strictEqual(resolved.videoId, '7456789012345678901');
+      assert.strictEqual(resolved.author, 'youngblack');
+      assert.strictEqual(resolved.nickname, 'YB 🥶');
+    });
   });
 
   // --------------------------------------------------------------------------
