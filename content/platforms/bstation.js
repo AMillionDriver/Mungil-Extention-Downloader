@@ -297,7 +297,7 @@
   // 4. MAIN World Bridge IPC Client
   // =========================================================================
 
-  function requestBridgeStream(options = {}, timeoutMs = 2500) {
+  function requestBridgeStream(options = {}, timeoutMs = 4000) {
     return new Promise((resolve, reject) => {
       if (typeof document === 'undefined') {
         return reject(new Error('Document is not available'));
@@ -336,6 +336,48 @@
             aid: options.aid,
             bvid: options.bvid,
             qn: options.qn || 64
+          }
+        })
+      );
+    });
+  }
+
+  function requestBridgeSeriesInfo(options = {}, timeoutMs = 2500) {
+    return new Promise((resolve, reject) => {
+      if (typeof document === 'undefined') {
+        return reject(new Error('Document is not available'));
+      }
+
+      const requestId = `bs_series_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      let timer = null;
+
+      const responseHandler = (event) => {
+        const detail = event.detail || {};
+        if (detail.requestId === requestId) {
+          document.removeEventListener('BS_BRIDGE_RESPONSE', responseHandler);
+          if (timer) clearTimeout(timer);
+
+          if (detail.success && detail.data) {
+            resolve(detail.data);
+          } else {
+            reject(new Error(detail.error || 'Bstation series info not found'));
+          }
+        }
+      };
+
+      document.addEventListener('BS_BRIDGE_RESPONSE', responseHandler);
+
+      timer = setTimeout(() => {
+        document.removeEventListener('BS_BRIDGE_RESPONSE', responseHandler);
+        reject(new Error('Timeout waiting for Bstation series bridge'));
+      }, timeoutMs);
+
+      document.dispatchEvent(
+        new CustomEvent('BS_BRIDGE_REQUEST', {
+          detail: {
+            requestId,
+            action: 'GET_SERIES_INFO',
+            ep_id: options.ep_id || options.epId
           }
         })
       );
@@ -463,11 +505,18 @@
         let stream = null;
 
         try {
-          stream = await requestBridgeStream({ ep_id: videoInfo.episodeId, qn: 64 }, 2000);
+          stream = await requestBridgeStream({ ep_id: videoInfo.episodeId, qn: 64 }, 4000);
         } catch (_) {}
 
         if (!stream || (!stream.playUrl && !stream.url)) {
-          // Check if active video has src on video element
+          try {
+            // Retry bridge without specific ep_id to let bridge resolve active episode
+            stream = await requestBridgeStream({ qn: 64 }, 3000);
+          } catch (_) {}
+        }
+
+        if (!stream || (!stream.playUrl && !stream.url)) {
+          // Check if active video has valid http src on video element
           const videoEl = document.querySelector('video');
           if (videoEl && videoEl.src && videoEl.src.startsWith('http')) {
             stream = { url: videoEl.src, quality: '720p' };
@@ -592,6 +641,21 @@
       }
     }
 
+    // Extract episodeId from URL if available (/play/:seasonId/:episodeId or ?ep_id=...)
+    if (!episodeId && typeof window !== 'undefined' && window.location) {
+      try {
+        const path = window.location.pathname || '';
+        const playMatch = path.match(/\/play\/\d+\/(\d+)/);
+        if (playMatch) {
+          episodeId = playMatch[1];
+        } else {
+          const searchParams = new URLSearchParams(window.location.search || '');
+          const epParam = searchParams.get('ep_id');
+          if (epParam) episodeId = epParam;
+        }
+      } catch (_) {}
+    }
+
     // Check if VIP badge appears on active episode or user profile
     if (!isUserVip && typeof document !== 'undefined') {
       const vipHeader = document.querySelector('.vip-icon, .bstar-header-vip, [class*="badge--vip"]');
@@ -615,35 +679,131 @@
   let activeQueue = null;
 
   function collectEpisodesList() {
-    const episodes = [];
     const videoInfo = getActiveVideoInfo();
 
-    // 1. Try DOM episode items
-    const epElements = Array.from(document.querySelectorAll('.bstar-episode-item, a[class*="episode-item"], div[class*="ep-item"], a[href*="/play/"]') || []);
+    // 1. Check DOM bridge cache injected synchronously by bstation_bridge.js in MAIN world
+    if (typeof document !== 'undefined') {
+      try {
+        const bridgeScript = document.getElementById('__BS_SERIES_INFO__');
+        if (bridgeScript && bridgeScript.textContent) {
+          const parsed = JSON.parse(bridgeScript.textContent);
+          if (parsed && Array.isArray(parsed.episodes) && parsed.episodes.length > 0) {
+            return {
+              animeTitle: parsed.seriesTitle || videoInfo.animeTitle,
+              isUserVip: parsed.isUserVip !== undefined ? parsed.isUserVip : videoInfo.isUserVip,
+              episodes: parsed.episodes
+            };
+          }
+        }
+      } catch (_) {}
+    }
 
-    if (epElements.length > 0) {
+    // 2. Check window.__INITIAL_STATE__ if accessible directly (e.g. Node tests or same-origin)
+    if (typeof window !== 'undefined' && (window.__INITIAL_STATE__ || window.__initialState)) {
+      const state = window.__INITIAL_STATE__ || window.__initialState;
+      let rawList = state.epList;
+      if (!rawList && state.sections && Array.isArray(state.sections)) {
+        rawList = [];
+        state.sections.forEach(sec => {
+          if (Array.isArray(sec.epList)) rawList.push(...sec.epList);
+        });
+      }
+      if (!rawList && state.ogv && Array.isArray(state.ogv.episodes)) {
+        rawList = state.ogv.episodes;
+      }
+      if (Array.isArray(rawList) && rawList.length > 0) {
+        const media = state.mediaInfo || state.season || (state.ogv && state.ogv.season) || {};
+        const title = media.title || media.season_title || videoInfo.animeTitle;
+        const user = state.user || state.userInfo || {};
+        const isVip = !!(user.vip && (user.vip.is_vip || user.vip.status === 1 || user.vip.vip_type > 0));
+
+        const episodes = rawList.map((ep, idx) => {
+          const epId = String(ep.ep_id || ep.id || `ep_${idx + 1}`);
+          const rawTitle = ep.title || (ep.short_title ? `EP ${ep.short_title}` : `Episode ${idx + 1}`);
+          let epIndex = idx + 1;
+          if (ep.short_title && /^\d+$/.test(ep.short_title)) {
+            epIndex = parseInt(ep.short_title, 10);
+          } else if (rawTitle) {
+            const m = rawTitle.match(/\d+/);
+            if (m) epIndex = parseInt(m[0], 10);
+          }
+          const isEpVip = !!(
+            ep.is_vip ||
+            ep.vip_type > 0 ||
+            ep.badge === 'VIP' ||
+            (ep.badge_info && (ep.badge_info.text === 'VIP' || ep.badge_info.is_vip)) ||
+            (ep.status && ep.status === 13)
+          );
+          return {
+            id: epId,
+            epId: epId,
+            index: epIndex,
+            title: rawTitle,
+            short_title: ep.short_title || (epIndex < 10 ? `0${epIndex}` : `${epIndex}`),
+            isVip: isEpVip
+          };
+        });
+
+        return {
+          animeTitle: title,
+          isUserVip: isVip,
+          episodes
+        };
+      }
+    }
+
+    // 3. Fallback: STRICTLY Scoped DOM Scrape
+    const episodes = [];
+    const episodeSection = typeof document !== 'undefined'
+      ? document.querySelector('.bstar-episode-list, .bstar-episodes, .bstar-episode-wrap, [class*="ep-wrap"], [class*="episode-list"]')
+      : null;
+    const scope = episodeSection || (typeof document !== 'undefined' ? document : null);
+
+    if (scope) {
+      const candidateElements = Array.from(
+        scope.querySelectorAll(
+          '.bstar-episode-item, [class*="ep-item"]:not([class*="recommend"]), [class*="episode-item"]'
+        ) || []
+      );
+
+      // Discard recommendation cards, sidebar links, or elements with long text (titles/descriptions)
+      const epElements = candidateElements.filter((el) => {
+        if (el.closest && el.closest('.bstar-recommend, .bstar-aside, .recommend-list, aside, .right-container')) {
+          return false;
+        }
+        const txt = (el.textContent || '').trim();
+        return txt.length <= 15 && /\d+/.test(txt);
+      });
+
+      const seenIds = new Set();
       epElements.forEach((el, index) => {
         const epId = el.getAttribute('data-ep-id') || el.getAttribute('data-id') || `ep_${index + 1}`;
+        if (seenIds.has(epId)) return;
+        seenIds.add(epId);
+
         const titleText = el.textContent.trim();
         const digits = titleText.match(/\d+/);
         const epIndex = digits ? parseInt(digits[0], 10) : (index + 1);
 
         // Detect VIP badge
-        const hasVipBadge = !!el.querySelector('.bstar-episode-item__badge, .bstar-vip-badge, .vip-badge, [class*="badge--vip"], svg[class*="diamond"]') ||
-                            titleText.toUpperCase().includes('VIP');
+        const hasVipBadge = !!(
+          (el.querySelector && el.querySelector('.bstar-episode-item__badge, .bstar-vip-badge, .vip-badge, [class*="badge--vip"], svg[class*="diamond"]')) ||
+          titleText.toUpperCase().includes('VIP')
+        );
 
         episodes.push({
           id: epId,
           epId: epId,
           index: epIndex,
           title: titleText || `Episode ${epIndex}`,
+          short_title: epIndex < 10 ? `0${epIndex}` : `${epIndex}`,
           isVip: hasVipBadge,
           domElement: el
         });
       });
     }
 
-    // 2. If DOM items not found, generate dummy/SSR episodes
+    // 4. Fallback: If DOM items not found, generate standard 12 episodes (Ep 1-3 free, 4-12 VIP)
     if (episodes.length === 0) {
       for (let i = 1; i <= 12; i++) {
         episodes.push({
@@ -651,6 +811,7 @@
           epId: `ep_${i}`,
           index: i,
           title: `Episode ${i}`,
+          short_title: i < 10 ? `0${i}` : `${i}`,
           isVip: i > 3 // Ep 1-3 free, 4-12 VIP
         });
       }
@@ -866,7 +1027,17 @@
     const startBatchBtn = document.createElement('button');
     startBatchBtn.className = 'bs-btn-primary';
     startBatchBtn.id = 'bs-btn-start-batch';
-    startBatchBtn.innerHTML = `${SVG_ICONS.download}<span id="bs-start-batch-text">Mulai Unduh</span>`;
+
+    const btnIcon = document.createElement('span');
+    btnIcon.className = 'bs-btn-icon';
+    btnIcon.innerHTML = SVG_ICONS.download;
+    startBatchBtn.appendChild(btnIcon);
+
+    const btnText = document.createElement('span');
+    btnText.id = 'bs-start-batch-text';
+    btnText.textContent = 'Mulai Unduh';
+    startBatchBtn.appendChild(btnText);
+
     footerActions.appendChild(startBatchBtn);
 
     footer.appendChild(footerActions);
@@ -874,11 +1045,17 @@
     overlay.appendChild(dialog);
 
     function updateSelectedCount() {
-      const checkboxes = Array.from(grid.querySelectorAll('.bs-episode-checkbox:checked'));
+      const checkboxes = Array.from(grid.querySelectorAll('.bs-episode-checkbox') || []).filter((cb) => cb.checked);
       const count = checkboxes.length;
       if (countLabel) countLabel.textContent = `${count} episode dipilih`;
       if (startBatchBtn) {
         startBatchBtn.disabled = count === 0;
+        const currentBtnText = overlay.querySelector('#bs-start-batch-text') || btnText;
+        if (!activeQueue || activeQueue.activeWorkers === 0) {
+          if (currentBtnText) {
+            currentBtnText.textContent = count > 0 ? 'Mulai Unduh' : 'Pilih Episode';
+          }
+        }
       }
     }
 
@@ -988,7 +1165,15 @@
           if (statusText) {
             statusText.textContent = `Selesai: ${res.completed}, Gagal: ${res.failed}`;
           }
-          if (btnText) btnText.textContent = 'Selesai!';
+          if (btnText) {
+            if (res.failed > 0 && res.completed === 0) {
+              btnText.textContent = 'Unduh Ulang';
+            } else if (res.failed > 0) {
+              btnText.textContent = 'Unduh Ulang yang Gagal';
+            } else {
+              btnText.textContent = 'Selesai!';
+            }
+          }
           startBatchBtn.disabled = false;
           activeQueue = null;
         }
@@ -1006,7 +1191,7 @@
           quality: quality,
           resolveStream: async () => {
             try {
-              return await requestBridgeStream({ ep_id: epId, qn }, 2000);
+              return await requestBridgeStream({ ep_id: epId, qn }, 4000);
             } catch (_) {
               // Fallback stream resolution
               const videoEl = document.querySelector('video');
@@ -1203,6 +1388,7 @@
       DirectParallelQueue,
       downloadStreamInPage,
       requestBridgeStream,
+      requestBridgeSeriesInfo,
       injectPlayerButton,
       injectBatchButton,
       openBatchModal,

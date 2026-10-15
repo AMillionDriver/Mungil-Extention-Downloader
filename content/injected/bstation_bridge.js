@@ -189,23 +189,88 @@
     const isVip = !!(user.vip && (user.vip.is_vip || user.vip.status === 1 || user.vip.vip_type > 0));
 
     const epInfo = state.epInfo || state.activeEp || {};
-    const epList = state.epList || (state.sections && state.sections[0] && state.sections[0].epList) || (state.ogv && state.ogv.episodes) || [];
+    let rawList = state.epList;
+    if (!rawList && state.sections && Array.isArray(state.sections)) {
+      rawList = [];
+      state.sections.forEach(sec => {
+        if (Array.isArray(sec.epList)) rawList.push(...sec.epList);
+      });
+    }
+    if (!rawList && state.ogv && Array.isArray(state.ogv.episodes)) {
+      rawList = state.ogv.episodes;
+    }
+    const epList = Array.isArray(rawList) ? rawList : [];
+
+    const normalizedEpisodes = epList.map((ep, idx) => {
+      const epId = String(ep.ep_id || ep.id || `ep_${idx + 1}`);
+      const rawTitle = ep.title || (ep.short_title ? `EP ${ep.short_title}` : `Episode ${idx + 1}`);
+      let epIndex = idx + 1;
+      if (ep.short_title && /^\d+$/.test(ep.short_title)) {
+        epIndex = parseInt(ep.short_title, 10);
+      } else if (rawTitle) {
+        const m = rawTitle.match(/\d+/);
+        if (m) epIndex = parseInt(m[0], 10);
+      }
+
+      const isEpVip = !!(
+        ep.is_vip ||
+        ep.vip_type > 0 ||
+        ep.badge === 'VIP' ||
+        (ep.badge_info && (ep.badge_info.text === 'VIP' || ep.badge_info.is_vip)) ||
+        (ep.status && ep.status === 13)
+      );
+
+      return {
+        id: epId,
+        epId: epId,
+        index: epIndex,
+        title: rawTitle,
+        short_title: ep.short_title || (epIndex < 10 ? `0${epIndex}` : `${epIndex}`),
+        isVip: isEpVip
+      };
+    });
 
     // Find requested or active episode
     let targetEp = null;
     if (targetEpId) {
-      targetEp = epList.find((e) => String(e.ep_id || e.id) === String(targetEpId));
+      targetEp = normalizedEpisodes.find((e) => String(e.ep_id || e.id) === String(targetEpId));
     }
     if (!targetEp) {
-      targetEp = epInfo.ep_id ? epInfo : (epList[0] || null);
+      targetEp = epInfo.ep_id ? normalizedEpisodes.find(e => String(e.ep_id) === String(epInfo.ep_id)) : (normalizedEpisodes[0] || null);
     }
 
     return {
       seriesTitle,
       isUserVip: isVip,
-      episodes: epList,
+      episodes: normalizedEpisodes,
       activeEpisode: targetEp
     };
+  }
+
+  /**
+   * Synchronously mirrors normalized series info into a DOM script tag (__BS_SERIES_INFO__)
+   * so content scripts running in the ISOLATED world can access the true episode count without IPC lag.
+   */
+  function syncSeriesInfoToDOM() {
+    if (typeof document === 'undefined') return;
+    try {
+      const info = extractFromInitialState(null);
+      if (info && Array.isArray(info.episodes) && info.episodes.length > 0) {
+        let script = document.getElementById('__BS_SERIES_INFO__');
+        if (!script) {
+          script = document.createElement('script');
+          script.id = '__BS_SERIES_INFO__';
+          script.type = 'application/json';
+          const target = document.head || document.documentElement || document.body;
+          if (target && target.appendChild) {
+            target.appendChild(script);
+          }
+        }
+        if (script) {
+          script.textContent = JSON.stringify(info);
+        }
+      }
+    } catch (_) {}
   }
 
   /**
@@ -347,19 +412,89 @@
   }
 
   /**
+   * Actively fetches the stream playurl on demand from Bstation's official API
+   * using the user's authentic session cookies/credentials.
+   */
+  async function fetchPlayurlOnDemand({ ep_id, aid, bvid, qn = 64 }) {
+    if (typeof fetch !== 'function') return null;
+
+    let apiUrl = '';
+    if (ep_id) {
+      apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${qn}`;
+    } else if (aid || bvid) {
+      apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${qn}`;
+    } else {
+      return null;
+    }
+
+    try {
+      const res = await fetch(apiUrl, { credentials: 'include' });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const normalized = normalizePlayurlResponse(json, { ep_id, aid, bvid });
+      if (normalized) {
+        cacheStreamItem(normalized);
+        return normalized;
+      }
+    } catch (err) {
+      // Fetch error or network issue
+    }
+    return null;
+  }
+
+  /**
    * Sets up CustomEvent IPC listener for 'BS_BRIDGE_REQUEST'
    */
   function setupBridgeListener() {
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
 
-    document.addEventListener('BS_BRIDGE_REQUEST', (event) => {
+    document.addEventListener('BS_BRIDGE_REQUEST', async (event) => {
       const detail = event.detail || {};
       const { requestId, ep_id, aid, bvid, qn, action } = detail;
       if (!requestId) return;
 
-      const resolved = resolveStream(ep_id, aid, bvid, qn);
-      const matched = resolved ? resolved.data : null;
-      const tier = resolved ? resolved.tier : 'none';
+      // 1. Handle series and episode list query
+      if (action === 'GET_SERIES_INFO') {
+        const seriesInfo = extractFromInitialState(ep_id);
+        const hasData = !!(seriesInfo && (Array.isArray(seriesInfo.episodes) && seriesInfo.episodes.length > 0 || seriesInfo.seriesTitle));
+        document.dispatchEvent(
+          new CustomEvent('BS_BRIDGE_RESPONSE', {
+            detail: {
+              source: 'BS_BRIDGE_MAIN',
+              requestId,
+              success: hasData,
+              data: seriesInfo,
+              tier: 'ssr_initial_state',
+              error: hasData ? null : 'Bstation series info not found'
+            }
+          })
+        );
+        return;
+      }
+
+      // 2. Resolve stream from cache or pre-rendered playinfo
+      let resolved = resolveStream(ep_id, aid, bvid, qn);
+      let matched = resolved ? resolved.data : null;
+      let tier = resolved ? resolved.tier : 'none';
+
+      // 3. If not cached, attempt on-demand fetch using page credentials
+      if (!matched) {
+        let targetEpId = ep_id;
+        if (!targetEpId) {
+          const stateInfo = extractFromInitialState(null);
+          if (stateInfo && stateInfo.activeEpisode && stateInfo.activeEpisode.epId) {
+            targetEpId = stateInfo.activeEpisode.epId;
+          }
+        }
+        if (targetEpId || aid || bvid) {
+          try {
+            matched = await fetchPlayurlOnDemand({ ep_id: targetEpId, aid, bvid, qn });
+            if (matched) {
+              tier = 'on_demand_fetch';
+            }
+          } catch (_) {}
+        }
+      }
 
       document.dispatchEvent(
         new CustomEvent('BS_BRIDGE_RESPONSE', {
@@ -380,7 +515,14 @@
   try {
     extractFromPlayinfo();
     extractFromInitialState(null);
+    syncSeriesInfoToDOM();
   } catch (_) {}
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', syncSeriesInfoToDOM);
+    }
+  }
 
   hookNetworkRequests();
   hookXHR();
@@ -392,8 +534,10 @@
       normalizePlayurlResponse,
       cacheStreamItem,
       extractFromInitialState,
+      syncSeriesInfoToDOM,
       extractFromPlayinfo,
       resolveStream,
+      fetchPlayurlOnDemand,
       mapQnToLabel,
       epCache,
       videoCache,

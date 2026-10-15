@@ -2850,6 +2850,121 @@ async function runAllSuites() {
       assert.strictEqual(cards.filter((c) => c.cb.checked).length, 3, 'Hanya Episode Gratis selects only non-VIP episodes');
     });
 
+    test('Ghost 40 episodes prevention: strictly scopes DOM to episode container and rejects 38 sidebar recommendations', () => {
+      const mockDoc = new MockElement('body');
+
+      // Real anime with only 2 episodes in .bstar-episode-list
+      const epContainer = new MockElement('div');
+      epContainer.setAttribute('class', 'bstar-episode-list');
+
+      for (let i = 1; i <= 2; i++) {
+        const item = new MockElement('div');
+        item.setAttribute('class', 'bstar-episode-item');
+        item.setAttribute('data-ep-id', `real_ep_${i}`);
+        item.textContent = `EP 0${i}`;
+        epContainer.appendChild(item);
+      }
+      mockDoc.appendChild(epContainer);
+
+      // 38 recommended cards in sidebar
+      const aside = new MockElement('aside');
+      aside.setAttribute('class', 'bstar-recommend');
+      for (let j = 1; j <= 38; j++) {
+        const card = new MockElement('a');
+        card.setAttribute('class', 'recommend-video-card');
+        card.setAttribute('href', `/id/play/209999/ep_${j}`);
+        card.textContent = `Other Anime Show Episode ${j} with long title description`;
+        aside.appendChild(card);
+      }
+      mockDoc.appendChild(aside);
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      try {
+        global.document = {
+          querySelectorAll: (sel) => mockDoc.querySelectorAll(sel),
+          querySelector: (sel) => mockDoc.querySelector(sel),
+          title: 'The Laid-Off Cheat-Granting Mage - Bilibili'
+        };
+        global.window = {};
+
+        const res = collectEpisodesList();
+        assert.strictEqual(res.episodes.length, 2, 'Must detect EXACTLY 2 episodes and reject 38 recommendations');
+        assert.strictEqual(res.episodes[0].epId, 'real_ep_1');
+        assert.strictEqual(res.episodes[1].epId, 'real_ep_2');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    test('Server-authoritative episode extraction: __BS_SERIES_INFO__ DOM bridge mirror returns exact 2 episodes', () => {
+      const mockDoc = new MockElement('body');
+      const bridgeScript = new MockElement('script');
+      bridgeScript.setAttribute('id', '__BS_SERIES_INFO__');
+      bridgeScript.textContent = JSON.stringify({
+        seriesTitle: 'The Laid-Off Cheat-Granting Mage',
+        isUserVip: false,
+        episodes: [
+          { id: '11252037', epId: '11252037', index: 1, title: 'Episode 1', short_title: '01', isVip: false },
+          { id: '11252038', epId: '11252038', index: 2, title: 'Episode 2', short_title: '02', isVip: false }
+        ]
+      });
+      mockDoc.appendChild(bridgeScript);
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      try {
+        global.document = {
+          getElementById: (id) => mockDoc.getElementById(id),
+          querySelector: (sel) => mockDoc.querySelector(sel),
+          querySelectorAll: (sel) => mockDoc.querySelectorAll(sel),
+          title: 'The Laid-Off Cheat-Granting Mage'
+        };
+        global.window = {};
+
+        const res = collectEpisodesList();
+        assert.strictEqual(res.episodes.length, 2, '__BS_SERIES_INFO__ should guarantee exactly 2 episodes');
+        assert.strictEqual(res.animeTitle, 'The Laid-Off Cheat-Granting Mage');
+        assert.strictEqual(res.episodes[0].id, '11252037');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    test('URL episode ID extraction: getActiveVideoInfo extracts episode ID from path /play/:season/:ep or search query', () => {
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      const { getActiveVideoInfo } = bstationScript;
+
+      try {
+        global.document = {
+          querySelector: () => null,
+          title: 'Anime Title'
+        };
+        global.window = {
+          location: {
+            pathname: '/id/play/1048837/11252037',
+            search: ''
+          }
+        };
+
+        const info = getActiveVideoInfo();
+        assert.strictEqual(info.episodeId, '11252037', 'Must extract 11252037 from /play/1048837/11252037');
+
+        global.window.location = {
+          pathname: '/play/detail',
+          search: '?ep_id=98765'
+        };
+        const info2 = getActiveVideoInfo();
+        assert.strictEqual(info2.episodeId, '98765', 'Must extract 98765 from ?ep_id=98765');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
     await testAsync('Direct Parallel Queue limits active concurrent downloads strictly to 2', async () => {
       const queue = new DirectParallelQueue({ concurrency: 2 });
       let maxActiveObserved = 0;
@@ -3061,6 +3176,60 @@ async function runAllSuites() {
 
         closeBatchModal();
         assert.ok(!modalRoot.className.includes('bs-modal-open'), 'bs-modal-open class must be removed on close');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    test('Batch modal button recovery: failure transitions button to Unduh Ulang and checking episode resets to Mulai Unduh', () => {
+      const docRoot = new MockElement('body');
+      const originalDoc = global.document;
+      const originalWin = global.window;
+
+      try {
+        global.document = {
+          body: docRoot,
+          documentElement: docRoot,
+          createElement: (tag) => new MockElement(tag),
+          getElementById: (id) => docRoot.getElementById(id),
+          querySelector: (sel) => docRoot.querySelector(sel),
+          querySelectorAll: (sel) => docRoot.querySelectorAll(sel),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          title: 'Anime Show'
+        };
+        global.window = {
+          __INITIAL_STATE__: {
+            mediaInfo: { title: 'Anime Show' },
+            user: { vip: { is_vip: true } }
+          }
+        };
+
+        openBatchModal();
+
+        const modalRoot = docRoot.getElementById('bs-batch-modal-root');
+        const startBtn = modalRoot.querySelector('#bs-btn-start-batch');
+        const btnText = modalRoot.querySelector('#bs-start-batch-text');
+        const pillNone = modalRoot.querySelector('#bs-pill-none');
+        const pillAll = modalRoot.querySelector('#bs-pill-all');
+
+        assert.ok(startBtn);
+        assert.strictEqual(btnText.textContent, 'Mulai Unduh');
+
+        // Simulate queue completing with failure: res = { completed: 0, failed: 1 }
+        btnText.textContent = 'Unduh Ulang';
+        assert.strictEqual(btnText.textContent, 'Unduh Ulang', 'Must show Unduh Ulang when failed');
+
+        // Clicking pillNone unchecks all and updates button to disabled
+        pillNone.click();
+        assert.strictEqual(btnText.textContent, 'Pilih Episode');
+        assert.strictEqual(startBtn.disabled, true);
+
+        // Clicking pillAll re-checks all and resets button to Mulai Unduh and enables it
+        pillAll.click();
+        assert.strictEqual(btnText.textContent, 'Mulai Unduh', 'Re-selecting episodes must reset button to Mulai Unduh');
+        assert.strictEqual(startBtn.disabled, false, 'Start button must be enabled when episodes selected');
       } finally {
         global.document = originalDoc;
         global.window = originalWin;
