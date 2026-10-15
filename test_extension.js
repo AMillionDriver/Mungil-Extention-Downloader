@@ -2734,7 +2734,8 @@ async function runAllSuites() {
   // --------------------------------------------------------------------------
   await runSuite('Suite 11: Episode Batch Queue, VIP Filtering & Concurrency 2 Scheduler Simulation', async ({ test, testAsync }) => {
     const bstationScript = require(path.join(PROJECT_ROOT, 'content/platforms/bstation.js'));
-    const { DirectParallelQueue, collectEpisodesList } = bstationScript;
+    const bstationBridge = require(path.join(PROJECT_ROOT, 'content/injected/bstation_bridge.js'));
+    const { DirectParallelQueue, collectEpisodesList, extractNumericEpId } = bstationScript;
 
     test('Free vs VIP Episode Filtering: non-VIP user has VIP episodes marked [VIP Diperlukan] and disabled', () => {
       const mockDoc = new MockElement('body');
@@ -2962,6 +2963,98 @@ async function runAllSuites() {
       } finally {
         global.document = originalDoc;
         global.window = originalWin;
+      }
+    });
+
+    test('extractNumericEpId extracts Bstation authentic numeric IDs from hrefs and data attributes', () => {
+      // 1. Element with standard Bstation link href
+      const linkEl = new MockElement('a');
+      linkEl.setAttribute('href', 'https://www.bilibili.tv/id/play/2411889/30639810?bstar_from=bstar-web.pgc-video-detail.episode.all');
+      assert.strictEqual(extractNumericEpId(linkEl), '30639810', 'Must extract 30639810 from full Bstation episode URL');
+
+      // 2. Container wrapping an anchor element
+      const wrapperEl = new MockElement('div');
+      const childLink = new MockElement('a');
+      childLink.setAttribute('href', '/id/play/2411889/30639811');
+      wrapperEl.appendChild(childLink);
+      assert.strictEqual(extractNumericEpId(wrapperEl), '30639811', 'Must extract 30639811 from child link');
+
+      // 3. Link with query parameter ?ep_id=...
+      const queryLink = new MockElement('a');
+      queryLink.setAttribute('href', '/play/detail?ep_id=30639812&bstar_from=ep');
+      assert.strictEqual(extractNumericEpId(queryLink), '30639812', 'Must extract 30639812 from query string');
+
+      // 4. Fallback to numeric data-ep-id
+      const dataEl = new MockElement('div');
+      dataEl.setAttribute('data-ep-id', '30639813');
+      assert.strictEqual(extractNumericEpId(dataEl), '30639813', 'Must extract from numeric data-ep-id');
+    });
+
+    test('Single-segment season URL (/play/2411889): getActiveVideoInfo resolves episode 1 numeric ID from active DOM node', () => {
+      const mockDoc = new MockElement('body');
+      const epContainer = new MockElement('div');
+      epContainer.setAttribute('class', 'bstar-episode-list');
+
+      // Active episode 1 link
+      const ep1 = new MockElement('a');
+      ep1.setAttribute('class', 'bstar-episode-item bstar-episode-item--active');
+      ep1.setAttribute('href', 'https://www.bilibili.tv/id/play/2411889/30639810?bstar_from=detail');
+      ep1.textContent = 'E1';
+      epContainer.appendChild(ep1);
+
+      // Episode 2 link
+      const ep2 = new MockElement('a');
+      ep2.setAttribute('class', 'bstar-episode-item');
+      ep2.setAttribute('href', 'https://www.bilibili.tv/id/play/2411889/30639811?bstar_from=detail');
+      ep2.textContent = 'E2';
+      epContainer.appendChild(ep2);
+
+      mockDoc.appendChild(epContainer);
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      const { getActiveVideoInfo } = bstationScript;
+
+      try {
+        global.document = {
+          querySelector: (sel) => mockDoc.querySelector(sel),
+          querySelectorAll: (sel) => mockDoc.querySelectorAll(sel),
+          title: 'Kaiju Dara Caramelise'
+        };
+        // URL has only seasonId (single number segment)
+        global.window = {
+          location: {
+            pathname: '/id/play/2411889',
+            search: '?bstar_from=bstar-web.anime-tab.top-hits.all'
+          }
+        };
+
+        const info = getActiveVideoInfo();
+        assert.strictEqual(info.episodeId, '30639810', 'Must resolve episode 1 numeric ID 30639810 from active DOM element');
+        assert.strictEqual(info.episodeTitle, 'E1');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    await testAsync('fetchPlayurlOnDemand validates numeric ep_id and refuses to issue 404 requests for dummy strings like ep_1', async () => {
+      const { fetchPlayurlOnDemand } = bstationBridge;
+      let fetchCalled = false;
+      const originalFetch = global.fetch;
+
+      try {
+        global.fetch = async (url) => {
+          fetchCalled = true;
+          return { ok: false, status: 404 };
+        };
+
+        // When given non-numeric dummy string "ep_1" without valid state resolution, it must return null without calling fetch
+        const res = await fetchPlayurlOnDemand({ ep_id: 'ep_1', qn: 32 });
+        assert.strictEqual(res, null, 'Must return null for unresolved non-numeric ep_id');
+        assert.strictEqual(fetchCalled, false, 'Must NOT trigger network request with dummy ep_1 ID (prevents 404)');
+      } finally {
+        global.fetch = originalFetch;
       }
     });
 

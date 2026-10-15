@@ -24,6 +24,24 @@
   // Last active intercepted stream
   let activeStream = null;
 
+  // Reactive property hook for window.__INITIAL_STATE__ to capture hydration data as soon as Bstation sets it
+  if (typeof window !== 'undefined') {
+    try {
+      let _initialState = window.__INITIAL_STATE__ || window.__initialState;
+      Object.defineProperty(window, '__INITIAL_STATE__', {
+        get() { return _initialState; },
+        set(val) {
+          _initialState = val;
+          try {
+            if (typeof syncSeriesInfoToDOM === 'function') syncSeriesInfoToDOM();
+          } catch (_) {}
+        },
+        configurable: true,
+        enumerable: true
+      });
+    } catch (_) {}
+  }
+
   /**
    * Helper to map numeric quality (qn) to human-readable label.
    */
@@ -172,7 +190,7 @@
     if (typeof window === 'undefined') return null;
 
     let state = window.__INITIAL_STATE__ || window.__initialState;
-    if (!state && typeof document !== 'undefined') {
+    if (!state && typeof document !== 'undefined' && typeof document.getElementById === 'function') {
       const script = document.getElementById('__INITIAL_STATE__');
       if (script && script.textContent) {
         try {
@@ -189,11 +207,15 @@
     const isVip = !!(user.vip && (user.vip.is_vip || user.vip.status === 1 || user.vip.vip_type > 0));
 
     const epInfo = state.epInfo || state.activeEp || {};
-    let rawList = state.epList;
+    let rawList = state.epList || state.episodes;
+    if (!rawList && mediaInfo) {
+      rawList = mediaInfo.episodes || mediaInfo.epList || mediaInfo.episodeList;
+    }
     if (!rawList && state.sections && Array.isArray(state.sections)) {
       rawList = [];
       state.sections.forEach(sec => {
-        if (Array.isArray(sec.epList)) rawList.push(...sec.epList);
+        const list = sec.episodes || sec.epList || sec.episodeList;
+        if (Array.isArray(list)) rawList.push(...list);
       });
     }
     if (!rawList && state.ogv && Array.isArray(state.ogv.episodes)) {
@@ -252,7 +274,7 @@
    * so content scripts running in the ISOLATED world can access the true episode count without IPC lag.
    */
   function syncSeriesInfoToDOM() {
-    if (typeof document === 'undefined') return;
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function' || typeof document.createElement !== 'function') return;
     try {
       const info = extractFromInitialState(null);
       if (info && Array.isArray(info.episodes) && info.episodes.length > 0) {
@@ -280,7 +302,7 @@
     if (typeof window === 'undefined') return null;
 
     let playinfo = window.__playinfo__;
-    if (!playinfo && typeof document !== 'undefined') {
+    if (!playinfo && typeof document !== 'undefined' && typeof document.getElementById === 'function') {
       const script = document.getElementById('__playinfo__');
       if (script && script.textContent) {
         try {
@@ -418,6 +440,28 @@
   async function fetchPlayurlOnDemand({ ep_id, aid, bvid, qn = 64 }) {
     if (typeof fetch !== 'function') return null;
 
+    // Validate ep_id: Bstation OGV playurl strictly requires genuine numeric ep_id
+    if (ep_id && !/^\d+$/.test(String(ep_id))) {
+      const stateInfo = extractFromInitialState(null);
+      let resolvedNumericId = '';
+      if (stateInfo && Array.isArray(stateInfo.episodes)) {
+        const numMatch = String(ep_id).match(/\d+/);
+        const targetIndex = numMatch ? parseInt(numMatch[0], 10) : 1;
+        const matched = stateInfo.episodes.find((e) => e.index === targetIndex || e.id === ep_id);
+        if (matched && /^\d+$/.test(String(matched.epId))) {
+          resolvedNumericId = String(matched.epId);
+        } else if (stateInfo.activeEpisode && /^\d+$/.test(String(stateInfo.activeEpisode.epId))) {
+          resolvedNumericId = String(stateInfo.activeEpisode.epId);
+        }
+      }
+      if (resolvedNumericId) {
+        ep_id = resolvedNumericId;
+      } else {
+        // Cannot resolve to numeric ID, prevent invalid request that results in 404
+        return null;
+      }
+    }
+
     let apiUrl = '';
     if (ep_id) {
       apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${qn}`;
@@ -496,18 +540,20 @@
         }
       }
 
-      document.dispatchEvent(
-        new CustomEvent('BS_BRIDGE_RESPONSE', {
-          detail: {
-            source: 'BS_BRIDGE_MAIN',
-            requestId,
-            success: !!(matched && (matched.playUrl || matched.url)),
-            data: matched,
-            tier,
-            error: matched ? null : 'Bstation video stream not found'
-          }
-        })
-      );
+      if (typeof document !== 'undefined' && typeof document.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+        document.dispatchEvent(
+          new CustomEvent('BS_BRIDGE_RESPONSE', {
+            detail: {
+              source: 'BS_BRIDGE_MAIN',
+              requestId,
+              success: !!(matched && (matched.playUrl || matched.url)),
+              data: matched,
+              tier,
+              error: matched ? null : 'Bstation video stream not found'
+            }
+          })
+        );
+      }
     });
   }
 
@@ -518,7 +564,7 @@
     syncSeriesInfoToDOM();
   } catch (_) {}
 
-  if (typeof document !== 'undefined') {
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', syncSeriesInfoToDOM);
     }

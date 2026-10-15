@@ -596,6 +596,43 @@
   // 6. Active Video & Page State Detection
   // =========================================================================
 
+  /**
+   * Robustly extracts genuine numeric episode ID from an element, its children, or its href attribute.
+   * On Bstation, episode links have pattern: /play/:seasonId/:episodeId (e.g. /id/play/2411889/30639810)
+   * or query parameter: ?ep_id=30639810
+   */
+  function extractNumericEpId(element) {
+    if (!element) return '';
+
+    // 1. Check data-ep-id or data-id attribute if strictly numeric
+    const dataEpId = element.getAttribute ? (element.getAttribute('data-ep-id') || element.getAttribute('data-id')) : null;
+    if (dataEpId && /^\d+$/.test(String(dataEpId))) {
+      return String(dataEpId);
+    }
+
+    // 2. Check href attribute on element or on child <a> tag
+    let href = element.getAttribute ? (element.getAttribute('href') || element.href || '') : '';
+    if (!href && element.querySelector) {
+      const a = element.querySelector('a[href*="/play/"], a');
+      if (a) href = a.getAttribute('href') || a.href || '';
+    }
+
+    if (href && typeof href === 'string') {
+      // Matches /play/:seasonId/:episodeId
+      const match = href.match(/\/play\/\d+\/(\d+)/);
+      if (match && match[1] && /^\d+$/.test(match[1])) {
+        return match[1];
+      }
+      // Matches ?ep_id=:episodeId
+      const epParam = href.match(/[?&]ep_id=(\d+)/);
+      if (epParam && epParam[1] && /^\d+$/.test(epParam[1])) {
+        return epParam[1];
+      }
+    }
+
+    return '';
+  }
+
   function getActiveVideoInfo() {
     let animeTitle = '';
     let episodeTitle = 'E01';
@@ -613,13 +650,16 @@
 
         const ep = state.epInfo || state.activeEp;
         if (ep) {
-          episodeId = String(ep.ep_id || ep.id || '');
+          const rawId = ep.ep_id || ep.id;
+          if (rawId && /^\d+$/.test(String(rawId))) {
+            episodeId = String(rawId);
+          }
           episodeTitle = ep.short_title ? `E${ep.short_title}` : (ep.title || 'E01');
         }
       }
     }
 
-    // 2. DOM Scrape Fallback
+    // 2. DOM Scrape Fallback for Title
     if (!animeTitle && typeof document !== 'undefined') {
       const titleEl = document.querySelector('.ogv-title, .bstar-video-title, h1[class*="title"], h1, .media-info-title');
       if (titleEl) {
@@ -631,29 +671,42 @@
       animeTitle = document.title.split('-')[0].split('|')[0].trim();
     }
 
-    if (!episodeId && typeof document !== 'undefined') {
-      const activeEpNode = document.querySelector('.bstar-episode-item--active, [class*="ep-item--active"], .active-ep');
-      if (activeEpNode) {
-        episodeId = activeEpNode.getAttribute('data-ep-id') || activeEpNode.getAttribute('data-id') || '';
-        const numText = activeEpNode.querySelector('span, div')?.textContent || activeEpNode.textContent || '';
-        const numMatch = numText.match(/\d+/);
-        if (numMatch) episodeTitle = `E${numMatch[0]}`;
-      }
-    }
-
-    // Extract episodeId from URL if available (/play/:seasonId/:episodeId or ?ep_id=...)
+    // 3. Extract episodeId from URL if available (/play/:seasonId/:episodeId or ?ep_id=...)
     if (!episodeId && typeof window !== 'undefined' && window.location) {
       try {
         const path = window.location.pathname || '';
         const playMatch = path.match(/\/play\/\d+\/(\d+)/);
-        if (playMatch) {
+        if (playMatch && /^\d+$/.test(playMatch[1])) {
           episodeId = playMatch[1];
         } else {
           const searchParams = new URLSearchParams(window.location.search || '');
           const epParam = searchParams.get('ep_id');
-          if (epParam) episodeId = epParam;
+          if (epParam && /^\d+$/.test(epParam)) episodeId = epParam;
         }
       } catch (_) {}
+    }
+
+    // 4. Extract episodeId and episodeTitle from Active Episode Node in DOM
+    if (typeof document !== 'undefined') {
+      const activeEpNode = document.querySelector(
+        '.bstar-episode-item--active, [class*="ep-item--active"], .active-ep, [class*="item--active"], .bstar-episode-list .active'
+      );
+      if (activeEpNode) {
+        const extractedId = extractNumericEpId(activeEpNode);
+        if (extractedId) episodeId = extractedId;
+
+        const numText = activeEpNode.querySelector('span, div')?.textContent || activeEpNode.textContent || '';
+        const numMatch = numText.match(/\d+/);
+        if (numMatch) episodeTitle = `E${numMatch[0]}`;
+      } else if (!episodeId) {
+        // If URL has only seasonId (/play/2411889) and active class is not set yet,
+        // take the first episode item in the episode container!
+        const firstEp = document.querySelector('.bstar-episode-list a[href*="/play/"], .bstar-episode-item, [class*="ep-item"]');
+        if (firstEp) {
+          const extractedId = extractNumericEpId(firstEp);
+          if (extractedId) episodeId = extractedId;
+        }
+      }
     }
 
     // Check if VIP badge appears on active episode or user profile
@@ -777,7 +830,8 @@
 
       const seenIds = new Set();
       epElements.forEach((el, index) => {
-        const epId = el.getAttribute('data-ep-id') || el.getAttribute('data-id') || `ep_${index + 1}`;
+        const extractedNumeric = extractNumericEpId(el);
+        const epId = extractedNumeric || el.getAttribute('data-ep-id') || el.getAttribute('data-id') || `ep_${index + 1}`;
         if (seenIds.has(epId)) return;
         seenIds.add(epId);
 
@@ -1324,7 +1378,7 @@
           try {
             let stream = null;
             try {
-              stream = await requestBridgeStream({ ep_id: info.episodeId, qn: 64 }, 2000);
+              stream = await requestBridgeStream({ ep_id: info.episodeId, qn: 64 }, 4000);
             } catch (_) {}
 
             if (!stream || (!stream.playUrl && !stream.url)) {
@@ -1395,6 +1449,7 @@
       closeBatchModal,
       collectEpisodesList,
       getActiveVideoInfo,
+      extractNumericEpId,
       setPlayerButtonState,
       scanAndInject,
       SVG_ICONS
