@@ -321,71 +321,126 @@
    * Listens for TT_BRIDGE_REQUEST CustomEvent dispatched by ISOLATED world content script.
    */
   function setupBridgeListener() {
-    if (typeof document === 'undefined') return;
+    if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
 
     document.addEventListener('TT_BRIDGE_REQUEST', (event) => {
       const detail = event.detail || {};
-      const { requestId, videoId, url, author } = detail;
+      const { requestId, videoId, url, author, nickname, description, duration } = detail;
       if (!requestId) return;
 
-      const cleanAuthor = author ? String(author).toLowerCase().replace(/^@+/, '').trim() : '';
+      const cleanAuthor = author && author !== 'unknown' ? String(author).toLowerCase().replace(/^@+/, '').trim() : '';
+      const cleanNick = nickname ? String(nickname).toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+      const cleanDesc = description ? String(description).toLowerCase().replace(/[#@\s]+/g, ' ').trim() : '';
+      const numDuration = Number(duration) || 0;
+
+      // Disregard generated synthetic timestamps (e.g. 13-digit Date.now()) as real TikTok IDs
+      const isValidVideoId = videoId && String(videoId).length >= 15 && /^\d+$/.test(String(videoId));
+
       let result = null;
       let tier = 'none';
 
-      // 1. Direct match by videoId in cache
-      if (videoId && videoCache.has(String(videoId))) {
+      // 1. Direct match by valid videoId in primary cache
+      if (isValidVideoId && videoCache.has(String(videoId))) {
         result = videoCache.get(String(videoId));
-        tier = 'fetch_cache';
+        tier = 'fetch_cache_id';
       }
 
-      // 2. Author match in cache
+      // 2. Exact or substring match by caption / description (Highly accurate on FYP feed)
+      if (!result && cleanDesc && cleanDesc.length >= 6) {
+        const snippet = cleanDesc.slice(0, 35);
+        for (const item of videoCache.values()) {
+          const itemDesc = (item.description || '').toLowerCase().replace(/[#@\s]+/g, ' ').trim();
+          if (itemDesc && (itemDesc.includes(snippet) || snippet.includes(itemDesc.slice(0, 30)))) {
+            result = item;
+            tier = 'fetch_cache_desc';
+            break;
+          }
+        }
+      }
+
+      // 3. Match by creator uniqueId in author cache
       if (!result && cleanAuthor && authorCache.has(cleanAuthor)) {
         const list = authorCache.get(cleanAuthor);
         if (list && list.length > 0) {
-          result = list[list.length - 1]; // most recently added item for this creator
-          tier = 'author_cache';
+          if (list.length === 1) {
+            result = list[0];
+            tier = 'author_cache';
+          } else {
+            // Disambiguate multiple videos by duration or description snippet
+            let matched = null;
+            if (numDuration > 0) {
+              matched = list.find((it) => Math.abs((it.duration || 0) - numDuration) < 1.0);
+            }
+            if (!matched && cleanDesc) {
+              matched = list.find((it) => {
+                const itDesc = (it.description || '').toLowerCase();
+                return itDesc.includes(cleanDesc.slice(0, 20));
+              });
+            }
+            result = matched || list[list.length - 1];
+            tier = 'author_cache';
+          }
         }
       }
 
-      // 3. Check Universal Data with both videoId and author
+      // 4. Match by creator display nickname (e.g. "Qwangs™")
+      if (!result && cleanNick && cleanNick.length >= 3) {
+        for (const item of videoCache.values()) {
+          const itemNick = (item.nickname || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (itemNick && (itemNick === cleanNick || itemNick.includes(cleanNick) || cleanNick.includes(itemNick))) {
+            result = item;
+            tier = 'nickname_cache';
+            break;
+          }
+        }
+      }
+
+      // 5. Match by video duration (if duration provided and only 1 video matches within 0.5s)
+      if (!result && numDuration > 0) {
+        const durMatches = Array.from(videoCache.values()).filter(
+          (it) => Math.abs((it.duration || 0) - numDuration) < 0.5
+        );
+        if (durMatches.length === 1) {
+          result = durMatches[0];
+          tier = 'duration_cache';
+        }
+      }
+
+      // 6. Check Universal Data with valid videoId and author
       if (!result) {
-        const res = extractFromUniversalData(videoId, author);
+        const res = extractFromUniversalData(isValidVideoId ? videoId : null, cleanAuthor);
         if (res && res.data) {
           result = res.data;
           tier = res.tier;
         }
       }
 
-      // 4. Check SIGI_STATE with both videoId and author
+      // 7. Check SIGI_STATE with valid videoId and author
       if (!result) {
-        const res = extractFromSigiState(videoId, author);
+        const res = extractFromSigiState(isValidVideoId ? videoId : null, cleanAuthor);
         if (res && res.data) {
           result = res.data;
           tier = res.tier;
         }
       }
 
-      // 5. Fallback search by URL video ID
+      // 8. Fallback search by URL video ID
       if (!result && url) {
         const match = String(url).match(/video\/(\d+)/);
         if (match && videoCache.has(match[1])) {
           result = videoCache.get(match[1]);
-          tier = 'fetch_cache';
+          tier = 'url_cache';
         }
       }
 
-      // 6. If single video loaded in cache
+      // 9. If strictly only a single video is loaded in entire page cache
       if (!result && videoCache.size === 1) {
         result = videoCache.values().next().value;
-        tier = 'fetch_cache';
+        tier = 'single_video_cache';
       }
 
-      // 7. If still not found, return most recent item in videoCache
-      if (!result && videoCache.size > 0) {
-        const values = Array.from(videoCache.values());
-        result = values[values.length - 1];
-        tier = 'recent_cache';
-      }
+      // Note: We deliberately do NOT fall back to arbitrary recent items (values[values.length - 1]),
+      // because that caused downloading unrelated preloaded feed videos.
 
       const hasUrl = !!(result && (result.playUrl || result.downloadUrl));
 
@@ -395,7 +450,7 @@
         success: hasUrl,
         tier: hasUrl ? tier : 'none',
         data: hasUrl ? result : null,
-        error: hasUrl ? null : 'Video stream not found in page hydration state'
+        error: hasUrl ? null : 'Video stream not found for the active video'
       };
 
       document.dispatchEvent(

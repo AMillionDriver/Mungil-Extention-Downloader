@@ -170,104 +170,181 @@
   }
 
   /**
-   * Parses author username and videoId from DOM elements or current URL.
+   * Parses author username, display nickname, description, duration, and videoId
+   * from DOM elements or current URL.
    *
    * @param {HTMLElement} container
-   * @returns {{ author: string, videoId: string, url: string }}
+   * @returns {{ author: string, nickname: string, description: string, duration: number, videoId: string, url: string }}
    */
   function parseDomVideoInfo(container) {
     let author = 'unknown';
+    let nickname = '';
+    let description = '';
+    let duration = 0;
     let videoId = '';
-    const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
-
-    // 1. Check window location pathname: /@username/video/1234567890 or /@username/photo/1234567890
-    if (typeof window !== 'undefined' && window.location.pathname) {
-      const urlMatch = window.location.pathname.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
-      if (urlMatch) {
-        author = urlMatch[1];
-        videoId = urlMatch[2];
-      }
-    }
+    const currentUrl = (typeof window !== 'undefined' && window.location) ? (window.location.href || '') : '';
 
     if (container) {
-      // 2. Check author elements first
-      if (author === 'unknown') {
-        const authorEl = container.querySelector(
-          '[data-e2e="video-author-uniqueid"], [data-e2e="browse-username"], a[data-e2e="video-author-avatar"], [data-e2e*="author-uniqueid"]'
-        );
-        if (authorEl) {
-          const rawText = authorEl.textContent || authorEl.getAttribute('href') || '';
-          const match = rawText.match(/@?([a-zA-Z0-9_.-]+)/);
+      // Find the outermost card container if container is an inner element
+      const ROOT_CARD_SELECTORS = [
+        '[data-e2e="recommend-list-item-container"]',
+        '[data-e2e="browse-video"]',
+        '[data-e2e="feed-video"]',
+        '[data-e2e="feed-photo"]',
+        '[data-e2e*="feed-item"]',
+        '[data-e2e*="video-item"]',
+        'div[role="dialog"] div[class*="DivVideoContainer"]',
+        'div[class*="DivVideoDetailContainer"]',
+        'div[class*="DivBrowserModeContainer"]',
+        'article',
+        'div[class*="DivItemContainer"]'
+      ].join(',');
+
+      const root = (typeof container.closest === 'function')
+        ? (container.closest(ROOT_CARD_SELECTORS) || (container.parentElement && container.parentElement.closest ? container.parentElement.closest(ROOT_CARD_SELECTORS) : null) || container)
+        : (container.parentElement || container);
+
+      // 1. Author UniqueId (Handle)
+      // Check author elements inside root first
+      const authorEl = (typeof root.querySelector === 'function') ? root.querySelector(
+        '[data-e2e="video-author-uniqueid"], [data-e2e*="author-uniqueid"], a[data-e2e="video-author-avatar"]'
+      ) : null;
+      if (authorEl) {
+        const rawText = authorEl.textContent || (typeof authorEl.getAttribute === 'function' ? authorEl.getAttribute('href') : '') || '';
+        const match = rawText.match(/@?([a-zA-Z0-9_.-]+)/);
+        if (match && match[1] && match[1] !== 'video' && match[1] !== 'photo') {
+          author = match[1].toLowerCase();
+        }
+      }
+
+      // Check author anchor links in root (e.g. href="/@qwangs")
+      if (author === 'unknown' && typeof root.querySelectorAll === 'function') {
+        const authorLinks = Array.from(root.querySelectorAll('a[href*="/@"]') || []);
+        for (const aLink of authorLinks) {
+          const href = (typeof aLink.getAttribute === 'function' ? aLink.getAttribute('href') : '') || aLink.href || '';
+          const match = href.match(/\/@([a-zA-Z0-9_.-]+)/);
           if (match && match[1] && match[1] !== 'video' && match[1] !== 'photo') {
-            author = match[1];
+            author = match[1].toLowerCase();
+            break;
           }
         }
       }
 
-      // 3. Fallback author check via anchor links
-      if (author === 'unknown') {
-        const authorLink = container.querySelector('a[href*="/@"]');
-        if (authorLink && authorLink.href) {
-          const match = authorLink.href.match(/@([a-zA-Z0-9_.-]+)/);
-          if (match && match[1]) author = match[1];
+      // 2. Creator Display Nickname (e.g. "Qwangs™")
+      if (typeof root.querySelector === 'function') {
+        const nickEl = root.querySelector('[data-e2e="browse-username"], h4[data-e2e="browse-username"], [class*="H4AuthorTitle"]');
+        if (nickEl && nickEl.textContent) {
+          nickname = nickEl.textContent.trim();
         }
       }
 
-      // 4. Check container anchor links for videoId
-      if (!videoId) {
-        const postLink = container.querySelector('a[href*="/video/"], a[href*="/photo/"]');
-        if (postLink && postLink.href) {
-          const linkMatch = postLink.href.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
+      // 3. Caption / Description text (e.g. "Small but mighty...")
+      if (typeof root.querySelector === 'function') {
+        const descEl = root.querySelector(
+          '[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e*="desc"], [class*="DivTextInfoContainer"], h1'
+        );
+        if (descEl && descEl.textContent) {
+          description = descEl.textContent.trim().replace(/\s+/g, ' ');
+        }
+      }
+
+      // 4. Video duration
+      if (typeof root.querySelector === 'function') {
+        const vEl = root.querySelector('video');
+        if (vEl && typeof vEl.duration === 'number' && !isNaN(vEl.duration)) {
+          duration = vEl.duration;
+        }
+      }
+
+      // 5. Video ID from anchor links in root (e.g. /@user/video/1234567890123456789)
+      if (typeof root.querySelectorAll === 'function') {
+        const postLinks = Array.from(root.querySelectorAll('a[href*="/video/"], a[href*="/photo/"]') || []);
+        for (const postLink of postLinks) {
+          const href = (typeof postLink.getAttribute === 'function' ? postLink.getAttribute('href') : '') || postLink.href || '';
+          const linkMatch = href.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
           if (linkMatch) {
             if (author === 'unknown') author = linkMatch[1];
             videoId = linkMatch[2];
+            break;
           } else {
-            const idOnly = postLink.href.match(/(?:video|photo)\/(\d+)/);
-            if (idOnly) videoId = idOnly[1];
+            const idOnly = href.match(/(?:video|photo)\/(\d+)/);
+            if (idOnly) {
+              videoId = idOnly[1];
+              break;
+            }
           }
         }
       }
 
-      // 5. Check video element attributes (id, data-id) or xgwrapper IDs
-      if (!videoId) {
-        const videoEl = container.querySelector('video');
-        if (videoEl) {
-          const vId = videoEl.getAttribute('data-id') || videoEl.getAttribute('id') || '';
-          const idMatch = vId.match(/(\d{15,22})/);
-          if (idMatch) videoId = idMatch[1];
-        }
-      }
-
-      // 6. Deep search in container id or data attributes for 19-digit snowflake ID
-      if (!videoId) {
-        const wrapperWithId = container.querySelector('[id*="xgwrapper"], [id*="player"], [data-id]');
-        if (wrapperWithId) {
-          const idAttr = wrapperWithId.getAttribute('id') || wrapperWithId.getAttribute('data-id') || '';
+      // 6. Deep search in root id or data attributes for 15-22 digit snowflake ID
+      if (!videoId && typeof root.querySelectorAll === 'function') {
+        const idEls = Array.from(root.querySelectorAll('[id*="xgwrapper"], [id*="player"], [data-id], video') || []);
+        for (const el of idEls) {
+          const idAttr = (typeof el.getAttribute === 'function' ? (el.getAttribute('id') || el.getAttribute('data-id')) : '') || '';
           const idMatch = idAttr.match(/(\d{15,22})/);
-          if (idMatch) videoId = idMatch[1];
+          if (idMatch) {
+            videoId = idMatch[1];
+            break;
+          }
         }
       }
     }
 
-    if (!videoId) {
-      videoId = String(Date.now());
+    // 7. Check window location pathname if author or videoId still missing: /@username/video/1234567890 or /@username/photo/1234567890
+    if (typeof window !== 'undefined' && window.location && window.location.pathname) {
+      const urlMatch = window.location.pathname.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
+      if (urlMatch) {
+        if (author === 'unknown') author = urlMatch[1];
+        if (!videoId) videoId = urlMatch[2];
+      }
     }
 
-    return { author, videoId, url: currentUrl };
+    return {
+      author,
+      nickname,
+      description,
+      duration,
+      videoId: videoId || '',
+      url: currentUrl
+    };
   }
 
   /**
    * Queries MAIN-world bridge script for video metadata via CustomEvent.
+   * Supports both object-based info and legacy positional arguments.
    *
-   * @param {string} videoId
-   * @param {string} url
+   * @param {object|string} infoOrVideoId
+   * @param {string|number} [urlOrTimeout]
    * @param {string} [author]
    * @param {number} [timeoutMs=2000]
    * @returns {Promise<object|null>}
    */
-  function queryBridge(videoId, url, author, timeoutMs = 2000) {
+  function queryBridge(infoOrVideoId, urlOrTimeout, author, timeoutMs = 2000) {
     return new Promise((resolve) => {
       if (typeof document === 'undefined') return resolve(null);
+
+      let videoId = '';
+      let url = '';
+      let targetAuthor = 'unknown';
+      let nickname = '';
+      let description = '';
+      let duration = 0;
+      let effectiveTimeout = timeoutMs;
+
+      if (infoOrVideoId && typeof infoOrVideoId === 'object') {
+        videoId = infoOrVideoId.videoId || '';
+        url = infoOrVideoId.url || '';
+        targetAuthor = infoOrVideoId.author || 'unknown';
+        nickname = infoOrVideoId.nickname || '';
+        description = infoOrVideoId.description || '';
+        duration = infoOrVideoId.duration || 0;
+        if (typeof urlOrTimeout === 'number') effectiveTimeout = urlOrTimeout;
+      } else {
+        videoId = String(infoOrVideoId || '');
+        url = String(urlOrTimeout || '');
+        targetAuthor = author || 'unknown';
+        if (typeof arguments[3] === 'number') effectiveTimeout = arguments[3];
+      }
 
       const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       let timer = null;
@@ -284,7 +361,7 @@
       timer = setTimeout(() => {
         document.removeEventListener('TT_BRIDGE_RESPONSE', onResponse);
         resolve(null);
-      }, timeoutMs);
+      }, effectiveTimeout);
 
       document.addEventListener('TT_BRIDGE_RESPONSE', onResponse);
 
@@ -295,7 +372,10 @@
             requestId,
             videoId,
             url,
-            author: author || 'unknown'
+            author: targetAuthor,
+            nickname,
+            description,
+            duration
           }
         })
       );
@@ -362,16 +442,16 @@
   async function resolveStreamData(card) {
     const domInfo = parseDomVideoInfo(card);
 
-    // Tier 1: MAIN-World Bridge extraction (query with videoId + author handle)
+    // Tier 1: MAIN-World Bridge extraction (query with complete card metadata context)
     try {
-      const bridgeResponse = await queryBridge(domInfo.videoId, domInfo.url, domInfo.author, 2000);
+      const bridgeResponse = await queryBridge(domInfo, 2000);
       if (bridgeResponse && bridgeResponse.success && bridgeResponse.data) {
         const streamUrl = bridgeResponse.data.playUrl || bridgeResponse.data.downloadUrl;
         if (streamUrl && !streamUrl.startsWith('blob:')) {
           return {
             url: streamUrl,
             author: bridgeResponse.data.author || domInfo.author,
-            videoId: bridgeResponse.data.videoId || domInfo.videoId,
+            videoId: bridgeResponse.data.videoId || domInfo.videoId || String(Date.now()),
             tier: bridgeResponse.tier || 'primary_bridge'
           };
         }
@@ -880,42 +960,197 @@
   }
 
   /**
+   * Resolves the active video card element in viewport or currently playing.
+   *
+   * @returns {HTMLElement|null}
+   */
+  function getActiveVideoCard() {
+    if (typeof document === 'undefined') return null;
+
+    const ROOT_SELECTORS = [
+      '[data-e2e="recommend-list-item-container"]',
+      '[data-e2e="browse-video"]',
+      '[data-e2e="feed-video"]',
+      '[data-e2e="feed-photo"]',
+      '[data-e2e*="feed-item"]',
+      '[data-e2e*="video-item"]',
+      'div[role="dialog"] div[class*="DivVideoContainer"]',
+      'div[class*="DivVideoDetailContainer"]',
+      'div[class*="DivBrowserModeContainer"]',
+      'article',
+      'div[class*="DivItemContainer"]'
+    ].join(',');
+
+    function getOuterPostCard(el) {
+      if (!el) return null;
+      if (typeof el.closest === 'function') {
+        const root = el.closest(ROOT_SELECTORS) || el.closest(SELECTORS.videoCards);
+        if (root) return root;
+      }
+      return el.parentElement || el;
+    }
+
+    // 1. Find actively playing video
+    if (typeof document.querySelectorAll === 'function') {
+      const videos = Array.from(document.querySelectorAll('video') || []);
+      const playingVideo = videos.find((v) => v && !v.paused && v.currentTime > 0);
+      if (playingVideo) {
+        return getOuterPostCard(playingVideo);
+      }
+    }
+
+    // 2. If no video is currently playing (e.g. paused when popup opened or paused by user):
+    // Find the video element most visible in the viewport
+    if (typeof window !== 'undefined' && typeof document.querySelectorAll === 'function') {
+      const videos = Array.from(document.querySelectorAll('video') || []);
+      if (videos.length > 0) {
+        const winHeight = window.innerHeight || 800;
+        const centerY = winHeight / 2;
+        let bestVideo = null;
+        let maxVisibility = -Infinity;
+
+        for (const v of videos) {
+          if (!v || typeof v.getBoundingClientRect !== 'function') continue;
+          const rect = v.getBoundingClientRect();
+          if (rect.height <= 0) continue;
+
+          // Compute intersection with viewport
+          const visibleTop = Math.max(0, rect.top);
+          const visibleBottom = Math.min(winHeight, rect.bottom);
+          const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+          const visibilityRatio = visibleHeight / rect.height;
+
+          // Bonus if it has playback progress (was actively being watched)
+          const bonus = (v.currentTime > 0) ? 0.5 : 0;
+          const score = visibilityRatio + bonus - (Math.abs(rect.top + rect.height / 2 - centerY) / winHeight);
+
+          if (score > maxVisibility) {
+            maxVisibility = score;
+            bestVideo = v;
+          }
+        }
+
+        if (bestVideo) {
+          return getOuterPostCard(bestVideo);
+        }
+      }
+    }
+
+    // 3. Fallback to post closest to center of viewport
+    if (typeof window !== 'undefined' && typeof document.querySelectorAll === 'function') {
+      const candidates = Array.from(document.querySelectorAll(SELECTORS.videoCards) || []);
+      if (candidates.length > 0) {
+        const winHeight = window.innerHeight || 800;
+        const centerY = winHeight / 2;
+        let closestDist = Infinity;
+        let bestCandidate = null;
+        for (const c of candidates) {
+          if (c && typeof c.getBoundingClientRect === 'function') {
+            const rect = c.getBoundingClientRect();
+            if (rect && typeof rect.height === 'number' && rect.height > 0) {
+              const center = rect.top + rect.height / 2;
+              const dist = Math.abs(center - centerY);
+              if (dist < closestDist) {
+                closestDist = dist;
+                bestCandidate = c;
+              }
+            }
+          }
+        }
+        if (bestCandidate) return getOuterPostCard(bestCandidate);
+      }
+    }
+
+    // 4. Fallback to first video or document body
+    if (typeof document.querySelector === 'function') {
+      const firstVideo = document.querySelector('video');
+      if (firstVideo) {
+        return getOuterPostCard(firstVideo);
+      }
+    }
+
+    return (typeof document !== 'undefined' && document.body) ? document.body : null;
+  }
+
+  /**
+   * Extracts active video info for popup controller queries.
+   *
+   * @returns {Promise<{ success: boolean, ready: boolean, author: string, videoId: string, title: string }>}
+   */
+  async function getActiveVideoInfo() {
+    if (typeof document === 'undefined') {
+      return { success: false, ready: false, author: '', videoId: '', title: '', error: 'Document not ready' };
+    }
+
+    const card = getActiveVideoCard();
+    if (!card) {
+      return { success: true, ready: false, author: '', videoId: '', title: '' };
+    }
+
+    const videos = (typeof document.querySelectorAll === 'function')
+      ? Array.from(document.querySelectorAll('video') || [])
+      : [];
+    const candidateCards = (typeof document.querySelectorAll === 'function')
+      ? Array.from(document.querySelectorAll(SELECTORS.videoCards) || [])
+      : [];
+
+    const hasVideo = videos.length > 0 || (card.tagName === 'VIDEO') || (typeof card.querySelector === 'function' && !!card.querySelector('video'));
+    const isDocBody = (card === document.body || card === document.documentElement);
+    const hasCard = candidateCards.length > 0 || !isDocBody;
+
+    // If there are no video elements and no card containers, it's an empty or uninitialized page
+    if (!hasVideo && !hasCard) {
+      return {
+        success: true,
+        ready: false,
+        author: '',
+        videoId: '',
+        title: ''
+      };
+    }
+
+    let domInfo = null;
+    if (typeof parseDomVideoInfo === 'function') {
+      domInfo = parseDomVideoInfo(card);
+    }
+
+    const author = (domInfo && domInfo.author && domInfo.author !== 'unknown') ? domInfo.author : '';
+    let videoId = (domInfo && domInfo.videoId) ? domInfo.videoId : '';
+
+    let title = (domInfo && domInfo.description) ? domInfo.description : '';
+    if (!title && card && typeof card.querySelector === 'function') {
+      const descEl = card.querySelector(
+        '[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e*="desc"], h1, [class*="DivTextInfoContainer"]'
+      );
+      if (descEl && descEl.textContent) {
+        title = descEl.textContent.trim().replace(/\s+/g, ' ');
+      }
+    }
+
+    if (title.length > 70) {
+      title = title.slice(0, 67) + '...';
+    }
+
+    const isReady = hasVideo || (videoId.length > 0) || (author.length > 0);
+
+    return {
+      success: true,
+      ready: isReady,
+      author: author || '',
+      videoId: videoId || '',
+      title: title || ''
+    };
+  }
+
+  /**
    * Handler for active video download triggered from extension popup or context menu.
    */
   async function handleActiveVideoDownload() {
     if (typeof document === 'undefined') return { success: false, error: 'Document not ready' };
 
-    // 1. Find actively playing video
-    let targetCard = null;
-    const videos = Array.from(document.querySelectorAll('video'));
-    const playingVideo = videos.find((v) => !v.paused && v.currentTime > 0);
-    if (playingVideo) {
-      targetCard = playingVideo.closest('article, section, [data-e2e*="item"], [data-e2e*="feed"], [data-e2e*="video"], div[class*="Container"]') || playingVideo.parentElement;
-    }
-
-    // 2. Find post closest to center of viewport
+    const targetCard = getActiveVideoCard();
     if (!targetCard) {
-      const candidates = Array.from(document.querySelectorAll(SELECTORS.videoCards));
-      if (candidates.length > 0) {
-        const centerY = window.innerHeight / 2;
-        let closestDist = Infinity;
-        for (const c of candidates) {
-          const rect = c.getBoundingClientRect();
-          if (rect.height > 0) {
-            const center = rect.top + rect.height / 2;
-            const dist = Math.abs(center - centerY);
-            if (dist < closestDist) {
-              closestDist = dist;
-              targetCard = c;
-            }
-          }
-        }
-      }
-    }
-
-    // 3. Fallback to first video or document body
-    if (!targetCard) {
-      targetCard = document.querySelector('video') || document.body;
+      return { success: false, error: 'Target card not found' };
     }
 
     try {
@@ -930,10 +1165,28 @@
   // Runtime message listener for active tab triggers
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      if (message && (message.type === 'DOWNLOAD_ACTIVE_VIDEO' || message.type === 'TRIGGER_ACTIVE_DOWNLOAD')) {
+      if (!message || typeof message !== 'object') return false;
+
+      // Handle GET_ACTIVE_VIDEO_INFO
+      if (message.type === 'GET_ACTIVE_VIDEO_INFO') {
+        Promise.resolve().then(async () => {
+          try {
+            const info = await getActiveVideoInfo();
+            sendResponse(info);
+          } catch (err) {
+            sendResponse({ success: false, ready: false, author: '', videoId: '', title: '', error: err.message });
+          }
+        });
+        return true; // asynchronous IPC handling
+      }
+
+      // Handle DOWNLOAD_ACTIVE_VIDEO or TRIGGER_ACTIVE_DOWNLOAD
+      if (message.type === 'DOWNLOAD_ACTIVE_VIDEO' || message.type === 'TRIGGER_ACTIVE_DOWNLOAD') {
         handleActiveVideoDownload().then(sendResponse);
         return true; // asynchronous
       }
+
+      return false;
     });
   }
 
@@ -1031,7 +1284,10 @@
       formatFilename,
       downloadStreamInPage,
       handleDownloadClick,
-      handleActiveVideoDownload
+      handleActiveVideoDownload,
+      getActiveVideoCard,
+      getActiveVideoInfo,
+      handleGetActiveVideoInfo: getActiveVideoInfo
     };
   }
 })();

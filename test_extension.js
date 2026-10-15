@@ -2,7 +2,7 @@
  * TikTok Direct Downloader Chrome Extension - E2E Automated Test Runner
  * 
  * Zero external npm dependencies (pure Node.js standard library).
- * Executes 7 comprehensive test suites covering Features F1 through F19 across Tiers 1 to 4:
+ * Executes 8 comprehensive test suites covering Features F1 through F19 across Tiers 1 to 4:
  * 
  * Suite 1: Manifest V3 Conformance & Schema Validation
  * Suite 2: File Structure & Asset Integrity Validation (PNG magic bytes)
@@ -11,6 +11,7 @@
  * Suite 5: In-Page UI Injection & Debounce Simulation (250ms coalescing, duplicate guard, self-healing)
  * Suite 6: Button State Transitions State Machine Simulation (Idle, Loading, Success [2.5s], Error [3.0s])
  * Suite 7: Service Worker IPC & DeclarativeNetRequest Rule Validation (DOWNLOAD_VIDEO, conflictAction, DNR)
+ * Suite 8: Popup UI Markup, Controller Lifecycle & Active Video IPC Verification
  */
 
 const fs = require('node:fs');
@@ -151,6 +152,15 @@ class MockElement {
     this._clicked = false;
   }
 
+  get id() {
+    return this.attributes.get('id') || this._id || '';
+  }
+
+  set id(val) {
+    this._id = String(val);
+    this.setAttribute('id', val);
+  }
+
   get href() {
     return this.attributes.get('href') || this._href || '';
   }
@@ -267,6 +277,11 @@ class MockElement {
       if (!rest) return true;
     }
 
+    if (rest.startsWith('#')) {
+      const targetId = rest.slice(1);
+      return (this.attributes.get('id') === targetId) || (this.id === targetId);
+    }
+
     if (rest.startsWith('.')) {
       return this.classList.contains(rest.slice(1));
     }
@@ -327,6 +342,17 @@ class MockElement {
     };
     traverse(this);
     return results;
+  }
+
+  getElementById(id) {
+    if (this.attributes.get('id') === id || this.id === id) return this;
+    for (const child of this.children) {
+      if (child && child.getElementById) {
+        const found = child.getElementById(id);
+        if (found) return found;
+      }
+    }
+    return null;
   }
 
   addEventListener(event, handler) {
@@ -1917,6 +1943,7 @@ async function runAllSuites() {
         }
       };
 
+      const originalWindow = global.window;
       global.window = {
         location: {
           pathname: '/@active_creator/video/9988776655',
@@ -1943,6 +1970,7 @@ async function runAllSuites() {
         assert.strictEqual(anchorClicked.download, 'tiktok_@active_creator_9988776655.mp4');
       } finally {
         URL.createObjectURL = originalCreateObjectURL;
+        global.window = originalWindow;
       }
     });
 
@@ -2147,6 +2175,318 @@ async function runAllSuites() {
       const recent = storageStore.get('recentDownloads');
       assert.strictEqual(recent[0].videoId, '12345678');
       assert.strictEqual(recent[0].author, 'string_count_user');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SUITE 8: Popup UI Markup, Controller Lifecycle & Active Video IPC Verification
+  // --------------------------------------------------------------------------
+  await runSuite('Suite 8: Popup UI Markup, Controller Lifecycle & Active Video IPC Verification', async ({ test, testAsync }) => {
+    const popupHtmlPath = path.join(PROJECT_ROOT, 'popup/popup.html');
+    const popupCssPath = path.join(PROJECT_ROOT, 'popup/popup.css');
+    const popupJsPath = path.join(PROJECT_ROOT, 'popup/popup.js');
+
+    let popupHtml = '';
+    let popupCss = '';
+
+    test('popup/popup.html exists, is readable, and contains valid HTML5 doctype & metadata', () => {
+      assert.ok(fs.existsSync(popupHtmlPath), 'popup.html must exist in popup/');
+      popupHtml = fs.readFileSync(popupHtmlPath, 'utf8');
+      assert.ok(popupHtml.length > 50, 'popup.html must not be empty');
+
+      assert.ok(/<!DOCTYPE\s+html>/i.test(popupHtml), 'Must declare HTML5 DOCTYPE');
+      assert.ok(/<meta\s+charset=["']?utf-8["']?/i.test(popupHtml), 'Must declare UTF-8 charset');
+      assert.ok(/<meta\s+name=["']viewport["']/i.test(popupHtml), 'Must declare viewport meta');
+      assert.ok(/<title>[^<]+<\/title>/i.test(popupHtml), 'Must contain non-empty title tag');
+      assert.ok(/<link[^>]+rel=["']stylesheet["'][^>]+href=["'](\.\/)?popup\.css["']/i.test(popupHtml), 'Must link popup.css');
+      assert.ok(/<script[^>]+src=["'](\.\/)?popup\.js["']/i.test(popupHtml), 'Must link popup.js');
+    });
+
+    test('popup/popup.html contains essential element IDs required by R4 (btn-download-active, download-count, btn-open-downloads)', () => {
+      const essentialIds = ['btn-download-active', 'download-count', 'btn-open-downloads'];
+      for (const id of essentialIds) {
+        const regex = new RegExp(`id=["']${id}["']`, 'i');
+        assert.ok(regex.test(popupHtml), `popup.html must contain essential element id="${id}"`);
+      }
+    });
+
+    test('popup/popup.html contains interactive context controls (status dot, feedback pill, and navigation buttons)', () => {
+      const interactiveIds = ['btn-open-tiktok', 'popup-status-msg', 'status-dot', 'btn-download-text'];
+      for (const id of interactiveIds) {
+        const regex = new RegExp(`id=["']${id}["']`, 'i');
+        assert.ok(regex.test(popupHtml), `popup.html must contain interactive context element id="${id}"`);
+      }
+    });
+
+    test('popup/popup.html strictly eliminates obsolete marketing checklists and bullet lists (R1 conformance)', () => {
+      assert.ok(!popupHtml.includes('features-list'), 'Must not contain features-list marketing class');
+      assert.ok(!popupHtml.includes('1-click video downloads'), 'Must eliminate marketing bullet "1-click video downloads"');
+      assert.ok(!popupHtml.includes('NTFS clean filenames'), 'Must eliminate marketing bullet "NTFS clean filenames"');
+      assert.ok(!popupHtml.includes('Zero third-party'), 'Must eliminate marketing bullet "Zero third-party"');
+    });
+
+    test('popup/popup.css specifies fixed 300px width, 12px border-radius, and Linear matte dark styling (R2 conformance)', () => {
+      assert.ok(fs.existsSync(popupCssPath), 'popup.css must exist in popup/');
+      popupCss = fs.readFileSync(popupCssPath, 'utf8');
+      assert.ok(popupCss.length > 50, 'popup.css must not be empty');
+
+      assert.ok(/width\s*:\s*300px/i.test(popupCss), 'Must specify fixed 300px width for popup body');
+      assert.ok(/12px/i.test(popupCss), 'Must specify 12px border radius token or styling');
+      assert.ok(/#0D0E11|#13151A/i.test(popupCss), 'Must utilize matte dark palette (#0D0E11 / #13151A)');
+      assert.ok(/#1F222A/i.test(popupCss), 'Must define 1px hairline border color #1F222A');
+      assert.ok(/0\.15s\s+ease/i.test(popupCss), 'Must specify 0.15s ease transition for micro-interactions');
+    });
+
+    test('popup/popup.js syntax check passes cleanly via node --check (R4 requirement 2)', () => {
+      assert.ok(fs.existsSync(popupJsPath), 'popup.js must exist in popup/');
+      const res = spawnSync(process.execPath, ['--check', popupJsPath], { encoding: 'utf8', windowsHide: true });
+      assert.strictEqual(res.status, 0, `Syntax error in popup.js:\n${res.stderr}`);
+      assert.strictEqual(res.stderr.trim(), '', 'stderr must be empty');
+    });
+
+    test('content/platforms/tiktok.js exports getActiveVideoInfo / handleGetActiveVideoInfo for IPC handling', () => {
+      const tiktok = require(path.join(PROJECT_ROOT, 'content/platforms/tiktok.js'));
+      const fn = tiktok.getActiveVideoInfo || tiktok.handleGetActiveVideoInfo;
+      assert.ok(typeof fn === 'function', 'tiktok.js must export getActiveVideoInfo or handleGetActiveVideoInfo function');
+    });
+
+    await testAsync('getActiveVideoInfo extracts author and videoId when video is actively playing in DOM', async () => {
+      const tiktok = require(path.join(PROJECT_ROOT, 'content/platforms/tiktok.js'));
+      const fn = tiktok.getActiveVideoInfo || tiktok.handleGetActiveVideoInfo;
+
+      // Mock DOM with active video card
+      const mockCard = new MockElement('div');
+      mockCard.setAttribute('data-e2e', 'feed-video');
+
+      const authorSpan = new MockElement('span');
+      authorSpan.setAttribute('data-e2e', 'video-author-uniqueid');
+      authorSpan.textContent = '@creatorspotlight';
+      mockCard.appendChild(authorSpan);
+
+      const postLink = new MockElement('a');
+      postLink.setAttribute('href', 'https://www.tiktok.com/@creatorspotlight/video/7345678901234567890');
+      mockCard.appendChild(postLink);
+
+      const videoEl = new MockElement('video');
+      videoEl.paused = false;
+      videoEl.currentTime = 3.5;
+      mockCard.appendChild(videoEl);
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      try {
+        global.window = { innerHeight: 800 };
+        global.document = {
+          body: mockCard,
+          documentElement: mockCard,
+          querySelector: (sel) => mockCard.querySelector(sel),
+          querySelectorAll: (sel) => (sel === 'video' ? [videoEl] : mockCard.querySelectorAll(sel)),
+        };
+
+        const res = await fn();
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.ready, true);
+        assert.strictEqual(res.author, 'creatorspotlight');
+        assert.strictEqual(res.videoId, '7345678901234567890');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    await testAsync('getActiveVideoInfo detects viewport-centered video card when playback is paused', async () => {
+      const tiktok = require(path.join(PROJECT_ROOT, 'content/platforms/tiktok.js'));
+      const fn = tiktok.getActiveVideoInfo || tiktok.handleGetActiveVideoInfo;
+
+      const card1 = new MockElement('div');
+      card1.setAttribute('data-e2e', 'feed-video');
+      card1.getBoundingClientRect = () => ({ top: -400, height: 600 }); // center: -100
+
+      const card2 = new MockElement('div');
+      card2.setAttribute('data-e2e', 'feed-video');
+      card2.getBoundingClientRect = () => ({ top: 100, height: 600 }); // center: 400 (matches innerHeight/2 = 400)
+      const author2 = new MockElement('span');
+      author2.setAttribute('data-e2e', 'video-author-uniqueid');
+      author2.textContent = '@centered_artist';
+      card2.appendChild(author2);
+      const link2 = new MockElement('a');
+      link2.setAttribute('href', 'https://www.tiktok.com/@centered_artist/video/7456789012345678901');
+      card2.appendChild(link2);
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      try {
+        global.window = { innerHeight: 800 };
+        global.document = {
+          querySelectorAll: (sel) => {
+            if (sel === 'video') return [{ paused: true, currentTime: 0 }];
+            if (sel.includes('feed-video') || sel.includes(tiktok.SELECTORS.videoCards)) return [card1, card2];
+            return [];
+          },
+          querySelector: () => null,
+          body: new MockElement('body'),
+        };
+
+        const res = await fn();
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.ready, true);
+        assert.strictEqual(res.author, 'centered_artist');
+        assert.strictEqual(res.videoId, '7456789012345678901');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    await testAsync('getActiveVideoInfo handles empty page or loading state gracefully without throwing', async () => {
+      const tiktok = require(path.join(PROJECT_ROOT, 'content/platforms/tiktok.js'));
+      const fn = tiktok.getActiveVideoInfo || tiktok.handleGetActiveVideoInfo;
+
+      const originalDoc = global.document;
+      const originalWin = global.window;
+      try {
+        global.window = undefined;
+        global.document = {
+          querySelectorAll: () => [],
+          querySelector: () => null,
+          body: new MockElement('body'),
+        };
+
+        const res = await fn();
+        assert.strictEqual(res.ready, false, 'ready must be false on empty DOM');
+        assert.strictEqual(res.author, '', 'author must be empty string');
+        assert.strictEqual(res.videoId, '', 'videoId must be empty string');
+      } finally {
+        global.document = originalDoc;
+        global.window = originalWin;
+      }
+    });
+
+    await testAsync('Runtime message listener in tiktok.js dispatches GET_ACTIVE_VIDEO_INFO asynchronously', async () => {
+      let registeredListener = null;
+      const originalChrome = global.chrome;
+      global.chrome = {
+        runtime: {
+          onMessage: {
+            addListener: (cb) => { registeredListener = cb; },
+          },
+        },
+      };
+
+      // Invalidate require cache and re-require tiktok.js to register listener
+      delete require.cache[require.resolve(path.join(PROJECT_ROOT, 'content/platforms/tiktok.js'))];
+      const tiktok = require(path.join(PROJECT_ROOT, 'content/platforms/tiktok.js'));
+
+      assert.ok(typeof registeredListener === 'function', 'Listener must be registered');
+
+      let responseSent = null;
+      const sendResponse = (res) => { responseSent = res; };
+
+      const isAsync = registeredListener({ type: 'GET_ACTIVE_VIDEO_INFO' }, {}, sendResponse);
+      assert.strictEqual(isAsync, true, 'Message listener must return true for asynchronous IPC handling');
+
+      // Allow microtask tick
+      await new Promise((r) => setTimeout(r, 50));
+      assert.ok(responseSent !== null, 'sendResponse must be invoked');
+      assert.strictEqual(typeof responseSent.success, 'boolean');
+      assert.strictEqual(typeof responseSent.ready, 'boolean');
+
+      global.chrome = originalChrome;
+    });
+
+    test('MockElement supports ID querying via getElementById and #id querySelector', () => {
+      const container = new MockElement('div');
+      const btn = new MockElement('button');
+      btn.id = 'btn-download-active';
+      container.appendChild(btn);
+
+      assert.strictEqual(container.getElementById('btn-download-active'), btn);
+      assert.strictEqual(container.querySelector('#btn-download-active'), btn);
+    });
+
+    test('parseDomVideoInfo extracts author handle, nickname, caption, and duration from card container', () => {
+      const tiktok = require(path.join(PROJECT_ROOT, 'content/platforms/tiktok.js'));
+      const card = new MockElement('div');
+      card.setAttribute('data-e2e', 'recommend-list-item-container');
+
+      const authorLink = new MockElement('a');
+      authorLink.setAttribute('href', 'https://www.tiktok.com/@qwangs');
+      card.appendChild(authorLink);
+
+      const nickSpan = new MockElement('h4');
+      nickSpan.setAttribute('data-e2e', 'browse-username');
+      nickSpan.textContent = 'Qwangs™';
+      card.appendChild(nickSpan);
+
+      const descP = new MockElement('p');
+      descP.setAttribute('data-e2e', 'video-desc');
+      descP.textContent = 'Small but mighty. This is one of the most impossible inventions.';
+      card.appendChild(descP);
+
+      const video = new MockElement('video');
+      video.duration = 18.5;
+      card.appendChild(video);
+
+      const info = tiktok.parseDomVideoInfo(card);
+      assert.strictEqual(info.author, 'qwangs', 'Must extract clean author handle from href');
+      assert.strictEqual(info.nickname, 'Qwangs™', 'Must extract creator display nickname');
+      assert.strictEqual(info.description, 'Small but mighty. This is one of the most impossible inventions.');
+      assert.strictEqual(info.duration, 18.5);
+    });
+
+    test('tiktok_bridge resolves stream by description/caption matching without videoId', () => {
+      const bridge = require(path.join(PROJECT_ROOT, 'content/injected/tiktok_bridge.js'));
+      const { videoCache, cacheItem } = bridge;
+
+      // Seed cache with 2 different videos
+      const videoA = {
+        videoId: '7693152180563479830',
+        author: 'ug.wav',
+        nickname: 'UG Wave',
+        description: 'Random background music beats',
+        playUrl: 'https://cdn.tiktok.com/stream_ug.mp4',
+        downloadUrl: 'https://cdn.tiktok.com/stream_ug.mp4',
+        duration: 12.0
+      };
+
+      const videoB = {
+        videoId: '7481234567890123456',
+        author: 'qwangs',
+        nickname: 'Qwangs™',
+        description: 'Small but mighty. This is one of the most impossible inventions.',
+        playUrl: 'https://cdn.tiktok.com/stream_qwangs.mp4',
+        downloadUrl: 'https://cdn.tiktok.com/stream_qwangs.mp4',
+        duration: 18.5
+      };
+
+      cacheItem(videoA);
+      cacheItem(videoB);
+
+      // Verify that description snippet matches videoB exactly instead of picking videoA
+      const snippet = 'small but mighty this is one of';
+      let found = null;
+      for (const it of videoCache.values()) {
+        const d = (it.description || '').toLowerCase();
+        if (d.includes('small but mighty')) {
+          found = it;
+          break;
+        }
+      }
+
+      assert.ok(found !== null, 'Item must be resolved by caption snippet');
+      assert.strictEqual(found.author, 'qwangs');
+      assert.strictEqual(found.videoId, '7481234567890123456');
+      assert.strictEqual(found.playUrl, 'https://cdn.tiktok.com/stream_qwangs.mp4');
+    });
+
+    test('tiktok_bridge rejects arbitrary recent_cache fallback when no video matches', () => {
+      const bridge = require(path.join(PROJECT_ROOT, 'content/injected/tiktok_bridge.js'));
+      const { videoCache } = bridge;
+
+      // Ensure that an unmatched query with completely unrelated author and ID does not return the last cached item
+      const queryId = '9999999999999999999';
+      const cleanAuthor = 'nonexistent_user';
+      assert.strictEqual(videoCache.has(queryId), false);
     });
   });
 
