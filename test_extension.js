@@ -179,6 +179,28 @@ class MockElement {
     this.setAttribute('download', val);
   }
 
+  get value() {
+    return this.attributes.get('value') || this._value || '';
+  }
+
+  set value(val) {
+    this._value = String(val);
+    this.setAttribute('value', val);
+  }
+
+  get disabled() {
+    return this.attributes.has('disabled') ? this.attributes.get('disabled') !== 'false' : !!this._disabled;
+  }
+
+  set disabled(val) {
+    this._disabled = !!val;
+    if (val) {
+      this.setAttribute('disabled', 'true');
+    } else {
+      this.removeAttribute('disabled');
+    }
+  }
+
   click() {
     this._clicked = true;
     this.dispatchEvent({
@@ -2988,6 +3010,14 @@ async function runAllSuites() {
       const dataEl = new MockElement('div');
       dataEl.setAttribute('data-ep-id', '30639813');
       assert.strictEqual(extractNumericEpId(dataEl), '30639813', 'Must extract from numeric data-ep-id');
+
+      // 5. Element inside an anchor (ancestor anchor element.closest)
+      const parentLink = new MockElement('a');
+      parentLink.setAttribute('href', 'https://www.bilibili.tv/id/play/1092892/30639814');
+      const innerCard = new MockElement('div');
+      innerCard.setAttribute('class', 'bstar-episode-item');
+      parentLink.appendChild(innerCard);
+      assert.strictEqual(extractNumericEpId(innerCard), '30639814', 'Must extract 30639814 from ancestor anchor');
     });
 
     test('Single-segment season URL (/play/2411889): getActiveVideoInfo resolves episode 1 numeric ID from active DOM node', () => {
@@ -3231,6 +3261,9 @@ async function runAllSuites() {
 
         const qualitySelect = modalRoot.querySelector('#bs-quality-select');
         assert.ok(qualitySelect, 'Quality selector select element must exist');
+        assert.strictEqual(qualitySelect.value, '720p', 'Free user must default to 720p HD quality');
+        const opt1080 = qualitySelect.querySelector('option[value="1080p"]');
+        assert.ok(opt1080 && opt1080.disabled, '1080p option must be disabled for non-VIP user');
 
         const startBtn = modalRoot.querySelector('#bs-btn-start-batch');
         assert.ok(startBtn, 'Start batch download button must exist');

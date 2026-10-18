@@ -204,7 +204,25 @@
     let blobUrl = null;
 
     try {
-      const response = await fetch(cleanUrl, { method: 'GET', credentials: 'include' });
+      let fetchOptions = { method: 'GET' };
+      try {
+        const parsedUrl = new URL(cleanUrl);
+        if (parsedUrl.hostname.endsWith('bilibili.tv') || parsedUrl.hostname.endsWith('bstation.tv')) {
+          fetchOptions.credentials = 'include';
+        }
+      } catch (_) {}
+
+      let response;
+      try {
+        response = await fetch(cleanUrl, fetchOptions);
+      } catch (firstErr) {
+        if (fetchOptions.credentials) {
+          response = await fetch(cleanUrl, { method: 'GET' });
+        } else {
+          throw firstErr;
+        }
+      }
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
@@ -610,10 +628,11 @@
       return String(dataEpId);
     }
 
-    // 2. Check href attribute on element or on child <a> tag
+    // 2. Check href attribute on element, child <a> tag, or ancestor <a> tag
     let href = element.getAttribute ? (element.getAttribute('href') || element.href || '') : '';
-    if (!href && element.querySelector) {
-      const a = element.querySelector('a[href*="/play/"], a');
+    if (!href) {
+      const a = (element.querySelector && element.querySelector('a[href*="/play/"], a')) ||
+                (element.closest && element.closest('a'));
       if (a) href = a.getAttribute('href') || a.href || '';
     }
 
@@ -758,7 +777,15 @@
       if (!rawList && state.sections && Array.isArray(state.sections)) {
         rawList = [];
         state.sections.forEach(sec => {
-          if (Array.isArray(sec.epList)) rawList.push(...sec.epList);
+          const list = sec.epList || sec.episodes || sec.episodeList || sec.list || sec.items;
+          if (Array.isArray(list)) rawList.push(...list);
+        });
+      }
+      if (!rawList && state.ogv && Array.isArray(state.ogv.sectionsList)) {
+        rawList = [];
+        state.ogv.sectionsList.forEach(sec => {
+          const list = sec.epList || sec.episodes || sec.episodeList || sec.list || sec.items;
+          if (Array.isArray(list)) rawList.push(...list);
         });
       }
       if (!rawList && state.ogv && Array.isArray(state.ogv.episodes)) {
@@ -766,12 +793,13 @@
       }
       if (Array.isArray(rawList) && rawList.length > 0) {
         const media = state.mediaInfo || state.season || (state.ogv && state.ogv.season) || {};
-        const title = media.title || media.season_title || videoInfo.animeTitle;
+        const title = media.title || media.season_title || (state.ogv && state.ogv.season && (state.ogv.season.title || state.ogv.season.season_title)) || videoInfo.animeTitle;
         const user = state.user || state.userInfo || {};
-        const isVip = !!(user.vip && (user.vip.is_vip || user.vip.status === 1 || user.vip.vip_type > 0));
+        const vipInfo = user.vip_info || user.vip || {};
+        const isVip = !!(vipInfo.is_vip || vipInfo.status === 1 || vipInfo.vip_type > 0 || (user.vip && user.vip.status === 1));
 
         const episodes = rawList.map((ep, idx) => {
-          const epId = String(ep.ep_id || ep.id || `ep_${idx + 1}`);
+          const epId = String(ep.ep_id || ep.id || ep.epid || ep.episode_id || `ep_${idx + 1}`);
           const rawTitle = ep.title || (ep.short_title ? `EP ${ep.short_title}` : `Episode ${idx + 1}`);
           let epIndex = idx + 1;
           if (ep.short_title && /^\d+$/.test(ep.short_title)) {
@@ -964,22 +992,36 @@
     const qualitySelect = document.createElement('select');
     qualitySelect.className = 'bs-quality-select';
     qualitySelect.id = 'bs-quality-select';
-    qualitySelect.value = '720p';
 
     const opt1080 = document.createElement('option');
     opt1080.value = '1080p';
-    opt1080.textContent = '1080p Full HD (VIP)';
+    opt1080.setAttribute('value', '1080p');
+    opt1080.textContent = isUserVip ? '1080p Full HD (VIP)' : '1080p Full HD [VIP Diperlukan]';
+    if (!isUserVip) {
+      opt1080.disabled = true;
+      opt1080.setAttribute('disabled', 'true');
+    }
     qualitySelect.appendChild(opt1080);
 
     const opt720 = document.createElement('option');
     opt720.value = '720p';
+    opt720.setAttribute('value', '720p');
     opt720.textContent = '720p HD';
     qualitySelect.appendChild(opt720);
 
     const opt480 = document.createElement('option');
     opt480.value = '480p';
+    opt480.setAttribute('value', '480p');
     opt480.textContent = '480p SD';
     qualitySelect.appendChild(opt480);
+
+    if (isUserVip) {
+      qualitySelect.value = '1080p';
+      opt1080.selected = true;
+    } else {
+      qualitySelect.value = '720p';
+      opt720.selected = true;
+    }
 
     qualityWrap.appendChild(qualitySelect);
     toolbar.appendChild(qualityWrap);
@@ -1244,23 +1286,43 @@
           epIndex: epIndex,
           quality: quality,
           resolveStream: async () => {
+            // Tier 1: Try requested quality (e.g. 1080p or 720p)
             try {
-              return await requestBridgeStream({ ep_id: epId, qn }, 4000);
-            } catch (_) {
-              // Fallback stream resolution
-              const videoEl = document.querySelector('video');
-              if (videoEl && videoEl.src && videoEl.src.startsWith('http')) {
-                return { url: videoEl.src, quality };
-              }
-              throw new Error(`Aliran video untuk Episode ${epIndex} tidak ditemukan`);
+              const res = await requestBridgeStream({ ep_id: epId, qn }, 4000);
+              if (res && (res.playUrl || res.url)) return res;
+            } catch (_) {}
+
+            // Tier 2: Resilient fallback to 720p if requested quality failed (e.g. VIP restriction)
+            if (qn !== 64) {
+              try {
+                const res720 = await requestBridgeStream({ ep_id: epId, qn: 64 }, 3500);
+                if (res720 && (res720.playUrl || res720.url)) return res720;
+              } catch (_) {}
             }
+
+            // Tier 3: Resilient fallback to 480p
+            if (qn !== 32) {
+              try {
+                const res480 = await requestBridgeStream({ ep_id: epId, qn: 32 }, 3000);
+                if (res480 && (res480.playUrl || res480.url)) return res480;
+              } catch (_) {}
+            }
+
+            // Tier 4: Fallback stream from active DOM video tag
+            const videoEl = document.querySelector('video');
+            if (videoEl && videoEl.src && videoEl.src.startsWith('http')) {
+              return { url: videoEl.src, quality };
+            }
+
+            throw new Error(`Aliran video untuk Episode ${epIndex} tidak ditemukan`);
           },
           downloadStream: async (stream) => {
             const streamUrl = stream.playUrl || stream.url;
+            const actualQuality = stream.qualityLabel || quality;
             const filename = formatBstationFilename({
               title: seriesData.animeTitle,
               episode: epIndex,
-              quality: quality
+              quality: actualQuality
             });
             await downloadStreamInPage({
               url: streamUrl,

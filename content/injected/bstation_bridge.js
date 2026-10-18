@@ -24,22 +24,28 @@
   // Last active intercepted stream
   let activeStream = null;
 
-  // Reactive property hook for window.__INITIAL_STATE__ to capture hydration data as soon as Bstation sets it
+  // Reactive property hooks for window.__initialState and window.__INITIAL_STATE__ to capture hydration data as soon as Bstation sets it
   if (typeof window !== 'undefined') {
-    try {
-      let _initialState = window.__INITIAL_STATE__ || window.__initialState;
-      Object.defineProperty(window, '__INITIAL_STATE__', {
-        get() { return _initialState; },
-        set(val) {
-          _initialState = val;
-          try {
-            if (typeof syncSeriesInfoToDOM === 'function') syncSeriesInfoToDOM();
-          } catch (_) {}
-        },
-        configurable: true,
-        enumerable: true
-      });
-    } catch (_) {}
+    let _state = window.__initialState || window.__INITIAL_STATE__;
+
+    const setupHook = (propName) => {
+      try {
+        Object.defineProperty(window, propName, {
+          get() { return _state; },
+          set(val) {
+            _state = val;
+            try {
+              if (typeof syncSeriesInfoToDOM === 'function') syncSeriesInfoToDOM();
+            } catch (_) {}
+          },
+          configurable: true,
+          enumerable: true
+        });
+      } catch (_) {}
+    };
+
+    setupHook('__initialState');
+    setupHook('__INITIAL_STATE__');
   }
 
   /**
@@ -97,17 +103,19 @@
 
     // 2. Check playurl.video array (BPX player video resource)
     if (!bestPlayUrl && Array.isArray(playurl.video) && playurl.video.length > 0) {
-      // Find matching requested qn or highest available
-      const videoEntry = playurl.video[0];
-      const res = videoEntry.video_resource || videoEntry;
-      if (res && res.url) {
-        bestPlayUrl = res.url;
-      }
-      if (res && Array.isArray(res.backup_url)) {
-        backupUrls.push(...res.backup_url.filter(Boolean));
-      }
-      if (videoEntry.stream_info) {
-        quality = videoEntry.stream_info.qn || quality;
+      for (const videoEntry of playurl.video) {
+        if (!videoEntry) continue;
+        const res = videoEntry.video_resource || videoEntry;
+        if (res && res.url) {
+          bestPlayUrl = res.url;
+          if (Array.isArray(res.backup_url)) {
+            backupUrls.push(...res.backup_url.filter(Boolean));
+          }
+          if (videoEntry.stream_info && videoEntry.stream_info.qn) {
+            quality = videoEntry.stream_info.qn;
+          }
+          break;
+        }
       }
     }
 
@@ -115,26 +123,40 @@
     const dash = root.dash || playurl.dash;
     if (dash && typeof dash === 'object') {
       if (Array.isArray(dash.video) && dash.video.length > 0) {
-        const v = dash.video[0];
-        if (!bestPlayUrl) {
-          bestPlayUrl = v.baseUrl || v.base_url || v.url || '';
+        for (const v of dash.video) {
+          if (!v) continue;
+          const vUrl = v.baseUrl || v.base_url || v.url;
+          if (vUrl) {
+            if (!bestPlayUrl) bestPlayUrl = vUrl;
+            const bkp = v.backupUrl || v.backup_url;
+            if (Array.isArray(bkp)) {
+              backupUrls.push(...bkp.filter(Boolean));
+            }
+            if (v.id) quality = v.id;
+            break;
+          }
         }
-        const bkp = v.backupUrl || v.backup_url;
-        if (Array.isArray(bkp)) {
-          backupUrls.push(...bkp.filter(Boolean));
-        }
-        quality = v.id || quality;
       }
       if (Array.isArray(dash.audio) && dash.audio.length > 0) {
-        const a = dash.audio[0];
-        audioUrl = a.baseUrl || a.base_url || a.url || '';
+        for (const a of dash.audio) {
+          if (!a) continue;
+          const aUrl = a.baseUrl || a.base_url || a.url;
+          if (aUrl) {
+            audioUrl = aUrl;
+            break;
+          }
+        }
       }
     }
 
     // 4. Check separate audio_resource
     if (!audioUrl && Array.isArray(playurl.audio_resource) && playurl.audio_resource.length > 0) {
-      const a = playurl.audio_resource[0];
-      audioUrl = a.url || '';
+      for (const a of playurl.audio_resource) {
+        if (a && a.url) {
+          audioUrl = a.url;
+          break;
+        }
+      }
     }
 
     if (!bestPlayUrl) return null;
@@ -202,11 +224,12 @@
     if (!state || typeof state !== 'object') return null;
 
     const mediaInfo = state.mediaInfo || state.season || (state.ogv && state.ogv.season) || {};
-    const seriesTitle = mediaInfo.title || mediaInfo.season_title || '';
+    const seriesTitle = mediaInfo.title || mediaInfo.season_title || (state.ogv && state.ogv.season && (state.ogv.season.title || state.ogv.season.season_title)) || '';
     const user = state.user || state.userInfo || {};
-    const isVip = !!(user.vip && (user.vip.is_vip || user.vip.status === 1 || user.vip.vip_type > 0));
+    const vipInfo = user.vip_info || user.vip || {};
+    const isVip = !!(vipInfo.is_vip || vipInfo.status === 1 || vipInfo.vip_type > 0 || (user.vip && user.vip.status === 1));
 
-    const epInfo = state.epInfo || state.activeEp || {};
+    const epInfo = state.epInfo || state.activeEp || (state.ogv && { ep_id: state.ogv.epId }) || {};
     let rawList = state.epList || state.episodes;
     if (!rawList && mediaInfo) {
       rawList = mediaInfo.episodes || mediaInfo.epList || mediaInfo.episodeList;
@@ -214,7 +237,21 @@
     if (!rawList && state.sections && Array.isArray(state.sections)) {
       rawList = [];
       state.sections.forEach(sec => {
-        const list = sec.episodes || sec.epList || sec.episodeList;
+        const list = sec.episodes || sec.epList || sec.episodeList || sec.list || sec.items;
+        if (Array.isArray(list)) rawList.push(...list);
+      });
+    }
+    if (!rawList && state.ogv && Array.isArray(state.ogv.sectionsList)) {
+      rawList = [];
+      state.ogv.sectionsList.forEach(sec => {
+        const list = sec.episodes || sec.epList || sec.episodeList || sec.list || sec.items;
+        if (Array.isArray(list)) rawList.push(...list);
+      });
+    }
+    if (!rawList && mediaInfo.sections && Array.isArray(mediaInfo.sections)) {
+      rawList = [];
+      mediaInfo.sections.forEach(sec => {
+        const list = sec.episodes || sec.epList || sec.episodeList || sec.list || sec.items;
         if (Array.isArray(list)) rawList.push(...list);
       });
     }
@@ -224,7 +261,7 @@
     const epList = Array.isArray(rawList) ? rawList : [];
 
     const normalizedEpisodes = epList.map((ep, idx) => {
-      const epId = String(ep.ep_id || ep.id || `ep_${idx + 1}`);
+      const epId = String(ep.ep_id || ep.id || ep.epid || ep.episode_id || `ep_${idx + 1}`);
       const rawTitle = ep.title || (ep.short_title ? `EP ${ep.short_title}` : `Episode ${idx + 1}`);
       let epIndex = idx + 1;
       if (ep.short_title && /^\d+$/.test(ep.short_title)) {
@@ -462,28 +499,37 @@
       }
     }
 
-    let apiUrl = '';
-    if (ep_id) {
-      apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${qn}`;
-    } else if (aid || bvid) {
-      apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${qn}`;
-    } else {
-      return null;
-    }
-
-    try {
-      const res = await fetch(apiUrl, { credentials: 'include' });
-      if (!res.ok) return null;
-      const json = await res.json();
-      const normalized = normalizePlayurlResponse(json, { ep_id, aid, bvid });
-      if (normalized) {
-        cacheStreamItem(normalized);
-        return normalized;
+    const tryFetch = async (targetQn) => {
+      let apiUrl = '';
+      if (ep_id) {
+        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}`;
+      } else if (aid || bvid) {
+        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}`;
+      } else {
+        return null;
       }
-    } catch (err) {
-      // Fetch error or network issue
+
+      try {
+        const res = await fetch(apiUrl, { credentials: 'include' });
+        if (!res.ok) return null;
+        const json = await res.json();
+        const normalized = normalizePlayurlResponse(json, { ep_id, aid, bvid });
+        if (normalized) {
+          cacheStreamItem(normalized);
+          return normalized;
+        }
+      } catch (_) {}
+      return null;
+    };
+
+    let result = await tryFetch(qn);
+    if (!result && Number(qn) !== 64) {
+      result = await tryFetch(64);
     }
-    return null;
+    if (!result && Number(qn) !== 32) {
+      result = await tryFetch(32);
+    }
+    return result;
   }
 
   /**
