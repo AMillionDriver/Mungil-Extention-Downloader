@@ -1,0 +1,574 @@
+/**
+ * TeraBox Direct Downloader - Content Platform Script (ISOLATED World)
+ *
+ * Handles:
+ * 1. IPC with terabox_bridge.js (MAIN world) to retrieve file list & dlink.
+ * 2. In-Page UI Injection: Floating action bar, row buttons, and player actions.
+ * 3. Batch Downloader Modal: Multi-file selection, total size calculation, queueing.
+ * 4. Background Service Worker IPC (DOWNLOAD_VIDEO / DOWNLOAD_FILE).
+ * 5. Popup status query handler (GET_ACTIVE_VIDEO_INFO / GET_TERABOX_FILE_INFO).
+ */
+
+(function () {
+  'use strict';
+
+  if (window.__TERABOX_PLATFORM_INITIALIZED__) return;
+  window.__TERABOX_PLATFORM_INITIALIZED__ = true;
+
+  const LOG_PREFIX = '[TeraBox Downloader]';
+
+  // SVG Icons
+  const SVG_DOWNLOAD = `
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+      <path d="M17 18v1H7v-1h10zm-1-8l-4 4-4-4 1.4-1.4 1.6 1.6V4h2v6.2l1.6-1.6L16 10z"/>
+    </svg>
+  `;
+
+  const SVG_CHECK = `
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+      <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+    </svg>
+  `;
+
+  const SVG_SPINNER = `
+    <svg class="mungil-terabox-spinner" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+      <path d="M12 2a10 10 0 0 1 10 10" />
+    </svg>
+  `;
+
+  const SVG_FOLDER = `
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    </svg>
+  `;
+
+  // State
+  let cachedFiles = [];
+  let isBatchModalOpen = false;
+
+  /**
+   * Sanitizes TeraBox filename against Windows NTFS reserved characters & length constraints.
+   * @param {string} raw
+   * @returns {string}
+   */
+  function sanitizeTeraBoxFilename(raw) {
+    if (!raw || typeof raw !== 'string') return 'TeraBox_File';
+
+    let clean = raw
+      // Replace Windows illegal chars \ / : * ? " < > | with safe dash or underscore
+      .replace(/[\\/:*?"<>|]/g, '-')
+      // Strip control chars (0x00-0x1F, 0x7F-0x9F)
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, '')
+      // Collapse multiple dashes
+      .replace(/-+/g, '-')
+      // Collapse multiple spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Check Windows reserved names
+    const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+    if (reserved.test(clean)) {
+      clean = `TeraBox_${clean}`;
+    }
+
+    // Collapse trailing dots or spaces
+    clean = clean.replace(/[. ]+$/, '');
+
+    // Max filename length safe boundary
+    if (clean.length > 180) {
+      const extMatch = clean.match(/\.[0-9a-z]{1,8}$/i);
+      const ext = extMatch ? extMatch[0] : '';
+      clean = clean.slice(0, 180 - ext.length) + ext;
+    }
+
+    return clean || 'TeraBox_File';
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const val = bytes / Math.pow(1024, i);
+    return `${val.toFixed(i === 0 ? 0 : 2)} ${units[i] || 'B'}`;
+  }
+
+  // --------------------------------------------------------------------------
+  // IPC with terabox_bridge.js (MAIN World)
+  // --------------------------------------------------------------------------
+  function callBridge(action, payload = {}, timeoutMs = 6000) {
+    return new Promise((resolve, reject) => {
+      const requestId = `tb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      let timer = null;
+
+      const onResponse = (e) => {
+        if (!e || !e.detail || e.detail.requestId !== requestId) return;
+        cleanup();
+        if (e.detail.success) {
+          resolve(e.detail);
+        } else {
+          reject(new Error(e.detail.error || 'Bridge call failed'));
+        }
+      };
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        window.removeEventListener('TERABOX_BRIDGE_RESPONSE', onResponse);
+        document.removeEventListener('TERABOX_BRIDGE_RESPONSE', onResponse);
+      };
+
+      timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Bridge request timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      window.addEventListener('TERABOX_BRIDGE_RESPONSE', onResponse);
+      document.addEventListener('TERABOX_BRIDGE_RESPONSE', onResponse);
+
+      const reqDetail = { requestId, action, ...payload };
+      try {
+        document.dispatchEvent(new CustomEvent('TERABOX_BRIDGE_REQUEST', { detail: reqDetail }));
+      } catch (_) {}
+      try {
+        window.dispatchEvent(new CustomEvent('TERABOX_BRIDGE_REQUEST', { detail: reqDetail }));
+      } catch (_) {}
+    });
+  }
+
+  async function fetchTeraBoxFiles() {
+    try {
+      const res = await callBridge('GET_FILES');
+      if (res && Array.isArray(res.files) && res.files.length > 0) {
+        cachedFiles = res.files;
+      }
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Failed to fetch files from bridge:`, err);
+    }
+    return cachedFiles;
+  }
+
+  async function resolveDlinkForFile(fsId) {
+    try {
+      const res = await callBridge('GET_DLINK', { fsId });
+      if (res && res.dlink) {
+        return res.dlink;
+      }
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Failed to resolve dlink for ${fsId}:`, err);
+    }
+    return null;
+  }
+
+  // --------------------------------------------------------------------------
+  // Direct Download Trigger
+  // --------------------------------------------------------------------------
+  async function triggerDownloadFile(file, btnEl = null) {
+    if (!file) return;
+
+    if (btnEl) {
+      btnEl.classList.add('loading');
+      btnEl.innerHTML = `${SVG_SPINNER}<span>Menyiapkan...</span>`;
+    }
+
+    try {
+      let dlink = file.dlink;
+      if (!dlink) {
+        dlink = await resolveDlinkForFile(file.fs_id);
+      }
+
+      if (!dlink) {
+        throw new Error('Gagal mendapatkan link download langsung dari TeraBox');
+      }
+
+      const safeFilename = sanitizeTeraBoxFilename(file.filename);
+
+      // Route to background service worker for reliable resume & custom referer
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            type: 'DOWNLOAD_VIDEO',
+            url: dlink,
+            title: safeFilename,
+            author: 'TeraBox',
+            platform: 'terabox'
+          },
+          (resp) => {
+            if (btnEl) {
+              btnEl.classList.remove('loading');
+              if (resp && resp.success) {
+                btnEl.classList.add('success');
+                btnEl.innerHTML = `${SVG_CHECK}<span>Mengunduh...</span>`;
+                setTimeout(() => {
+                  btnEl.classList.remove('success');
+                  btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
+                }, 3000);
+              } else {
+                btnEl.classList.add('error');
+                btnEl.innerHTML = `<span>Gagal</span>`;
+                setTimeout(() => {
+                  btnEl.classList.remove('error');
+                  btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
+                }, 3000);
+              }
+            }
+          }
+        );
+      } else {
+        // Fallback to anchor click
+        const a = document.createElement('a');
+        a.href = dlink;
+        a.download = safeFilename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => a.remove(), 1000);
+        if (btnEl) {
+          btnEl.classList.remove('loading');
+          btnEl.classList.add('success');
+          btnEl.innerHTML = `${SVG_CHECK}<span>Mengunduh...</span>`;
+        }
+      }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} triggerDownloadFile error:`, err);
+      if (btnEl) {
+        btnEl.classList.remove('loading');
+        btnEl.classList.add('error');
+        btnEl.innerHTML = `<span>Error</span>`;
+        setTimeout(() => {
+          btnEl.classList.remove('error');
+          btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
+        }, 3000);
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // In-Page Batch Download Modal
+  // --------------------------------------------------------------------------
+  function openBatchModal(files) {
+    if (isBatchModalOpen) return;
+    const downloadables = files.filter((f) => !f.isdir);
+    if (downloadables.length === 0) {
+      alert('Tidak ada file yang dapat diunduh pada halaman ini.');
+      return;
+    }
+
+    isBatchModalOpen = true;
+    const selectedIds = new Set(downloadables.map((f) => f.fs_id));
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'mungil-terabox-batch-modal';
+    backdrop.className = 'mungil-tb-modal-backdrop';
+
+    const renderModal = () => {
+      const selectedFiles = downloadables.filter((f) => selectedIds.has(f.fs_id));
+      const totalSelectedBytes = selectedFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+
+      backdrop.innerHTML = `
+        <div class="mungil-tb-modal" role="dialog" aria-modal="true">
+          <div class="mungil-tb-modal-header">
+            <div class="mungil-tb-header-title">
+              ${SVG_FOLDER}
+              <span>TeraBox Batch Downloader</span>
+            </div>
+            <button type="button" class="mungil-tb-close-btn" id="mungil-tb-modal-close" aria-label="Tutup">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="mungil-tb-modal-toolbar">
+            <div class="mungil-tb-toolbar-left">
+              <span>Total File: <strong>${downloadables.length}</strong></span>
+              <span>•</span>
+              <button type="button" class="mungil-tb-link-action" id="mungil-tb-select-all">
+                ${selectedIds.size === downloadables.length ? 'Batalkan Semua' : 'Pilih Semua'}
+              </button>
+            </div>
+            <div>
+              <span>Terpilih: <strong>${selectedIds.size}</strong></span>
+            </div>
+          </div>
+
+          <div class="mungil-tb-file-list" id="mungil-tb-items-container">
+            ${downloadables
+              .map((f) => {
+                const isSelected = selectedIds.has(f.fs_id);
+                return `
+                <div class="mungil-tb-file-item ${isSelected ? 'selected' : ''}" data-fsid="${f.fs_id}">
+                  <div class="mungil-tb-item-left">
+                    <input type="checkbox" class="mungil-tb-item-checkbox" data-fsid="${f.fs_id}" ${
+                      isSelected ? 'checked' : ''
+                    }/>
+                    <span class="mungil-tb-item-name" title="${f.filename}">${f.filename}</span>
+                  </div>
+                  <span class="mungil-tb-item-size">${f.formatted_size}</span>
+                </div>
+              `;
+              })
+              .join('')}
+          </div>
+
+          <div class="mungil-tb-modal-footer">
+            <div class="mungil-tb-footer-stats">
+              <span>Ukuran Total: <strong>${formatBytes(totalSelectedBytes)}</strong></span>
+            </div>
+            <div class="mungil-tb-footer-actions">
+              <button type="button" class="mungil-tb-cancel-btn" id="mungil-tb-btn-cancel">Batal</button>
+              <button type="button" class="mungil-terabox-btn" id="mungil-tb-btn-start-batch" ${
+                selectedIds.size === 0 ? 'disabled' : ''
+              }>
+                ${SVG_DOWNLOAD}
+                <span>Download (${selectedIds.size} File)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Listeners
+      const closeBtn = backdrop.querySelector('#mungil-tb-modal-close');
+      const cancelBtn = backdrop.querySelector('#mungil-tb-btn-cancel');
+      const selectAllBtn = backdrop.querySelector('#mungil-tb-select-all');
+      const startBatchBtn = backdrop.querySelector('#mungil-tb-btn-start-batch');
+
+      const closeModal = () => {
+        isBatchModalOpen = false;
+        backdrop.remove();
+      };
+
+      if (closeBtn) closeBtn.onclick = closeModal;
+      if (cancelBtn) cancelBtn.onclick = closeModal;
+
+      if (selectAllBtn) {
+        selectAllBtn.onclick = () => {
+          if (selectedIds.size === downloadables.length) {
+            selectedIds.clear();
+          } else {
+            downloadables.forEach((f) => selectedIds.add(f.fs_id));
+          }
+          renderModal();
+        };
+      }
+
+      // Individual item clicks
+      const itemRows = backdrop.querySelectorAll('.mungil-tb-file-item');
+      itemRows.forEach((row) => {
+        row.onclick = (e) => {
+          if (e.target.tagName.toLowerCase() === 'input') return;
+          const fsId = row.getAttribute('data-fsid');
+          if (selectedIds.has(fsId)) {
+            selectedIds.delete(fsId);
+          } else {
+            selectedIds.add(fsId);
+          }
+          renderModal();
+        };
+      });
+
+      const checkboxes = backdrop.querySelectorAll('.mungil-tb-item-checkbox');
+      checkboxes.forEach((cb) => {
+        cb.onchange = () => {
+          const fsId = cb.getAttribute('data-fsid');
+          if (cb.checked) {
+            selectedIds.add(fsId);
+          } else {
+            selectedIds.delete(fsId);
+          }
+          renderModal();
+        };
+      });
+
+      if (startBatchBtn) {
+        startBatchBtn.onclick = async () => {
+          if (selectedIds.size === 0) return;
+          startBatchBtn.classList.add('loading');
+          startBatchBtn.innerHTML = `${SVG_SPINNER}<span>Mengantrekan...</span>`;
+
+          const targets = downloadables.filter((f) => selectedIds.has(f.fs_id));
+          for (let i = 0; i < targets.length; i++) {
+            await triggerDownloadFile(targets[i]);
+            // Tiny pacing delay between consecutive requests
+            await new Promise((r) => setTimeout(r, 600));
+          }
+
+          startBatchBtn.classList.remove('loading');
+          startBatchBtn.classList.add('success');
+          startBatchBtn.innerHTML = `${SVG_CHECK}<span>Selesai!</span>`;
+          setTimeout(() => {
+            closeModal();
+          }, 1500);
+        };
+      }
+    };
+
+    renderModal();
+    document.body.appendChild(backdrop);
+  }
+
+  // --------------------------------------------------------------------------
+  // Floating Action Bar Injection
+  // --------------------------------------------------------------------------
+  async function injectFloatingBar() {
+    if (document.getElementById('mungil-terabox-floating-bar')) return;
+
+    const files = await fetchTeraBoxFiles();
+    if (!files || files.length === 0) return;
+
+    const downloadables = files.filter((f) => !f.isdir);
+    if (downloadables.length === 0) return;
+
+    const bar = document.createElement('div');
+    bar.id = 'mungil-terabox-floating-bar';
+    bar.className = 'mungil-terabox-floating-bar';
+
+    if (downloadables.length === 1) {
+      const singleFile = downloadables[0];
+      bar.innerHTML = `
+        <span class="mungil-terabox-floating-badge">${singleFile.formatted_size}</span>
+        <button type="button" class="mungil-terabox-btn" id="mungil-tb-single-btn">
+          ${SVG_DOWNLOAD}
+          <span>Unduh File</span>
+        </button>
+      `;
+      const btn = bar.querySelector('#mungil-tb-single-btn');
+      if (btn) {
+        btn.onclick = () => triggerDownloadFile(singleFile, btn);
+      }
+    } else {
+      bar.innerHTML = `
+        <span class="mungil-terabox-floating-badge">${downloadables.length} File</span>
+        <button type="button" class="mungil-terabox-btn" id="mungil-tb-batch-btn">
+          ${SVG_FOLDER}
+          <span>Download Batch</span>
+        </button>
+      `;
+      const btn = bar.querySelector('#mungil-tb-batch-btn');
+      if (btn) {
+        btn.onclick = () => openBatchModal(downloadables);
+      }
+    }
+
+    document.body.appendChild(bar);
+  }
+
+  // --------------------------------------------------------------------------
+  // Background & Popup Message Listener
+  // --------------------------------------------------------------------------
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (!message || typeof message !== 'object') return false;
+
+      if (
+        message.type === 'GET_ACTIVE_VIDEO_INFO' ||
+        message.type === 'GET_TERABOX_FILE_INFO' ||
+        message.action === 'getVideoInfo'
+      ) {
+        fetchTeraBoxFiles().then((files) => {
+          const downloadables = (files || []).filter((f) => !f.isdir);
+          const first = downloadables[0] || null;
+
+          if (first) {
+            sendResponse({
+              success: true,
+              platform: 'terabox',
+              videoId: first.fs_id,
+              title: first.filename,
+              author: 'TeraBox',
+              duration: 0,
+              sizeFormatted: first.formatted_size,
+              sizeBytes: first.size,
+              fileCount: downloadables.length,
+              files: downloadables
+            });
+          } else {
+            sendResponse({
+              success: false,
+              platform: 'terabox',
+              error: 'File TeraBox belum termuat atau halaman kosong'
+            });
+          }
+        });
+        return true;
+      }
+
+      if (message.type === 'TRIGGER_DOWNLOAD') {
+        fetchTeraBoxFiles().then((files) => {
+          const first = (files || []).filter((f) => !f.isdir)[0];
+          if (first) {
+            triggerDownloadFile(first);
+            sendResponse({ success: true });
+          } else {
+            sendResponse({ success: false, error: 'Tidak ada file untuk diunduh' });
+          }
+        });
+        return true;
+      }
+
+      if (message.type === 'TRIGGER_BATCH_DOWNLOAD') {
+        fetchTeraBoxFiles().then((files) => {
+          openBatchModal(files || []);
+          sendResponse({ success: true });
+        });
+        return true;
+      }
+
+      return false;
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Lifecycle & Observer
+  // --------------------------------------------------------------------------
+  let initTimeout = null;
+  function scheduleInit() {
+    if (initTimeout) clearTimeout(initTimeout);
+    initTimeout = setTimeout(() => {
+      injectFloatingBar();
+    }, 400);
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', scheduleInit);
+    } else {
+      scheduleInit();
+    }
+
+    // Secondary retry to ensure TeraBox SPA hydration has loaded
+    setTimeout(scheduleInit, 1500);
+    setTimeout(scheduleInit, 3500);
+
+    // MutationObserver to catch SPA page changes
+    if (typeof MutationObserver !== 'undefined') {
+      const observer = new MutationObserver(() => {
+        scheduleInit();
+      });
+      if (document.body) {
+        observer.observe(document.body, { childList: true, subtree: true });
+      } else {
+        document.addEventListener('DOMContentLoaded', () => {
+          if (document.body) {
+            observer.observe(document.body, { childList: true, subtree: true });
+          }
+        });
+      }
+    }
+  }
+
+  // Export for unit tests in Node environment
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      sanitizeTeraBoxFilename,
+      formatBytes,
+      fetchTeraBoxFiles,
+      resolveDlinkForFile,
+      triggerDownloadFile,
+      openBatchModal
+    };
+  }
+
+  console.log(`${LOG_PREFIX} TeraBox Content Platform successfully initialized.`);
+})();

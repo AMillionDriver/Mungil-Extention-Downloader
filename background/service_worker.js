@@ -480,21 +480,30 @@ async function fetchVideoBlob(url, options = {}) {
     cleanUrl.includes('bstation.tv') ||
     cleanUrl.includes('akamaized.net') ||
     (options && options.platform === 'bstation');
+  const isTeraBox =
+    cleanUrl.includes('terabox') ||
+    cleanUrl.includes('1024tera') ||
+    cleanUrl.includes('baidupcs') ||
+    (options && options.platform === 'terabox');
 
-  const defaultReferer = isYoutube
-    ? 'https://www.youtube.com/'
-    : isJwplyr
-      ? 'https://jwplyr.com/'
-      : isBstation
-        ? 'https://www.bilibili.tv/'
-        : 'https://www.tiktok.com/';
-  const defaultOrigin = isYoutube
-    ? 'https://www.youtube.com'
-    : isJwplyr
-      ? 'https://jwplyr.com'
-      : isBstation
-        ? 'https://www.bilibili.tv'
-        : 'https://www.tiktok.com';
+  const defaultReferer = isTeraBox
+    ? 'https://www.terabox.app/'
+    : isYoutube
+      ? 'https://www.youtube.com/'
+      : isJwplyr
+        ? 'https://jwplyr.com/'
+        : isBstation
+          ? 'https://www.bilibili.tv/'
+          : 'https://www.tiktok.com/';
+  const defaultOrigin = isTeraBox
+    ? 'https://www.terabox.app'
+    : isYoutube
+      ? 'https://www.youtube.com'
+      : isJwplyr
+        ? 'https://jwplyr.com'
+        : isBstation
+          ? 'https://www.bilibili.tv'
+          : 'https://www.tiktok.com';
 
   const referer = options && options.referer ? options.referer : defaultReferer;
   const origin = options && options.origin ? options.origin : defaultOrigin;
@@ -1768,6 +1777,24 @@ if (typeof chrome !== 'undefined' && chrome.contextMenus) {
             }
           }
         );
+
+        chrome.contextMenus.create(
+          {
+            id: 'download-terabox-active',
+            title: '⬇ Download File TeraBox Ini',
+            contexts: ['all'],
+            documentUrlPatterns: [
+              '*://*.terabox.com/*',
+              '*://*.terabox.app/*',
+              '*://*.1024tera.com/*'
+            ]
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              // Ignore duplicate menu warnings
+            }
+          }
+        );
       });
     } catch (_) {}
   }
@@ -1782,7 +1809,8 @@ if (typeof chrome !== 'undefined' && chrome.contextMenus) {
     if (
       (info.menuItemId === 'download-tiktok-active' ||
         info.menuItemId === 'download-jwplyr-active' ||
-        info.menuItemId === 'download-youtube-active') &&
+        info.menuItemId === 'download-youtube-active' ||
+        info.menuItemId === 'download-terabox-active') &&
       tab &&
       tab.id
     ) {
@@ -2007,6 +2035,37 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
   });
 }
 
+/**
+ * Sanitizes TeraBox filename against Windows NTFS reserved characters & length constraints.
+ * @param {string} raw
+ * @returns {string}
+ */
+function sanitizeTeraBoxFilename(raw) {
+  if (!raw || typeof raw !== 'string') return 'TeraBox_File';
+
+  let clean = raw
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/[\x00-\x1F\x7F-\x9F]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  if (reserved.test(clean)) {
+    clean = `TeraBox_${clean}`;
+  }
+
+  clean = clean.replace(/[. ]+$/, '');
+
+  if (clean.length > 180) {
+    const extMatch = clean.match(/\.[0-9a-z]{1,8}$/i);
+    const ext = extMatch ? extMatch[0] : '';
+    clean = clean.slice(0, 180 - ext.length) + ext;
+  }
+
+  return clean || 'TeraBox_File';
+}
+
 // Export for unit tests in Node environment
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -2029,6 +2088,7 @@ if (typeof module !== 'undefined' && module.exports) {
     sanitizeYoutubeTitle,
     sanitizeYoutubeAuthor,
     formatYoutubeFilename,
+    sanitizeTeraBoxFilename,
     ADBLOCK_DYNAMIC_RULES,
     syncShieldAdblockRules
   };

@@ -33,6 +33,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const ytStatusChip = document.getElementById('yt-status-chip');
   const ytQualitySelect = document.getElementById('yt-quality-select');
   const ytQualityEstBadge = document.getElementById('yt-quality-est-badge');
+  const stateTerabox = document.getElementById('state-terabox');
+  const tbTitle = document.getElementById('tb-title');
+  const tbDesc = document.getElementById('tb-desc');
+  const tbStatusChip = document.getElementById('tb-status-chip');
   const btnDownloadActive = document.getElementById('btn-download-active');
   const btnDownloadText = document.getElementById('btn-download-text');
   const btnOpenTikTok = document.getElementById('btn-open-tiktok');
@@ -362,6 +366,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isBstation = false;
   let isJwplyr = false;
   let isYoutube = false;
+  let isTeraBox = false;
 
   try {
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
@@ -381,11 +386,22 @@ document.addEventListener('DOMContentLoaded', async () => {
           isJwplyr = host === 'jwplyr.com' || host.endsWith('.jwplyr.com');
           isYoutube =
             host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be';
+          isTeraBox =
+            host === 'terabox.com' ||
+            host.endsWith('.terabox.com') ||
+            host === 'terabox.app' ||
+            host.endsWith('.terabox.app') ||
+            host === '1024tera.com' ||
+            host.endsWith('.1024tera.com');
         } catch (_) {
           isTikTok = tabUrl.includes('tiktok.com');
           isBstation = tabUrl.includes('bilibili.tv') || tabUrl.includes('bstation.tv');
           isJwplyr = tabUrl.includes('jwplyr.com');
           isYoutube = tabUrl.includes('youtube.com') || tabUrl.includes('youtu.be');
+          isTeraBox =
+            tabUrl.includes('terabox.com') ||
+            tabUrl.includes('terabox.app') ||
+            tabUrl.includes('1024tera.com');
         }
       }
     }
@@ -895,6 +911,87 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
       });
     }
+  } else if (isTeraBox && activeTab && activeTab.id) {
+    // Online / Active TeraBox State
+    if (statusDot) statusDot.className = 'status-dot online';
+    if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'none';
+    if (stateJwplyr) stateJwplyr.style.display = 'none';
+    if (stateYoutube) stateYoutube.style.display = 'none';
+    if (stateTerabox) stateTerabox.style.display = 'flex';
+    if (stateEmpty) stateEmpty.style.display = 'none';
+    if (btnDownloadActive) btnDownloadActive.style.display = 'inline-flex';
+    if (btnDownloadText) btnDownloadText.textContent = 'Download File TeraBox';
+
+    let fileCount = 1;
+
+    try {
+      chrome.tabs.sendMessage(activeTab.id, { type: 'GET_TERABOX_FILE_INFO' }, (response) => {
+        if (chrome.runtime.lastError) {
+          if (tbTitle) tbTitle.textContent = 'TeraBox Web Active';
+          if (tbDesc) tbDesc.textContent = 'Reload tab (F5) to enable 1-click download';
+          if (tbStatusChip) {
+            tbStatusChip.textContent = 'Connected';
+            tbStatusChip.style.color = 'var(--text-muted)';
+          }
+          return;
+        }
+
+        if (response && response.success) {
+          fileCount = response.fileCount || 1;
+          if (tbTitle) tbTitle.textContent = response.title || 'TeraBox File';
+          const sizeStr = response.sizeFormatted ? `Ukuran: ${response.sizeFormatted}` : '';
+          const countStr = fileCount > 1 ? ` (${fileCount} file)` : '';
+          if (tbDesc) tbDesc.textContent = `${sizeStr}${countStr} • Direct link siap unduh`;
+          if (tbStatusChip) {
+            tbStatusChip.textContent = 'Ready';
+            tbStatusChip.style.color = 'var(--accent-green)';
+          }
+          if (btnDownloadText) {
+            btnDownloadText.textContent =
+              fileCount > 1 ? `Buka Batch Downloader (${fileCount})` : 'Download File TeraBox';
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('[Popup] TeraBox query failed:', err);
+    }
+
+    // Handle TeraBox download click
+    if (btnDownloadActive) {
+      btnDownloadActive.addEventListener('click', () => {
+        if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
+
+        if (fileCount > 1) {
+          // Open in-page batch modal
+          chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_BATCH_DOWNLOAD' });
+          showStatus('Membuka antarmuka batch downloader di tab TeraBox...', 'info', 3000);
+        } else {
+          btnDownloadActive.disabled = true;
+          if (btnDownloadText) btnDownloadText.textContent = 'Mengunduh...';
+          showStatus('Mengunduh file TeraBox langsung...', 'info', 0);
+
+          chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_DOWNLOAD' }, (res) => {
+            btnDownloadActive.disabled = false;
+            if (chrome.runtime.lastError) {
+              if (btnDownloadText) btnDownloadText.textContent = 'Download File TeraBox';
+              showStatus('Mohon refresh tab TeraBox (F5).', 'error', 4000);
+              return;
+            }
+            if (res && res.success) {
+              if (btnDownloadText) btnDownloadText.textContent = 'Tersimpan!';
+              showStatus('✓ Unduhan TeraBox dimulai!', 'success', 3500);
+              setTimeout(() => {
+                if (btnDownloadText) btnDownloadText.textContent = 'Download File TeraBox';
+              }, 3000);
+            } else {
+              if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
+              showStatus(res?.error || 'Gagal memulai unduhan TeraBox.', 'error', 4500);
+            }
+          });
+        }
+      });
+    }
   } else {
     // Inactive / Non-Supported State
     if (statusDot) statusDot.className = 'status-dot idle';
@@ -902,11 +999,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (stateBstation) stateBstation.style.display = 'none';
     if (stateJwplyr) stateJwplyr.style.display = 'none';
     if (stateYoutube) stateYoutube.style.display = 'none';
+    if (stateTerabox) stateTerabox.style.display = 'none';
     if (stateEmpty) stateEmpty.style.display = 'flex';
     if (btnDownloadActive) btnDownloadActive.style.display = 'none';
     if (platformTitle) platformTitle.textContent = 'Not on Supported Platform';
     if (platformDesc)
       platformDesc.textContent =
-        'Open TikTok, Bstation, JWPlyr, or YouTube Web to start downloading videos directly.';
+        'Open TikTok, Bstation, JWPlyr, YouTube, or TeraBox Web to start downloading files directly.';
   }
 });

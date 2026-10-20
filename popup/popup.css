@@ -210,6 +210,10 @@ body {
   color: #ff4d4d;
 }
 
+.meta-label-tb {
+  color: #0660f6;
+}
+
 .status-chip {
   font-size: 10px;
   font-weight: 600;

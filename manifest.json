@@ -28,7 +28,12 @@
     "*://*.komiku.org/*",
     "*://*.komiku.id/*",
     "*://*.komiku.com/*",
-    "*://*.komiku.co.id/*"
+    "*://*.komiku.co.id/*",
+    "*://*.terabox.com/*",
+    "*://*.terabox.app/*",
+    "*://*.1024tera.com/*",
+    "*://*.teraboxcdn.com/*",
+    "*://*.baidupcs.com/*"
   ],
   "background": {
     "service_worker": "background/service_worker.js"
@@ -74,6 +79,26 @@
       "matches": ["*://*.youtube.com/*"],
       "js": ["content/platforms/youtube.js"],
       "css": ["content/styles/youtube.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.terabox.com/*",
+        "*://*.terabox.app/*",
+        "*://*.1024tera.com/*"
+      ],
+      "js": ["content/injected/terabox_bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.terabox.com/*",
+        "*://*.terabox.app/*",
+        "*://*.1024tera.com/*"
+      ],
+      "js": ["content/platforms/terabox.js"],
+      "css": ["content/styles/terabox.css"],
       "run_at": "document_idle"
     },
     {
@@ -158,6 +183,19 @@
         "icons/icon128.png"
       ],
       "matches": ["*://*.youtube.com/*"]
+    },
+    {
+      "resources": [
+        "content/injected/terabox_bridge.js",
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": [
+        "*://*.terabox.com/*",
+        "*://*.terabox.app/*",
+        "*://*.1024tera.com/*"
+      ]
     }
   ],
   "action": {

@@ -6144,6 +6144,154 @@ async function runAllSuites() {
   );
 
   // --------------------------------------------------------------------------
+  // SUITE 26: TeraBox Platform Registration, NTFS Sanitization & Batch Lifecycle
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 26: TeraBox Platform Registration, NTFS Sanitization & Batch Lifecycle',
+    ({ test }) => {
+      const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+      test('Manifest registers terabox_bridge.js in MAIN world and terabox.js in ISOLATED world', () => {
+        const bridgeScript = manifest.content_scripts.find(
+          (s) => Array.isArray(s.js) && s.js.includes('content/injected/terabox_bridge.js')
+        );
+        assert.ok(bridgeScript, 'terabox_bridge.js entry must exist in content_scripts');
+        assert.strictEqual(
+          bridgeScript.world,
+          'MAIN',
+          'terabox_bridge.js must run in MAIN world for window.yunData scope'
+        );
+        assert.strictEqual(
+          bridgeScript.run_at,
+          'document_start',
+          'terabox_bridge.js must run at document_start'
+        );
+        assert.ok(bridgeScript.matches.includes('*://*.terabox.com/*'), 'must match terabox.com');
+        assert.ok(bridgeScript.matches.includes('*://*.terabox.app/*'), 'must match terabox.app');
+        assert.ok(bridgeScript.matches.includes('*://*.1024tera.com/*'), 'must match 1024tera.com');
+
+        const platformScript = manifest.content_scripts.find(
+          (s) => Array.isArray(s.js) && s.js.includes('content/platforms/terabox.js')
+        );
+        assert.ok(platformScript, 'terabox.js entry must exist in content_scripts');
+        assert.strictEqual(
+          platformScript.run_at,
+          'document_idle',
+          'terabox.js must run at document_idle'
+        );
+        assert.ok(
+          platformScript.css && platformScript.css.includes('content/styles/terabox.css'),
+          'terabox.js must register content/styles/terabox.css'
+        );
+
+        const webRes = manifest.web_accessible_resources.find(
+          (r) =>
+            Array.isArray(r.resources) && r.resources.includes('content/injected/terabox_bridge.js')
+        );
+        assert.ok(webRes, 'terabox_bridge.js must be exposed in web_accessible_resources');
+
+        assert.ok(
+          manifest.host_permissions.includes('*://*.terabox.com/*'),
+          'host_permissions must include terabox.com'
+        );
+        assert.ok(
+          manifest.host_permissions.includes('*://*.terabox.app/*'),
+          'host_permissions must include terabox.app'
+        );
+      });
+
+      test('TeraBox scripts and stylesheets exist on disk with valid size and syntax', () => {
+        const bridgePath = path.join(PROJECT_ROOT, 'content/injected/terabox_bridge.js');
+        const platformPath = path.join(PROJECT_ROOT, 'content/platforms/terabox.js');
+        const stylePath = path.join(PROJECT_ROOT, 'content/styles/terabox.css');
+
+        assert.ok(fs.existsSync(bridgePath), 'terabox_bridge.js must exist on disk');
+        assert.ok(fs.existsSync(platformPath), 'terabox.js must exist on disk');
+        assert.ok(fs.existsSync(stylePath), 'terabox.css must exist on disk');
+
+        const bridgeRes = spawnSync(process.execPath, ['--check', bridgePath], {
+          encoding: 'utf8'
+        });
+        assert.strictEqual(bridgeRes.status, 0, 'terabox_bridge.js must pass node --check');
+
+        const platformRes = spawnSync(process.execPath, ['--check', platformPath], {
+          encoding: 'utf8'
+        });
+        assert.strictEqual(platformRes.status, 0, 'terabox.js must pass node --check');
+      });
+
+      test('TeraBox Windows NTFS Filename Sanitization Unit & Boundary Tests', () => {
+        const { sanitizeTeraBoxFilename } = require('./content/platforms/terabox.js');
+
+        // Win32 illegal characters
+        assert.strictEqual(
+          sanitizeTeraBoxFilename('my:video/file*name?test"1<2>3|ok.mp4'),
+          'my-video-file-name-test-1-2-3-ok.mp4'
+        );
+
+        // Win32 reserved device names
+        assert.strictEqual(sanitizeTeraBoxFilename('CON.zip'), 'TeraBox_CON.zip');
+        assert.strictEqual(sanitizeTeraBoxFilename('NUL.tar.gz'), 'TeraBox_NUL.tar.gz');
+        assert.strictEqual(sanitizeTeraBoxFilename('COM1.mp4'), 'TeraBox_COM1.mp4');
+
+        // Unicode & CJK characters preserved
+        assert.strictEqual(
+          sanitizeTeraBoxFilename('【超高清】剧集_01.mkv'),
+          '【超高清】剧集_01.mkv'
+        );
+        assert.strictEqual(
+          sanitizeTeraBoxFilename('Anime_Episode [1080p].mp4'),
+          'Anime_Episode [1080p].mp4'
+        );
+
+        // Trailing dots and spaces collapsed
+        assert.strictEqual(sanitizeTeraBoxFilename('Document....'), 'Document');
+        assert.strictEqual(sanitizeTeraBoxFilename('MyFile   '), 'MyFile');
+
+        // Fallbacks
+        assert.strictEqual(sanitizeTeraBoxFilename(''), 'TeraBox_File');
+        assert.strictEqual(sanitizeTeraBoxFilename(null), 'TeraBox_File');
+        assert.strictEqual(sanitizeTeraBoxFilename(undefined), 'TeraBox_File');
+
+        // Extreme length boundary value analysis (truncated <= 180 chars preserving extension)
+        const longName = 'A'.repeat(250) + '.mp4';
+        const sanitizedLong = sanitizeTeraBoxFilename(longName);
+        assert.ok(sanitizedLong.length <= 180, 'sanitized filename must be <= 180 characters');
+        assert.ok(sanitizedLong.endsWith('.mp4'), 'extension must be preserved after truncation');
+      });
+
+      test('Popup UI and background service worker implement TeraBox state detection and referer routing', () => {
+        const popupHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        assert.ok(
+          popupHtml.includes('id="state-terabox"'),
+          'popup.html must include #state-terabox'
+        );
+        assert.ok(popupHtml.includes('id="tb-title"'), 'popup.html must include #tb-title');
+        assert.ok(popupHtml.includes('id="tb-desc"'), 'popup.html must include #tb-desc');
+        assert.ok(
+          popupHtml.includes('id="tb-status-chip"'),
+          'popup.html must include #tb-status-chip'
+        );
+
+        const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+        assert.ok(popupJs.includes('isTeraBox'), 'popup.js must detect isTeraBox');
+        assert.ok(
+          popupJs.includes('GET_TERABOX_FILE_INFO'),
+          'popup.js must query GET_TERABOX_FILE_INFO'
+        );
+
+        const sw = require('./background/service_worker.js');
+        assert.strictEqual(
+          typeof sw.sanitizeTeraBoxFilename,
+          'function',
+          'service_worker.js must export sanitizeTeraBoxFilename'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // TEST REPORT SUMMARY & EXIT CODE
   // --------------------------------------------------------------------------
   console.log(
