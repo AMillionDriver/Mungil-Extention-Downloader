@@ -6322,6 +6322,70 @@ async function runAllSuites() {
           'fallback filename must default with .mp4 extension'
         );
       });
+
+      test('classifyFiles separates videos, images, and folders; prioritizes single video', () => {
+        const { classifyFiles } = require('./content/platforms/terabox.js');
+
+        const mockFiles = [
+          {
+            fs_id: '101',
+            filename: 'Chuchu_20261020_161947.mp4',
+            size: 154200000,
+            formatted_size: '147.06 MB',
+            isdir: false,
+            isVideo: true,
+            isImage: false,
+            category: 1
+          },
+          {
+            fs_id: '102',
+            filename: 'Join Telegram @semutKW.jpg',
+            size: 45000,
+            formatted_size: '43.95 KB',
+            isdir: false,
+            isVideo: false,
+            isImage: true,
+            category: 3
+          },
+          {
+            fs_id: '103',
+            filename: 'pic',
+            size: 0,
+            formatted_size: '0 B',
+            isdir: true,
+            isVideo: false,
+            isImage: false,
+            category: 6
+          }
+        ];
+
+        const classified = classifyFiles(mockFiles);
+        assert.strictEqual(classified.folders.length, 1, 'must detect 1 folder');
+        assert.strictEqual(classified.folders[0].filename, 'pic');
+        assert.strictEqual(classified.videos.length, 1, 'must detect 1 video');
+        assert.strictEqual(classified.videos[0].filename, 'Chuchu_20261020_161947.mp4');
+        assert.strictEqual(classified.images.length, 1, 'must detect 1 image');
+        assert.strictEqual(classified.images[0].filename, 'Join Telegram @semutKW.jpg');
+        assert.strictEqual(classified.nonDirs.length, 2, 'must have 2 non-directory files');
+
+        // Verify bridge code implements POST with form body and fid_list
+        const bridgeCode = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/injected/terabox_bridge.js'),
+          'utf8'
+        );
+        assert.ok(
+          bridgeCode.includes('fid_list'),
+          'bridge must encode fid_list in POST /share/download body'
+        );
+        assert.ok(
+          bridgeCode.includes('[watch currentFile]'),
+          'bridge must hook [watch currentFile] console logs'
+        );
+
+        // Verify popup.js checks isSingleVideo
+        const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+        assert.ok(popupJs.includes('isSingleVideo'), 'popup.js must track isSingleVideo');
+      });
     }
   );
 

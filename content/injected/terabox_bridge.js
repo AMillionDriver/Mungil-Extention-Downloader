@@ -88,10 +88,26 @@
       raw.server_filename || raw.filename || raw.file_name || raw.name || 'TeraBox_File'
     );
     const size = Number(raw.size || raw.file_size || 0);
-    const isDir = Boolean(raw.isdir === 1 || raw.is_dir === 1 || raw.is_directory);
+    const isDir = Boolean(
+      raw.isdir === 1 ||
+      raw.is_dir === 1 ||
+      raw.is_directory ||
+      (raw.category === 6 && !size && !filename.includes('.'))
+    );
+    const category = Number(raw.category || 0);
+    const filenameLower = filename.toLowerCase();
+
+    const isVideo =
+      !isDir &&
+      (category === 1 || /\.(mp4|mkv|avi|mov|flv|webm|ts|m4v|wmv|3gp|m3u8)$/i.test(filenameLower));
+
+    const isImage =
+      !isDir &&
+      !isVideo &&
+      (category === 3 || /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(filenameLower));
+
     const dlink = String(raw.dlink || raw.download_url || raw.direct_link || '');
     const md5 = String(raw.md5 || '');
-    const category = Number(raw.category || 0);
 
     let thumb = '';
     if (raw.thumbs && typeof raw.thumbs === 'object') {
@@ -106,10 +122,36 @@
       size,
       formatted_size: formatBytes(size),
       isdir: isDir,
+      isVideo,
+      isImage,
       dlink,
       category,
       md5,
       thumb
+    };
+  }
+
+  // Intercept TeraBox Vue Watcher console logs (e.g. console.log("[watch currentFile]", ne))
+  if (typeof console !== 'undefined' && console.log) {
+    const origConsoleLog = console.log;
+    console.log = function (...args) {
+      try {
+        if (
+          args &&
+          args.length >= 2 &&
+          args[0] === '[watch currentFile]' &&
+          args[1] &&
+          typeof args[1] === 'object'
+        ) {
+          const norm = normalizeTeraBoxFile(args[1]);
+          if (norm) {
+            norm.isActive = true;
+            fileCache.set(norm.fs_id, norm);
+            notifyFilesUpdated();
+          }
+        }
+      } catch (_) {}
+      return origConsoleLog.apply(this, args);
     };
   }
 
@@ -354,17 +396,69 @@
       return cached.dlink;
     }
 
-    // Attempt to query TeraBox internal download endpoint
-    try {
-      const shareid = activeShareInfo.shareid;
-      const uk = activeShareInfo.uk;
-      const sign = activeShareInfo.sign;
-      const timestamp = activeShareInfo.timestamp;
+    const shareid = activeShareInfo.shareid;
+    const uk = activeShareInfo.uk;
+    const sign = activeShareInfo.sign;
+    const timestamp = activeShareInfo.timestamp;
+    const token =
+      (typeof window !== 'undefined' && window.jsToken) || activeShareInfo.bdstoken || '';
 
-      if (shareid && uk && sign && timestamp) {
-        const token =
-          (typeof window !== 'undefined' && window.jsToken) || activeShareInfo.bdstoken || '';
-        const apiUrl = `/share/download?app_id=250528&web=1&channel=dubox&clienttype=0&jsToken=${encodeURIComponent(
+    // Strategy 1: Native TeraBox POST /share/download with fid_list
+    if (shareid && uk && sign && timestamp) {
+      try {
+        const postUrl = `/share/download?app_id=250528&web=1&channel=dubox&clienttype=0&jsToken=${encodeURIComponent(
+          token
+        )}&dp-logid=${Date.now()}&shareid=${encodeURIComponent(shareid)}&sign=${encodeURIComponent(
+          sign
+        )}&timestamp=${encodeURIComponent(timestamp)}&primaryid=${encodeURIComponent(
+          shareid
+        )}&scene=purchased_list`;
+
+        const formBody = new URLSearchParams({
+          product: 'share',
+          nozip: '0',
+          uk: String(uk),
+          primaryid: String(shareid),
+          fid_list: JSON.stringify([String(fsId)])
+        });
+
+        const res = await originalFetch(postUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Accept: 'application/json, text/plain, */*'
+          },
+          body: formBody.toString()
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          let directUrl = '';
+          if (json && json.errno === 0) {
+            if (Array.isArray(json.dlink) && json.dlink[0] && json.dlink[0].dlink) {
+              directUrl = json.dlink[0].dlink;
+            } else if (typeof json.dlink === 'string' && json.dlink) {
+              directUrl = json.dlink;
+            } else if (Array.isArray(json.list) && json.list[0] && json.list[0].dlink) {
+              directUrl = json.list[0].dlink;
+            }
+          }
+
+          if (directUrl) {
+            if (cached) {
+              cached.dlink = directUrl;
+              fileCache.set(fsId, cached);
+            }
+            return directUrl;
+          }
+        }
+      } catch (err) {
+        console.warn(`${LOG_PREFIX} resolveDlink POST failed, trying GET fallback:`, err);
+      }
+
+      // Strategy 2: GET /share/download fallback
+      try {
+        const getUrl = `/share/download?app_id=250528&web=1&channel=dubox&clienttype=0&jsToken=${encodeURIComponent(
           token
         )}&dp-logid=${Date.now()}&shareid=${encodeURIComponent(shareid)}&uk=${encodeURIComponent(
           uk
@@ -372,25 +466,46 @@
           timestamp
         )}&primaryid=${encodeURIComponent(shareid)}&fs_ids=[${encodeURIComponent(fsId)}]`;
 
-        const res = await originalFetch(apiUrl, {
+        const res = await originalFetch(getUrl, {
           method: 'GET',
           headers: {
             Accept: 'application/json, text/plain, */*'
           }
         });
-        const json = await res.json();
-        if (json && Array.isArray(json.dlink) && json.dlink[0] && json.dlink[0].dlink) {
-          const directUrl = json.dlink[0].dlink;
+        if (res.ok) {
+          const json = await res.json();
+          let directUrl = '';
+          if (json && Array.isArray(json.dlink) && json.dlink[0] && json.dlink[0].dlink) {
+            directUrl = json.dlink[0].dlink;
+          } else if (typeof json.dlink === 'string' && json.dlink) {
+            directUrl = json.dlink;
+          }
+          if (directUrl) {
+            if (cached) {
+              cached.dlink = directUrl;
+              fileCache.set(fsId, cached);
+            }
+            return directUrl;
+          }
+        }
+      } catch (err) {
+        console.warn(`${LOG_PREFIX} resolveDlink GET fallback failed:`, err);
+      }
+    }
+
+    // Strategy 3: Inspect active HTML5 <video> element if this is an active video file
+    try {
+      if (typeof document !== 'undefined') {
+        const video = document.querySelector('video');
+        if (video && video.src && !video.src.startsWith('blob:') && video.src.startsWith('http')) {
           if (cached) {
-            cached.dlink = directUrl;
+            cached.dlink = video.src;
             fileCache.set(fsId, cached);
           }
-          return directUrl;
+          return video.src;
         }
       }
-    } catch (err) {
-      console.warn(`${LOG_PREFIX} resolveDlink API failed:`, err);
-    }
+    } catch (_) {}
 
     return (cached && cached.dlink) || null;
   }

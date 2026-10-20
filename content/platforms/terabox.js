@@ -159,6 +159,41 @@
     return null;
   }
 
+  /**
+   * Classifies a list of TeraBox files into directories, videos, images, and others.
+   * @param {Array<object>} files
+   * @returns {{ folders: Array, videos: Array, images: Array, others: Array, nonDirs: Array }}
+   */
+  function classifyFiles(files = []) {
+    const folders = [];
+    const videos = [];
+    const images = [];
+    const others = [];
+
+    for (const f of files) {
+      if (!f) continue;
+      if (f.isdir) {
+        folders.push(f);
+      } else if (f.isVideo) {
+        videos.push(f);
+      } else if (f.isImage) {
+        images.push(f);
+      } else {
+        const name = (f.filename || '').toLowerCase();
+        if (/\.(mp4|mkv|avi|mov|flv|webm|ts|m4v|wmv|3gp|m3u8)$/i.test(name)) {
+          videos.push(f);
+        } else if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(name)) {
+          images.push(f);
+        } else {
+          others.push(f);
+        }
+      }
+    }
+
+    const nonDirs = [...videos, ...images, ...others];
+    return { folders, videos, images, others, nonDirs };
+  }
+
   // --------------------------------------------------------------------------
   // Direct Download Trigger
   // --------------------------------------------------------------------------
@@ -174,6 +209,21 @@
       let dlink = file.dlink;
       if (!dlink) {
         dlink = await resolveDlinkForFile(file.fs_id);
+      }
+
+      // Fallback to active HTML5 video element if dlink is still missing
+      if (!dlink && (file.isVideo || (file.filename && file.filename.endsWith('.mp4')))) {
+        try {
+          const domVideo = typeof document !== 'undefined' && document.querySelector('video');
+          if (
+            domVideo &&
+            domVideo.src &&
+            !domVideo.src.startsWith('blob:') &&
+            domVideo.src.startsWith('http')
+          ) {
+            dlink = domVideo.src;
+          }
+        } catch (_) {}
       }
 
       if (!dlink) {
@@ -467,8 +517,8 @@
     if (!videoWrap) return;
 
     const files = await fetchTeraBoxFiles();
-    const downloadables = (files || []).filter((f) => !f.isdir);
-    const targetFile = downloadables[0] || getDomFallbackFile();
+    const { videos, nonDirs } = classifyFiles(files);
+    const targetFile = videos[0] || nonDirs[0] || getDomFallbackFile();
 
     const bar = document.createElement('div');
     bar.id = 'mungil-terabox-player-bar';
@@ -506,9 +556,10 @@
   // Floating Action Bar Injection
   // --------------------------------------------------------------------------
   async function injectFloatingBar() {
-    let files = await fetchTeraBoxFiles();
-    let downloadables = (files || []).filter((f) => !f.isdir);
+    const files = await fetchTeraBoxFiles();
+    const { videos, nonDirs } = classifyFiles(files);
 
+    let downloadables = nonDirs;
     if (downloadables.length === 0) {
       const fallback = getDomFallbackFile();
       if (fallback) downloadables = [fallback];
@@ -524,8 +575,41 @@
       document.body.appendChild(bar);
     }
 
-    if (downloadables.length === 1) {
+    // Priority 1: If exactly 1 video is detected (even if directory contains promo images or folders)
+    if (videos.length === 1) {
+      const singleVideo = videos[0];
+      bar.innerHTML = `
+        ${
+          singleVideo.formatted_size && singleVideo.formatted_size !== '0 B'
+            ? `<span class="mungil-terabox-floating-badge">${singleVideo.formatted_size}</span>`
+            : ''
+        }
+        <button type="button" class="mungil-terabox-btn" id="mungil-tb-single-btn">
+          ${SVG_DOWNLOAD}
+          <span>Unduh Video</span>
+        </button>
+      `;
+      const btn = bar.querySelector('#mungil-tb-single-btn');
+      if (btn) {
+        btn.onclick = () => triggerDownloadFile(singleVideo, btn);
+      }
+    } else if (videos.length > 1) {
+      // Multiple videos detected: offer batch download specifically for videos
+      bar.innerHTML = `
+        <span class="mungil-terabox-floating-badge">${videos.length} Video</span>
+        <button type="button" class="mungil-terabox-btn" id="mungil-tb-batch-btn">
+          ${SVG_FOLDER}
+          <span>Download Batch (${videos.length})</span>
+        </button>
+      `;
+      const btn = bar.querySelector('#mungil-tb-batch-btn');
+      if (btn) {
+        btn.onclick = () => openBatchModal(videos);
+      }
+    } else if (downloadables.length === 1) {
+      // Single non-video file (e.g. 1 image or document)
       const singleFile = downloadables[0];
+      const isImg = singleFile.isImage || /\.(jpg|jpeg|png|gif|webp)$/i.test(singleFile.filename);
       bar.innerHTML = `
         ${
           singleFile.formatted_size && singleFile.formatted_size !== '0 B'
@@ -534,7 +618,7 @@
         }
         <button type="button" class="mungil-terabox-btn" id="mungil-tb-single-btn">
           ${SVG_DOWNLOAD}
-          <span>Unduh File</span>
+          <span>${isImg ? 'Unduh Gambar' : 'Unduh File'}</span>
         </button>
       `;
       const btn = bar.querySelector('#mungil-tb-single-btn');
@@ -542,11 +626,12 @@
         btn.onclick = () => triggerDownloadFile(singleFile, btn);
       }
     } else {
+      // Multiple mixed non-video files
       bar.innerHTML = `
         <span class="mungil-terabox-floating-badge">${downloadables.length} File</span>
         <button type="button" class="mungil-terabox-btn" id="mungil-tb-batch-btn">
           ${SVG_FOLDER}
-          <span>Download Batch</span>
+          <span>Download Batch (${downloadables.length})</span>
         </button>
       `;
       const btn = bar.querySelector('#mungil-tb-batch-btn');
@@ -572,7 +657,8 @@
           e.stopImmediatePropagation();
 
           const files = await fetchTeraBoxFiles();
-          const first = (files || []).filter((f) => !f.isdir)[0] || getDomFallbackFile();
+          const { videos, nonDirs } = classifyFiles(files);
+          const first = videos[0] || nonDirs[0] || getDomFallbackFile();
           if (first) {
             triggerDownloadFile(first);
           }
@@ -595,8 +681,53 @@
         message.action === 'getVideoInfo'
       ) {
         fetchTeraBoxFiles().then((files) => {
-          const downloadables = (files || []).filter((f) => !f.isdir);
-          const first = downloadables[0] || getDomFallbackFile();
+          const { videos, images, nonDirs } = classifyFiles(files);
+
+          // If there is exactly 1 video on the page, prioritize it as the active video
+          if (videos.length === 1) {
+            const v = videos[0];
+            sendResponse({
+              success: true,
+              platform: 'terabox',
+              videoId: v.fs_id,
+              title: v.filename,
+              author: 'TeraBox',
+              duration: 0,
+              sizeFormatted: v.formatted_size || '',
+              sizeBytes: v.size || 0,
+              fileCount: 1,
+              videoCount: 1,
+              imageCount: images.length,
+              totalCount: nonDirs.length,
+              isVideo: true,
+              files: [v]
+            });
+            return;
+          }
+
+          if (videos.length > 1) {
+            sendResponse({
+              success: true,
+              platform: 'terabox',
+              videoId: videos[0].fs_id,
+              title: videos[0].filename,
+              author: 'TeraBox',
+              duration: 0,
+              sizeFormatted: videos[0].formatted_size || '',
+              sizeBytes: videos[0].size || 0,
+              fileCount: videos.length,
+              videoCount: videos.length,
+              imageCount: images.length,
+              totalCount: nonDirs.length,
+              isVideo: true,
+              files: videos
+            });
+            return;
+          }
+
+          // Fallback to any non-directory files
+          const downloadables = nonDirs.length > 0 ? nonDirs : [getDomFallbackFile()];
+          const first = downloadables[0];
 
           if (first) {
             sendResponse({
@@ -609,7 +740,11 @@
               sizeFormatted: first.formatted_size || '',
               sizeBytes: first.size || 0,
               fileCount: Math.max(1, downloadables.length),
-              files: downloadables.length > 0 ? downloadables : [first]
+              videoCount: 0,
+              imageCount: images.length,
+              totalCount: downloadables.length,
+              isVideo: false,
+              files: downloadables
             });
           } else {
             sendResponse({
@@ -624,7 +759,8 @@
 
       if (message.type === 'TRIGGER_DOWNLOAD') {
         fetchTeraBoxFiles().then((files) => {
-          const first = (files || []).filter((f) => !f.isdir)[0] || getDomFallbackFile();
+          const { videos, nonDirs } = classifyFiles(files);
+          const first = videos[0] || nonDirs[0] || getDomFallbackFile();
           if (first) {
             triggerDownloadFile(first);
             sendResponse({ success: true });
@@ -637,7 +773,9 @@
 
       if (message.type === 'TRIGGER_BATCH_DOWNLOAD') {
         fetchTeraBoxFiles().then((files) => {
-          openBatchModal(files || []);
+          const { videos, nonDirs } = classifyFiles(files);
+          const targets = videos.length > 1 ? videos : nonDirs;
+          openBatchModal(targets);
           sendResponse({ success: true });
         });
         return true;
@@ -648,34 +786,54 @@
   }
 
   // --------------------------------------------------------------------------
-  // In-Row Download Buttons for File Lists
+  // In-Row Download Buttons for File Lists (Folders are strictly ignored)
   // --------------------------------------------------------------------------
   function injectRowButtons() {
     if (typeof document === 'undefined' || !document.querySelectorAll) return;
     const rows = document.querySelectorAll(
-      '.webmaster-file-item, .file-item-listmode, .file-item, [class*="file-item"]'
+      '.webmaster-file-item, .file-item-listmode, .file-item, [class*="file-item"], .wp-s-pan-list__file-wrapper'
     );
     if (!rows || rows.length === 0) return;
 
     rows.forEach((row) => {
       if (row.querySelector('.mungil-terabox-row-btn')) return;
 
+      // 1. Never inject download buttons on directories / folders
+      const isFolderClass =
+        row.classList.contains('folder-item') ||
+        row.classList.contains('is-dir') ||
+        row.classList.contains('webmaster-folder-item') ||
+        Boolean(row.querySelector('.folder-icon, [class*="folder"], [data-type="folder"]'));
+
       const nameEl = row.querySelector('.file-item-name, [class*="file-name"]');
+      const name = (nameEl && nameEl.textContent && nameEl.textContent.trim()) || '';
+
+      const matchedFile = cachedFiles.find((f) => f.filename === name);
+      if (isFolderClass || (matchedFile && matchedFile.isdir)) {
+        return; // Folders are strictly ignored
+      }
+
       if (!nameEl) return;
-      const name = nameEl.textContent.trim();
-      const targetFile = cachedFiles.find((f) => f.filename === name) || {
+
+      const isImage =
+        (matchedFile && matchedFile.isImage) ||
+        /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(name);
+
+      const targetFile = matchedFile || {
         fs_id: `row_${Date.now()}`,
         filename: name,
         size: 0,
         formatted_size: '',
         isdir: false,
+        isVideo: !isImage,
+        isImage,
         dlink: ''
       };
 
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'mungil-terabox-row-btn';
-      btn.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
+      btn.className = `mungil-terabox-row-btn ${isImage ? 'mungil-tb-row-img' : 'mungil-tb-row-video'}`;
+      btn.innerHTML = `${SVG_DOWNLOAD}<span>${isImage ? 'Unduh Gambar' : 'Unduh'}</span>`;
       btn.onclick = (e) => {
         e.stopPropagation();
         triggerDownloadFile(targetFile, btn);
@@ -753,7 +911,8 @@
       openBatchModal,
       getDomFallbackFile,
       injectPlayerButton,
-      injectFloatingBar
+      injectFloatingBar,
+      classifyFiles
     };
   }
 

@@ -921,9 +921,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (stateTerabox) stateTerabox.style.display = 'flex';
     if (stateEmpty) stateEmpty.style.display = 'none';
     if (btnDownloadActive) btnDownloadActive.style.display = 'inline-flex';
-    if (btnDownloadText) btnDownloadText.textContent = 'Download File TeraBox';
+    if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Langsung';
 
     let fileCount = 1;
+    let isSingleVideo = true;
 
     try {
       chrome.tabs.sendMessage(activeTab.id, { type: 'GET_TERABOX_FILE_INFO' }, (response) => {
@@ -939,17 +940,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (response && response.success) {
           fileCount = response.fileCount || 1;
+          isSingleVideo = response.videoCount === 1 || (response.isVideo && fileCount === 1);
+
           if (tbTitle) tbTitle.textContent = response.title || 'TeraBox File';
           const sizeStr = response.sizeFormatted ? `Ukuran: ${response.sizeFormatted}` : '';
-          const countStr = fileCount > 1 ? ` (${fileCount} file)` : '';
-          if (tbDesc) tbDesc.textContent = `${sizeStr}${countStr} • Direct link siap unduh`;
+
+          if (isSingleVideo) {
+            if (tbDesc)
+              tbDesc.textContent = `${sizeStr ? sizeStr + ' • ' : ''}Video siap unduh langsung`;
+            if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Langsung';
+          } else if (response.videoCount > 1) {
+            if (tbDesc)
+              tbDesc.textContent = `${sizeStr ? sizeStr + ' • ' : ''}${response.videoCount} video terdeteksi`;
+            if (btnDownloadText)
+              btnDownloadText.textContent = `Buka Batch Downloader (${response.videoCount})`;
+          } else {
+            const countStr = fileCount > 1 ? ` (${fileCount} file)` : '';
+            if (tbDesc) tbDesc.textContent = `${sizeStr}${countStr} • Direct link siap unduh`;
+            if (btnDownloadText) {
+              btnDownloadText.textContent =
+                fileCount > 1 ? `Buka Batch Downloader (${fileCount})` : 'Unduh File';
+            }
+          }
+
           if (tbStatusChip) {
             tbStatusChip.textContent = 'Ready';
             tbStatusChip.style.color = 'var(--accent-green)';
-          }
-          if (btnDownloadText) {
-            btnDownloadText.textContent =
-              fileCount > 1 ? `Buka Batch Downloader (${fileCount})` : 'Download File TeraBox';
           }
         }
       });
@@ -962,19 +978,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnDownloadActive.addEventListener('click', () => {
         if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
 
-        if (fileCount > 1) {
+        if (!isSingleVideo && fileCount > 1) {
           // Open in-page batch modal
           chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_BATCH_DOWNLOAD' });
           showStatus('Membuka antarmuka batch downloader di tab TeraBox...', 'info', 3000);
         } else {
           btnDownloadActive.disabled = true;
           if (btnDownloadText) btnDownloadText.textContent = 'Mengunduh...';
-          showStatus('Mengunduh file TeraBox langsung...', 'info', 0);
+          showStatus('Mengunduh video TeraBox langsung...', 'info', 0);
 
           chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_DOWNLOAD' }, (res) => {
             btnDownloadActive.disabled = false;
             if (chrome.runtime.lastError) {
-              if (btnDownloadText) btnDownloadText.textContent = 'Download File TeraBox';
+              if (btnDownloadText)
+                btnDownloadText.textContent = isSingleVideo
+                  ? 'Unduh Video Langsung'
+                  : 'Download File TeraBox';
               showStatus('Mohon refresh tab TeraBox (F5).', 'error', 4000);
               return;
             }
@@ -982,7 +1001,10 @@ document.addEventListener('DOMContentLoaded', async () => {
               if (btnDownloadText) btnDownloadText.textContent = 'Tersimpan!';
               showStatus('✓ Unduhan TeraBox dimulai!', 'success', 3500);
               setTimeout(() => {
-                if (btnDownloadText) btnDownloadText.textContent = 'Download File TeraBox';
+                if (btnDownloadText)
+                  btnDownloadText.textContent = isSingleVideo
+                    ? 'Unduh Video Langsung'
+                    : 'Download File TeraBox';
               }, 3000);
             } else {
               if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';

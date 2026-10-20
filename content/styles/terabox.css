@@ -243,10 +243,22 @@
   border-color: var(--tb-blue-500);
 }
 
+.mungil-terabox-row-btn.mungil-tb-row-img {
+  color: var(--tb-text-secondary) !important;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.mungil-terabox-row-btn.mungil-tb-row-img:hover {
+  color: var(--tb-white) !important;
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
 /* 3. Floating Batch Action Bar */
 .mungil-terabox-floating-bar {
   position: fixed;
-  bottom: 24px;
+  bottom: 84px;
   right: 28px;
   display: flex;
   align-items: center;
