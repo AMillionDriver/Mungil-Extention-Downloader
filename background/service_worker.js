@@ -738,6 +738,12 @@ async function executeDownload(params) {
     cleanUrl.includes('biliapi.net') ||
     cleanUrl.includes('bilibili.tv') ||
     cleanUrl.includes('bstation.tv');
+  const isTerabox =
+    params.platform === 'terabox' ||
+    cleanUrl.includes('terabox.app') ||
+    cleanUrl.includes('1024tera.com') ||
+    cleanUrl.includes('baidupcs.com') ||
+    cleanUrl.includes('terabox.com');
 
   const videoId = params.videoId || params.id;
   const filename =
@@ -762,13 +768,14 @@ async function executeDownload(params) {
     throw new Error('chrome.downloads API is unavailable in this context');
   }
 
-  // For YouTube, bypass in-memory Blob buffering (which triggers Google Video 403 on full-file fetch)
+  // For YouTube and TeraBox (large files), bypass in-memory Blob buffering
+  // (which causes OOM crashes or connection drops on large files)
   // and pass the authentic stream URL directly to Chrome's native download manager.
   // For other platforms (TikTok), fetch to Blob to bypass anti-hotlinking protections.
   let downloadUrl = cleanUrl;
   let isBlobUrl = false;
 
-  if (!isYoutube) {
+  if (!isYoutube && !isTerabox) {
     try {
       const blob = await fetchVideoBlob(cleanUrl);
       if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {

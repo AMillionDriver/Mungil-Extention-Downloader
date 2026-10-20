@@ -147,9 +147,9 @@
     return cachedFiles;
   }
 
-  async function resolveDlinkForFile(fsId) {
+  async function resolveDlinkForFile(fsId, type = null) {
     try {
-      const res = await callBridge('GET_DLINK', { fsId });
+      const res = await callBridge('GET_DLINK', { fsId, type });
       if (res && res.dlink) {
         return res.dlink;
       }
@@ -332,7 +332,7 @@
   // --------------------------------------------------------------------------
   // Direct Download Trigger
   // --------------------------------------------------------------------------
-  async function triggerDownloadFile(file, btnEl = null) {
+  async function triggerDownloadFile(file, btnEl = null, quality = 'original') {
     if (!file) return;
 
     if (btnEl) {
@@ -341,9 +341,15 @@
     }
 
     try {
-      let dlink = file.dlink;
-      if (!dlink) {
-        dlink = await resolveDlinkForFile(file.fs_id);
+      let dlink = '';
+      if (quality && quality !== 'original') {
+        const qCode = quality.replace('p', '');
+        dlink = await resolveDlinkForFile(file.fs_id, `M3U8_AUTO_${qCode}`);
+      } else {
+        dlink = file.dlink;
+        if (!dlink) {
+          dlink = await resolveDlinkForFile(file.fs_id);
+        }
       }
 
       // Fallback to active HTML5 video element if dlink is still missing
@@ -661,6 +667,12 @@
     const { videos, nonDirs } = classifyFiles(files);
     const targetFile = videos[0] || nonDirs[0] || getDomFallbackFile();
 
+    const baseSize = targetFile.size || 0;
+    const est1080 = baseSize ? formatBytes(Math.round(baseSize * 0.95)) : '~400 MB';
+    const est720 = baseSize ? formatBytes(Math.round(baseSize * 0.58)) : '~250 MB';
+    const est480 = baseSize ? formatBytes(Math.round(baseSize * 0.35)) : '~140 MB';
+    const est360 = baseSize ? formatBytes(Math.round(baseSize * 0.2)) : '~80 MB';
+
     const bar = document.createElement('div');
     bar.id = 'mungil-terabox-player-bar';
     bar.className = 'mungil-terabox-player-bar';
@@ -674,16 +686,29 @@
               : ''
           }
         </div>
-        <button type="button" class="mungil-terabox-btn mungil-terabox-btn-player" id="mungil-terabox-player-btn">
-          ${SVG_DOWNLOAD}
-          <span>Unduh Video (Original)</span>
-        </button>
+        <div class="mungil-tb-action-cluster">
+          <select class="mungil-tb-quality-select" id="mungil-tb-quality-select" title="Pilih Kualitas Video">
+            <option value="original" selected>Original (${targetFile.formatted_size || 'Full'})</option>
+            <option value="1080p">1080p Full HD (${est1080})</option>
+            <option value="720p">720p HD (${est720})</option>
+            <option value="480p">480p SD (${est480})</option>
+            <option value="360p">360p Hemat Kuota (${est360})</option>
+          </select>
+          <button type="button" class="mungil-terabox-btn mungil-terabox-btn-player" id="mungil-terabox-player-btn">
+            ${SVG_DOWNLOAD}
+            <span>Unduh Video</span>
+          </button>
+        </div>
       </div>
     `;
 
     const btn = bar.querySelector('#mungil-terabox-player-btn');
+    const select = bar.querySelector('#mungil-tb-quality-select');
     if (btn) {
-      btn.onclick = () => triggerDownloadFile(targetFile, btn);
+      btn.onclick = () => {
+        const chosenQuality = (select && select.value) || 'original';
+        triggerDownloadFile(targetFile, btn, chosenQuality);
+      };
     }
 
     if (videoWrap.nextSibling) {
@@ -955,9 +980,29 @@
         Boolean(row.querySelector('.folder-icon, [class*="folder"], [data-type="folder"]'));
 
       const nameEl = row.querySelector('.file-item-name, [class*="file-name"]');
-      const name = (nameEl && nameEl.textContent && nameEl.textContent.trim()) || '';
+      const textName = (nameEl && nameEl.textContent && nameEl.textContent.trim()) || '';
+      const titleName =
+        (nameEl && (nameEl.getAttribute('title') || nameEl.getAttribute('aria-label'))) ||
+        row.getAttribute('title') ||
+        row.getAttribute('data-filename') ||
+        '';
+      const cleanPrefix = (titleName || textName).replace(/(\.{3}|…)$/, '').trim();
 
-      const matchedFile = cachedFiles.find((f) => f.filename === name);
+      // Robust matching:
+      // 1. Exact match with titleName
+      // 2. Exact match with textName
+      // 3. Prefix match when filename in UI is truncated with ellipsis (...)
+      // 4. Map directly if only 1 non-directory cached file exists
+      const nonDirCached = cachedFiles.filter((f) => !f.isdir);
+      const matchedFile =
+        (titleName && cachedFiles.find((f) => f.filename === titleName)) ||
+        (textName && cachedFiles.find((f) => f.filename === textName)) ||
+        (cleanPrefix.length >= 3 &&
+          cachedFiles.find((f) =>
+            f.filename.toLowerCase().startsWith(cleanPrefix.toLowerCase())
+          )) ||
+        (nonDirCached.length === 1 ? nonDirCached[0] : null);
+
       if (isFolderClass || (matchedFile && matchedFile.isdir)) {
         row.classList.add('mungil-row-done');
         return; // Folders are strictly ignored
@@ -972,11 +1017,11 @@
 
       const isImage =
         (matchedFile && matchedFile.isImage) ||
-        /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(name);
+        /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(titleName || textName);
 
       const targetFile = matchedFile || {
         fs_id: `row_${Date.now()}`,
-        filename: name,
+        filename: titleName || textName || cleanPrefix || 'TeraBox_File',
         size: 0,
         formatted_size: '',
         isdir: false,

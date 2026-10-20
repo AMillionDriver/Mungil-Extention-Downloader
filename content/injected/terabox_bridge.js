@@ -19,6 +19,22 @@
   if (window.__TERABOX_BRIDGE_INITIALIZED__) return;
   window.__TERABOX_BRIDGE_INITIALIZED__ = true;
 
+  // Defuse TeraBox's endless Google One-Tap SDK polling retry loop at document_start
+  try {
+    if (!window.google) window.google = {};
+    if (!window.google.accounts) window.google.accounts = {};
+    if (!window.google.accounts.id) {
+      window.google.accounts.id = {
+        initialize: function () {},
+        prompt: function () {},
+        renderButton: function () {},
+        disableAutoSelect: function () {},
+        storeCredential: function () {},
+        cancel: function () {}
+      };
+    }
+  } catch (_) {}
+
   const LOG_PREFIX = '[TeraBox Bridge]';
 
   /**
@@ -394,7 +410,7 @@
   // --------------------------------------------------------------------------
   // Direct Download Link API Resolver
   // --------------------------------------------------------------------------
-  async function resolveDlink(fsId) {
+  async function resolveDlink(fsId, preferredType = 'M3U8_AUTO_720') {
     syncYunData();
     const cached = fileCache.get(fsId);
     if (cached && cached.dlink) {
@@ -524,7 +540,9 @@
           uk
         )}&sign=${encodeURIComponent(sign)}&timestamp=${encodeURIComponent(
           timestamp
-        )}&primaryid=${encodeURIComponent(shareid)}&fid=${encodeURIComponent(fsId)}&type=M3U8_AUTO_720`;
+        )}&primaryid=${encodeURIComponent(shareid)}&fid=${encodeURIComponent(fsId)}&type=${encodeURIComponent(
+          preferredType || 'M3U8_AUTO_720'
+        )}`;
 
         if (cached) {
           cached.dlink = streamUrl;
@@ -542,7 +560,7 @@
   // --------------------------------------------------------------------------
   async function handleBridgeRequest(e) {
     if (!e || !e.detail) return;
-    const { requestId, action, fsId } = e.detail;
+    const { requestId, action, fsId, type } = e.detail;
 
     const sendResponse = (payload) => {
       const detail = { requestId, ...payload };
@@ -569,7 +587,7 @@
           shareInfo: activeShareInfo
         });
       } else if (action === 'GET_DLINK') {
-        const dlink = await resolveDlink(fsId);
+        const dlink = await resolveDlink(fsId, type);
         sendResponse({
           success: Boolean(dlink),
           fsId,

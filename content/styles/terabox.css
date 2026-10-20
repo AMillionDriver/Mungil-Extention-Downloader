@@ -155,6 +155,37 @@
   flex-shrink: 0;
 }
 
+.mungil-tb-action-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mungil-tb-quality-select {
+  padding: 8px 14px;
+  font-family: var(--tb-font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff !important;
+  background: #161b22 !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: var(--tb-radius-full) !important;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mungil-tb-quality-select:hover {
+  border-color: #0660f6 !important;
+  background: #1c2128 !important;
+}
+
+.mungil-tb-quality-select option {
+  background: #0d1117;
+  color: #ffffff;
+}
+
 /* 2. Download Buttons */
 .mungil-terabox-btn {
   display: inline-flex !important;
