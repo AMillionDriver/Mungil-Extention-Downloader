@@ -6288,6 +6288,40 @@ async function runAllSuites() {
           'service_worker.js must export sanitizeTeraBoxFilename'
         );
       });
+
+      test('Dual-Anchor In-Player & shorturlinfo interceptor verification', () => {
+        const bridgeCode = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/injected/terabox_bridge.js'),
+          'utf8'
+        );
+        assert.ok(bridgeCode.includes('shorturlinfo'), 'bridge must intercept shorturlinfo');
+        assert.ok(bridgeCode.includes('streaming'), 'bridge must intercept streaming');
+        assert.ok(bridgeCode.includes('templateData'), 'bridge must sync with templateData');
+        assert.ok(
+          bridgeCode.includes('TERABOX_FILES_UPDATED'),
+          'bridge must dispatch TERABOX_FILES_UPDATED'
+        );
+
+        const cssContent = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/styles/terabox.css'),
+          'utf8'
+        );
+        assert.ok(
+          cssContent.includes('.mungil-terabox-player-bar'),
+          'css must define in-player bar'
+        );
+
+        const { getDomFallbackFile } = require('./content/platforms/terabox.js');
+        const fallback = getDomFallbackFile();
+        assert.ok(
+          fallback && fallback.filename,
+          'getDomFallbackFile must return a valid file object with filename'
+        );
+        assert.ok(
+          fallback.filename.endsWith('.mp4'),
+          'fallback filename must default with .mp4 extension'
+        );
+      });
     }
   );
 

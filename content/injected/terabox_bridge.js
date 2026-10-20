@@ -138,14 +138,18 @@
   /**
    * Synchronizes metadata from window.yunData.
    */
+  /**
+   * Synchronizes metadata from window.yunData or window.templateData.
+   */
   function syncYunData() {
     try {
-      const data = window.yunData;
+      const data =
+        (typeof window !== 'undefined' && (window.yunData || window.templateData)) || null;
       if (!data || typeof data !== 'object') return;
 
       activeShareInfo = {
         shareid: data.SHARE_ID || data.shareid || activeShareInfo.shareid,
-        uk: data.UK || data.uk || activeShareInfo.uk,
+        uk: data.UK || data.uk || data.uk_str || activeShareInfo.uk,
         sign: data.SIGN || data.sign || activeShareInfo.sign,
         timestamp: data.TIMESTAMP || data.timestamp || activeShareInfo.timestamp,
         bdstoken: data.BDSTOKEN || data.bdstoken || activeShareInfo.bdstoken
@@ -160,9 +164,97 @@
 
       if (Array.isArray(data.list)) {
         ingestFileList(data.list);
+      } else if (data.fileInfo && typeof data.fileInfo === 'object') {
+        const norm = normalizeTeraBoxFile(data.fileInfo);
+        if (norm) fileCache.set(norm.fs_id, norm);
       }
     } catch (err) {
-      console.warn(`${LOG_PREFIX} Error syncing yunData:`, err);
+      console.warn(`${LOG_PREFIX} Error syncing yunData/templateData:`, err);
+    }
+  }
+
+  function notifyFilesUpdated() {
+    try {
+      const files = Array.from(fileCache.values());
+      const detail = { files, shareInfo: activeShareInfo };
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('TERABOX_FILES_UPDATED', { detail }));
+      }
+      if (typeof document !== 'undefined' && document.dispatchEvent) {
+        document.dispatchEvent(new CustomEvent('TERABOX_FILES_UPDATED', { detail }));
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * Unified processor for intercepted network responses.
+   * @param {string} url
+   * @param {object} data
+   */
+  function handleApiResponse(url, data) {
+    if (!data || typeof data !== 'object') return;
+
+    // 1. /api/shorturlinfo or /shorturlinfo
+    if (url.includes('shorturlinfo')) {
+      activeShareInfo = {
+        shareid: data.shareid || activeShareInfo.shareid,
+        uk: data.uk_str || data.uk || activeShareInfo.uk,
+        sign: data.sign || activeShareInfo.sign,
+        timestamp: data.timestamp || activeShareInfo.timestamp,
+        bdstoken: data.bdstoken || activeShareInfo.bdstoken,
+        shorturl: data.shorturl || activeShareInfo.shorturl
+      };
+
+      if (Array.isArray(data.list)) {
+        ingestFileList(data.list);
+      }
+      if (data.fileInfo && typeof data.fileInfo === 'object') {
+        const norm = normalizeTeraBoxFile(data.fileInfo);
+        if (norm) fileCache.set(norm.fs_id, norm);
+      }
+      notifyFilesUpdated();
+    }
+
+    // 2. /share/list
+    if (url.includes('/share/list')) {
+      if (Array.isArray(data.list)) {
+        ingestFileList(data.list);
+      }
+      notifyFilesUpdated();
+    }
+
+    // 3. /api/download, /share/download, or dlink payloads
+    if (url.includes('download')) {
+      if (Array.isArray(data.dlink)) {
+        for (const dl of data.dlink) {
+          const fsId = String(dl.fs_id || '');
+          if (fsId && fileCache.has(fsId)) {
+            const item = fileCache.get(fsId);
+            item.dlink = dl.dlink || item.dlink;
+            fileCache.set(fsId, item);
+          }
+        }
+      } else if (typeof data.dlink === 'string' && data.dlink) {
+        for (const item of fileCache.values()) {
+          item.dlink = data.dlink;
+          break;
+        }
+      }
+      notifyFilesUpdated();
+    }
+
+    // 4. /share/streaming or video stream
+    if (url.includes('streaming')) {
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const fid = parsed.searchParams.get('fid');
+        if (fid && fileCache.has(fid)) {
+          const item = fileCache.get(fid);
+          if (!item.dlink) item.dlink = url;
+          fileCache.set(fid, item);
+          notifyFilesUpdated();
+        }
+      } catch (_) {}
     }
   }
 
@@ -179,6 +271,7 @@
           _yunData = val;
           try {
             syncYunData();
+            notifyFilesUpdated();
           } catch (_) {}
         },
         configurable: true,
@@ -200,30 +293,17 @@
       try {
         const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
         if (
+          url.includes('shorturlinfo') ||
           url.includes('/share/list') ||
-          url.includes('/api/download') ||
-          url.includes('/share/download') ||
-          url.includes('/api/fileinfo')
+          url.includes('download') ||
+          url.includes('/api/fileinfo') ||
+          url.includes('streaming')
         ) {
           resp
             .clone()
             .json()
             .then((data) => {
-              if (data) {
-                if (Array.isArray(data.list)) {
-                  ingestFileList(data.list);
-                }
-                if (Array.isArray(data.dlink)) {
-                  for (const dl of data.dlink) {
-                    const fsId = String(dl.fs_id || '');
-                    if (fsId && fileCache.has(fsId)) {
-                      const item = fileCache.get(fsId);
-                      item.dlink = dl.dlink || item.dlink;
-                      fileCache.set(fsId, item);
-                    }
-                  }
-                }
-              }
+              handleApiResponse(url, data);
             })
             .catch(() => {});
         }
@@ -243,26 +323,20 @@
       try {
         const url = String(this.__mungil_url || '');
         if (
+          url.includes('shorturlinfo') ||
           url.includes('/share/list') ||
-          url.includes('/api/download') ||
-          url.includes('/share/download') ||
-          url.includes('/api/fileinfo')
+          url.includes('download') ||
+          url.includes('/api/fileinfo') ||
+          url.includes('streaming')
         ) {
-          const data = JSON.parse(this.responseText);
+          let data = null;
+          if (this.responseType === 'json' && this.response) {
+            data = this.response;
+          } else if (this.responseType === '' || this.responseType === 'text') {
+            data = JSON.parse(this.responseText);
+          }
           if (data) {
-            if (Array.isArray(data.list)) {
-              ingestFileList(data.list);
-            }
-            if (Array.isArray(data.dlink)) {
-              for (const dl of data.dlink) {
-                const fsId = String(dl.fs_id || '');
-                if (fsId && fileCache.has(fsId)) {
-                  const item = fileCache.get(fsId);
-                  item.dlink = dl.dlink || item.dlink;
-                  fileCache.set(fsId, item);
-                }
-              }
-            }
+            handleApiResponse(url, data);
           }
         }
       } catch (_) {}
@@ -288,8 +362,10 @@
       const timestamp = activeShareInfo.timestamp;
 
       if (shareid && uk && sign && timestamp) {
+        const token =
+          (typeof window !== 'undefined' && window.jsToken) || activeShareInfo.bdstoken || '';
         const apiUrl = `/share/download?app_id=250528&web=1&channel=dubox&clienttype=0&jsToken=${encodeURIComponent(
-          activeShareInfo.bdstoken || ''
+          token
         )}&dp-logid=${Date.now()}&shareid=${encodeURIComponent(shareid)}&uk=${encodeURIComponent(
           uk
         )}&sign=${encodeURIComponent(sign)}&timestamp=${encodeURIComponent(

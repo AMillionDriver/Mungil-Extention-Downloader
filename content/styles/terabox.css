@@ -93,7 +93,69 @@
    Layer 3: Component Tokens & Element Styling
    ========================================================================== */
 
-/* 1. In-Page Download Buttons */
+/* 1. In-Player Action Bar (Mounted directly below .video-wrap) */
+.mungil-terabox-player-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 12px 0 16px 0;
+  padding: 12px 18px;
+  background: var(--tb-bg-surface);
+  border: 1px solid var(--tb-border-subtle);
+  border-radius: var(--tb-radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+  animation: mungil-tb-slide-up 0.25s ease-out;
+}
+
+.mungil-terabox-player-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 16px;
+}
+
+.mungil-tb-player-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mungil-tb-player-title {
+  font-family: var(--tb-font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tb-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mungil-tb-player-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  font-family: var(--tb-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tb-emerald-400);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--tb-radius-full);
+  white-space: nowrap;
+}
+
+.mungil-terabox-btn-player {
+  padding: 10px 20px;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+}
+
+/* 2. Download Buttons */
 .mungil-terabox-btn {
   display: inline-flex;
   align-items: center;

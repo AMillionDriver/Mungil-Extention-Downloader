@@ -409,25 +409,129 @@
   }
 
   // --------------------------------------------------------------------------
+  // DOM Fallback File Resolution
+  // --------------------------------------------------------------------------
+  function getDomFallbackFile() {
+    let videoSrc = '';
+    const video =
+      (typeof document !== 'undefined' &&
+        document.querySelector &&
+        document.querySelector('video')) ||
+      null;
+    if (video && video.src && !video.src.startsWith('blob:')) {
+      videoSrc = video.src;
+    }
+
+    const titleEl =
+      (typeof document !== 'undefined' &&
+        document.querySelector &&
+        document.querySelector(
+          '.file-item-name, .play-video-title, .title, .tip-title, h1, [class*="file-name"]'
+        )) ||
+      null;
+    let title = (titleEl && titleEl.textContent && titleEl.textContent.trim()) || '';
+
+    if (!title && typeof document !== 'undefined' && document.title) {
+      const cleanedDocTitle = document.title.split(' - ')[0] || '';
+      const match = cleanedDocTitle.match(/^([^\s]+(?:_[^\s]+)*)/);
+      title = (match && match[1]) || cleanedDocTitle || 'TeraBox_Video';
+    }
+
+    if (!title) title = 'TeraBox_Video';
+    if (!title.includes('.')) {
+      title = `${title}.mp4`;
+    }
+
+    return {
+      fs_id: 'dom_active',
+      filename: title,
+      size: 0,
+      formatted_size: '',
+      isdir: false,
+      dlink: videoSrc
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // In-Player Action Bar Injection
+  // --------------------------------------------------------------------------
+  async function injectPlayerButton() {
+    if (document.getElementById('mungil-terabox-player-btn')) return;
+
+    const videoWrap =
+      document.querySelector('.video-wrap') ||
+      document.querySelector('#videoplayer') ||
+      document.querySelector('[class*="video-wrap"]') ||
+      document.querySelector('.isplayer');
+
+    if (!videoWrap) return;
+
+    const files = await fetchTeraBoxFiles();
+    const downloadables = (files || []).filter((f) => !f.isdir);
+    const targetFile = downloadables[0] || getDomFallbackFile();
+
+    const bar = document.createElement('div');
+    bar.id = 'mungil-terabox-player-bar';
+    bar.className = 'mungil-terabox-player-bar';
+    bar.innerHTML = `
+      <div class="mungil-terabox-player-content">
+        <div class="mungil-tb-player-info">
+          <span class="mungil-tb-player-title" title="${targetFile.filename}">${targetFile.filename}</span>
+          ${
+            targetFile.formatted_size && targetFile.formatted_size !== '0 B'
+              ? `<span class="mungil-tb-player-badge">${targetFile.formatted_size}</span>`
+              : ''
+          }
+        </div>
+        <button type="button" class="mungil-terabox-btn mungil-terabox-btn-player" id="mungil-terabox-player-btn">
+          ${SVG_DOWNLOAD}
+          <span>Unduh Video (Original)</span>
+        </button>
+      </div>
+    `;
+
+    const btn = bar.querySelector('#mungil-terabox-player-btn');
+    if (btn) {
+      btn.onclick = () => triggerDownloadFile(targetFile, btn);
+    }
+
+    if (videoWrap.nextSibling) {
+      videoWrap.parentNode.insertBefore(bar, videoWrap.nextSibling);
+    } else {
+      videoWrap.parentNode.appendChild(bar);
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // Floating Action Bar Injection
   // --------------------------------------------------------------------------
   async function injectFloatingBar() {
-    if (document.getElementById('mungil-terabox-floating-bar')) return;
+    let files = await fetchTeraBoxFiles();
+    let downloadables = (files || []).filter((f) => !f.isdir);
 
-    const files = await fetchTeraBoxFiles();
-    if (!files || files.length === 0) return;
+    if (downloadables.length === 0) {
+      const fallback = getDomFallbackFile();
+      if (fallback) downloadables = [fallback];
+    }
 
-    const downloadables = files.filter((f) => !f.isdir);
     if (downloadables.length === 0) return;
 
-    const bar = document.createElement('div');
-    bar.id = 'mungil-terabox-floating-bar';
-    bar.className = 'mungil-terabox-floating-bar';
+    let bar = document.getElementById('mungil-terabox-floating-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'mungil-terabox-floating-bar';
+      bar.className = 'mungil-terabox-floating-bar';
+      document.body.appendChild(bar);
+    }
 
     if (downloadables.length === 1) {
       const singleFile = downloadables[0];
       bar.innerHTML = `
-        <span class="mungil-terabox-floating-badge">${singleFile.formatted_size}</span>
+        ${
+          singleFile.formatted_size && singleFile.formatted_size !== '0 B'
+            ? `<span class="mungil-terabox-floating-badge">${singleFile.formatted_size}</span>`
+            : ''
+        }
         <button type="button" class="mungil-terabox-btn" id="mungil-tb-single-btn">
           ${SVG_DOWNLOAD}
           <span>Unduh File</span>
@@ -450,8 +554,32 @@
         btn.onclick = () => openBatchModal(downloadables);
       }
     }
+  }
 
-    document.body.appendChild(bar);
+  // Hook native download buttons to bypass forced desktop app install
+  function hookNativeDownloadButtons() {
+    const buttons = document.querySelectorAll(
+      '.download-btn, [class*="download-btn"], .HIGH_SPEED_DOWNLOAD'
+    );
+    buttons.forEach((btn) => {
+      if (btn.__mungil_hooked) return;
+      btn.__mungil_hooked = true;
+      btn.addEventListener(
+        'click',
+        async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+
+          const files = await fetchTeraBoxFiles();
+          const first = (files || []).filter((f) => !f.isdir)[0] || getDomFallbackFile();
+          if (first) {
+            triggerDownloadFile(first);
+          }
+        },
+        true
+      );
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -468,7 +596,7 @@
       ) {
         fetchTeraBoxFiles().then((files) => {
           const downloadables = (files || []).filter((f) => !f.isdir);
-          const first = downloadables[0] || null;
+          const first = downloadables[0] || getDomFallbackFile();
 
           if (first) {
             sendResponse({
@@ -478,10 +606,10 @@
               title: first.filename,
               author: 'TeraBox',
               duration: 0,
-              sizeFormatted: first.formatted_size,
-              sizeBytes: first.size,
-              fileCount: downloadables.length,
-              files: downloadables
+              sizeFormatted: first.formatted_size || '',
+              sizeBytes: first.size || 0,
+              fileCount: Math.max(1, downloadables.length),
+              files: downloadables.length > 0 ? downloadables : [first]
             });
           } else {
             sendResponse({
@@ -496,7 +624,7 @@
 
       if (message.type === 'TRIGGER_DOWNLOAD') {
         fetchTeraBoxFiles().then((files) => {
-          const first = (files || []).filter((f) => !f.isdir)[0];
+          const first = (files || []).filter((f) => !f.isdir)[0] || getDomFallbackFile();
           if (first) {
             triggerDownloadFile(first);
             sendResponse({ success: true });
@@ -520,28 +648,84 @@
   }
 
   // --------------------------------------------------------------------------
+  // In-Row Download Buttons for File Lists
+  // --------------------------------------------------------------------------
+  function injectRowButtons() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return;
+    const rows = document.querySelectorAll(
+      '.webmaster-file-item, .file-item-listmode, .file-item, [class*="file-item"]'
+    );
+    if (!rows || rows.length === 0) return;
+
+    rows.forEach((row) => {
+      if (row.querySelector('.mungil-terabox-row-btn')) return;
+
+      const nameEl = row.querySelector('.file-item-name, [class*="file-name"]');
+      if (!nameEl) return;
+      const name = nameEl.textContent.trim();
+      const targetFile = cachedFiles.find((f) => f.filename === name) || {
+        fs_id: `row_${Date.now()}`,
+        filename: name,
+        size: 0,
+        formatted_size: '',
+        isdir: false,
+        dlink: ''
+      };
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mungil-terabox-row-btn';
+      btn.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        triggerDownloadFile(targetFile, btn);
+      };
+
+      row.appendChild(btn);
+    });
+  }
+
+  // --------------------------------------------------------------------------
   // Lifecycle & Observer
   // --------------------------------------------------------------------------
   let initTimeout = null;
   function scheduleInit() {
     if (initTimeout) clearTimeout(initTimeout);
     initTimeout = setTimeout(() => {
+      injectPlayerButton();
       injectFloatingBar();
-    }, 400);
+      injectRowButtons();
+      hookNativeDownloadButtons();
+    }, 200);
   }
 
-  if (typeof document !== 'undefined') {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('TERABOX_FILES_UPDATED', (e) => {
+      if (e.detail && Array.isArray(e.detail.files) && e.detail.files.length > 0) {
+        cachedFiles = e.detail.files;
+      }
+      scheduleInit();
+    });
+  }
+
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('TERABOX_FILES_UPDATED', (e) => {
+      if (e.detail && Array.isArray(e.detail.files) && e.detail.files.length > 0) {
+        cachedFiles = e.detail.files;
+      }
+      scheduleInit();
+    });
+
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', scheduleInit);
     } else {
       scheduleInit();
     }
 
-    // Secondary retry to ensure TeraBox SPA hydration has loaded
+    setTimeout(scheduleInit, 600);
     setTimeout(scheduleInit, 1500);
-    setTimeout(scheduleInit, 3500);
+    setTimeout(scheduleInit, 3000);
 
-    // MutationObserver to catch SPA page changes
     if (typeof MutationObserver !== 'undefined') {
       const observer = new MutationObserver(() => {
         scheduleInit();
@@ -566,7 +750,10 @@
       fetchTeraBoxFiles,
       resolveDlinkForFile,
       triggerDownloadFile,
-      openBatchModal
+      openBatchModal,
+      getDomFallbackFile,
+      injectPlayerButton,
+      injectFloatingBar
     };
   }
 
