@@ -194,6 +194,141 @@
     return { folders, videos, images, others, nonDirs };
   }
 
+  /**
+   * Downloads and concatenates HLS .ts chunks into a single valid .mp4 Blob file.
+   * Prevents corrupted/unplayable .m3u8 text downloads with broken duration.
+   * @param {string} m3u8Url
+   * @param {string} filename
+   * @param {HTMLElement|null} btnEl
+   */
+  async function downloadHlsStream(m3u8Url, filename, btnEl = null) {
+    if (btnEl) {
+      btnEl.classList.add('loading');
+      btnEl.innerHTML = `${SVG_SPINNER}<span>Mengunduh stream (0%)...</span>`;
+    }
+
+    try {
+      // 1. Fetch m3u8 playlist text
+      const res = await fetch(m3u8Url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let text = await res.text();
+
+      // If master playlist with multiple variant streams, resolve first sub-stream
+      if (text.includes('#EXT-X-STREAM-INF')) {
+        const lines = text.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes('#EXT-X-STREAM-INF') && i + 1 < lines.length) {
+            const subUrl = lines[i + 1].trim();
+            if (subUrl) {
+              const resolvedSubUrl = new URL(subUrl, m3u8Url).href;
+              const subRes = await fetch(resolvedSubUrl, { credentials: 'include' });
+              if (subRes.ok) {
+                text = await subRes.text();
+                m3u8Url = resolvedSubUrl;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Extract all TS chunk segment URLs
+      const lines = text.split('\n');
+      const segmentUrls = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          segmentUrls.push(new URL(trimmed, m3u8Url).href);
+        }
+      }
+
+      if (segmentUrls.length === 0) {
+        throw new Error('Tidak ada segmen video dalam playlist');
+      }
+
+      // 3. Concurrently fetch all chunks with concurrency limit 3
+      const chunks = new Array(segmentUrls.length);
+      let downloadedCount = 0;
+      const CONCURRENCY = 3;
+      let queueIndex = 0;
+
+      async function worker() {
+        while (queueIndex < segmentUrls.length) {
+          const idx = queueIndex++;
+          const url = segmentUrls[idx];
+          let attempt = 0;
+          let success = false;
+          while (attempt < 3 && !success) {
+            try {
+              const segRes = await fetch(url, { credentials: 'include' });
+              if (!segRes.ok) throw new Error(`HTTP ${segRes.status}`);
+              const buf = await segRes.arrayBuffer();
+              chunks[idx] = new Uint8Array(buf);
+              success = true;
+              downloadedCount++;
+              if (btnEl) {
+                const pct = Math.round((downloadedCount / segmentUrls.length) * 100);
+                btnEl.innerHTML = `${SVG_SPINNER}<span>Mengunduh (${pct}%)...</span>`;
+              }
+            } catch (e) {
+              attempt++;
+              if (attempt >= 3) throw e;
+              await new Promise((r) => setTimeout(r, 400));
+            }
+          }
+        }
+      }
+
+      const workers = [];
+      for (let w = 0; w < Math.min(CONCURRENCY, segmentUrls.length); w++) {
+        workers.push(worker());
+      }
+      await Promise.all(workers);
+
+      if (btnEl) {
+        btnEl.innerHTML = `${SVG_SPINNER}<span>Menyimpan MP4...</span>`;
+      }
+
+      // 4. Merge all TS chunks into single continuous Blob
+      const blob = new Blob(chunks, { type: 'video/mp4' });
+      const objectUrl = URL.createObjectURL(blob);
+
+      // 5. Trigger download of clean .mp4
+      const safeName = filename.replace(/\.m3u8$/i, '').replace(/\.mp4$/i, '') + '.mp4';
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = safeName;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+      }, 30000);
+
+      if (btnEl) {
+        btnEl.classList.remove('loading');
+        btnEl.classList.add('success');
+        btnEl.innerHTML = `${SVG_CHECK}<span>Tersimpan!</span>`;
+        setTimeout(() => {
+          btnEl.classList.remove('success');
+          btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
+        }, 3000);
+      }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} downloadHlsStream error:`, err);
+      if (btnEl) {
+        btnEl.classList.remove('loading');
+        btnEl.classList.add('error');
+        btnEl.innerHTML = `<span>Gagal Stream</span>`;
+        setTimeout(() => {
+          btnEl.classList.remove('error');
+          btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
+        }, 3000);
+      }
+    }
+  }
+
   // --------------------------------------------------------------------------
   // Direct Download Trigger
   // --------------------------------------------------------------------------
@@ -231,6 +366,12 @@
       }
 
       const safeFilename = sanitizeTeraBoxFilename(file.filename);
+
+      // If the link is an HLS m3u8 streaming link, download and merge segments into a clean MP4!
+      if (dlink.includes('streaming') || dlink.includes('m3u8')) {
+        await downloadHlsStream(dlink, safeFilename, btnEl);
+        return;
+      }
 
       // Route to background service worker for reliable resume & custom referer
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
@@ -791,14 +932,22 @@
   function injectRowButtons() {
     if (typeof document === 'undefined' || !document.querySelectorAll) return;
     const rows = document.querySelectorAll(
-      '.webmaster-file-item, .file-item-listmode, .file-item, [class*="file-item"], .wp-s-pan-list__file-wrapper'
+      '.webmaster-file-item, .file-item-listmode, .file-item, .wp-s-pan-list__file-wrapper'
     );
     if (!rows || rows.length === 0) return;
 
     rows.forEach((row) => {
-      if (row.querySelector('.mungil-terabox-row-btn')) return;
+      // 1. If row or any ancestor is already processed, skip to avoid duplicate buttons
+      if (row.classList.contains('mungil-row-done') || row.closest('.mungil-row-done')) {
+        return;
+      }
 
-      // 1. Never inject download buttons on directories / folders
+      // 2. If row has child elements that also match row selector, it's a parent wrapper! Let the leaf row handle it.
+      if (row.querySelector('.webmaster-file-item, .file-item-listmode, .file-item')) {
+        return;
+      }
+
+      // 3. Never inject download buttons on directories / folders
       const isFolderClass =
         row.classList.contains('folder-item') ||
         row.classList.contains('is-dir') ||
@@ -810,10 +959,16 @@
 
       const matchedFile = cachedFiles.find((f) => f.filename === name);
       if (isFolderClass || (matchedFile && matchedFile.isdir)) {
+        row.classList.add('mungil-row-done');
         return; // Folders are strictly ignored
       }
 
       if (!nameEl) return;
+
+      // Mark row as processed to prevent any duplicate insertion
+      row.classList.add('mungil-row-done');
+
+      if (row.querySelector('.mungil-terabox-row-btn')) return;
 
       const isImage =
         (matchedFile && matchedFile.isImage) ||
@@ -912,7 +1067,8 @@
       getDomFallbackFile,
       injectPlayerButton,
       injectFloatingBar,
-      classifyFiles
+      classifyFiles,
+      downloadHlsStream
     };
   }
 

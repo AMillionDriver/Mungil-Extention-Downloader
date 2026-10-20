@@ -507,6 +507,28 @@
       }
     } catch (_) {}
 
+    // Strategy 4: For any video file, construct the authorized /share/streaming HLS URL
+    if (shareid && uk && sign && timestamp) {
+      const isVideo = cached ? cached.isVideo : true;
+      if (isVideo) {
+        const origin =
+          (typeof window !== 'undefined' && window.location.origin) || 'https://www.terabox.app';
+        const streamUrl = `${origin}/share/streaming?app_id=250528&web=1&channel=dubox&clienttype=0&jsToken=${encodeURIComponent(
+          token
+        )}&dp-logid=${Date.now()}&shareid=${encodeURIComponent(shareid)}&uk=${encodeURIComponent(
+          uk
+        )}&sign=${encodeURIComponent(sign)}&timestamp=${encodeURIComponent(
+          timestamp
+        )}&primaryid=${encodeURIComponent(shareid)}&fid=${encodeURIComponent(fsId)}&type=M3U8_AUTO_720`;
+
+        if (cached) {
+          cached.dlink = streamUrl;
+          fileCache.set(fsId, cached);
+        }
+        return streamUrl;
+      }
+    }
+
     return (cached && cached.dlink) || null;
   }
 

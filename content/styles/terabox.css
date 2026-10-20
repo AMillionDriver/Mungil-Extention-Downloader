@@ -157,48 +157,55 @@
 
 /* 2. Download Buttons */
 .mungil-terabox-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px 16px;
-  font-family: var(--tb-font-sans);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--tb-white) !important;
-  background: linear-gradient(135deg, var(--tb-blue-500) 0%, var(--tb-blue-600) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: var(--tb-radius-full);
-  cursor: pointer;
-  text-decoration: none;
-  box-shadow: 0 2px 8px rgba(6, 96, 246, 0.3);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  user-select: none;
-  z-index: 100;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 8px 18px !important;
+  font-family: var(--tb-font-sans) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #0660f6 0%, #004ee3 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: var(--tb-radius-full) !important;
+  cursor: pointer !important;
+  text-decoration: none !important;
+  box-shadow: 0 2px 10px rgba(6, 96, 246, 0.45) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  user-select: none !important;
+  z-index: 100 !important;
 }
 
 .mungil-terabox-btn:hover {
-  background: linear-gradient(135deg, var(--tb-blue-400) 0%, var(--tb-blue-500) 100%);
-  box-shadow: var(--tb-shadow-glow-blue);
-  transform: translateY(-1px);
+  background: linear-gradient(135deg, #2563eb 0%, #0660f6 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 16px rgba(6, 96, 246, 0.6) !important;
+  transform: translateY(-1px) !important;
 }
 
 .mungil-terabox-btn:active {
-  transform: translateY(0);
+  transform: translateY(0) !important;
 }
 
 .mungil-terabox-btn.loading {
-  pointer-events: none;
-  opacity: 0.85;
+  pointer-events: none !important;
+  opacity: 0.85 !important;
 }
 
 .mungil-terabox-btn.success {
-  background: linear-gradient(135deg, var(--tb-emerald-500) 0%, var(--tb-emerald-600) 100%);
-  border-color: rgba(16, 185, 129, 0.4);
+  background: linear-gradient(
+    135deg,
+    var(--tb-emerald-500) 0%,
+    var(--tb-emerald-600) 100%
+  ) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #ffffff !important;
 }
 
 .mungil-terabox-btn.error {
-  background: linear-gradient(135deg, var(--tb-red-500) 0%, #dc2626 100%);
+  background: linear-gradient(135deg, var(--tb-red-500) 0%, #dc2626 100%) !important;
+  color: #ffffff !important;
 }
 
 .mungil-terabox-btn svg {
@@ -257,21 +264,19 @@
 
 /* 3. Floating Batch Action Bar */
 .mungil-terabox-floating-bar {
-  position: fixed;
-  bottom: 84px;
-  right: 28px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px 8px 12px;
-  background: rgba(13, 17, 23, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--tb-border-subtle);
-  border-radius: var(--tb-radius-full);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-  z-index: 99999;
-  animation: mungil-tb-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  position: fixed !important;
+  bottom: 84px !important;
+  right: 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 8px 16px 8px 14px !important;
+  background: #0d1117 !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: var(--tb-radius-full) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.75) !important;
+  z-index: 999999 !important;
+  animation: mungil-tb-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 @keyframes mungil-tb-slide-up {
