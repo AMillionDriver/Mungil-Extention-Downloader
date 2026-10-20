@@ -4455,6 +4455,34 @@ async function runAllSuites() {
           global.chrome = originalChrome;
         }
       });
+
+      test('Quality menu toggle lifecycle: openQualityMenu adds is-open, closeQualityMenu removes is-open, and close button closes menu', () => {
+        const { openQualityMenu, closeQualityMenu } = bstationScript;
+        const menuEl = new MockElement('div');
+        menuEl.id = 'bs-dl-quality-menu';
+
+        openQualityMenu(menuEl);
+        assert.ok(menuEl.className.includes('is-open'), 'Menu must receive is-open class on open');
+        assert.strictEqual(menuEl.style.display, 'flex');
+
+        const closeBtn = menuEl.querySelector('.bs-dl-menu-close-btn');
+        assert.ok(closeBtn, 'Quality menu header must render a close button');
+
+        // Test clicking close button
+        closeBtn.click();
+        assert.ok(
+          !menuEl.className.includes('is-open'),
+          'is-open class must be removed on close button click'
+        );
+        assert.strictEqual(menuEl.style.display, 'none');
+
+        // Test programmatic open and close
+        openQualityMenu(menuEl);
+        assert.ok(menuEl.className.includes('is-open'));
+        closeQualityMenu(menuEl);
+        assert.ok(!menuEl.className.includes('is-open'));
+        assert.strictEqual(menuEl.style.display, 'none');
+      });
     }
   );
 

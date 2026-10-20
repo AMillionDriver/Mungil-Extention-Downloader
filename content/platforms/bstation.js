@@ -687,6 +687,19 @@
     }
   }
 
+  function openQualityMenu(menuEl) {
+    if (!menuEl) return;
+    renderQualityMenuItems(menuEl);
+    menuEl.classList.add('is-open');
+    menuEl.style.display = 'flex';
+  }
+
+  function closeQualityMenu(menuEl) {
+    if (!menuEl) return;
+    menuEl.classList.remove('is-open');
+    menuEl.style.display = 'none';
+  }
+
   function renderQualityMenuItems(menuEl) {
     if (!menuEl) return;
     const sizes = getEstimatedSizes();
@@ -694,7 +707,33 @@
 
     const header = document.createElement('div');
     header.className = 'bs-dl-menu-header';
-    header.innerHTML = `<span>Pilih Kualitas</span><span class="bs-dl-menu-sub">Estimasi Ukuran</span>`;
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'bs-dl-menu-title';
+    titleSpan.textContent = 'Pilih Kualitas';
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'bs-dl-menu-actions';
+
+    const subSpan = document.createElement('span');
+    subSpan.className = 'bs-dl-menu-sub';
+    subSpan.textContent = 'Estimasi Ukuran';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'bs-dl-menu-close-btn';
+    closeBtn.title = 'Tutup menu';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      closeQualityMenu(menuEl);
+    });
+
+    actionsDiv.appendChild(subSpan);
+    actionsDiv.appendChild(closeBtn);
+    header.appendChild(titleSpan);
+    header.appendChild(actionsDiv);
     menuEl.appendChild(header);
 
     for (const opt of BSTATION_QUALITY_OPTIONS) {
@@ -717,7 +756,7 @@
       item.addEventListener('click', (e) => {
         e.stopPropagation();
         saveQualityPreference(opt.id);
-        menuEl.style.display = 'none';
+        closeQualityMenu(menuEl);
       });
 
       menuEl.appendChild(item);
@@ -771,19 +810,27 @@
     qualityBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const isVisible = qualityMenu.style.display === 'flex';
-      if (isVisible) {
-        qualityMenu.style.display = 'none';
+      const isOpen =
+        qualityMenu.classList.contains('is-open') || qualityMenu.style.display === 'flex';
+      if (isOpen) {
+        closeQualityMenu(qualityMenu);
       } else {
-        renderQualityMenuItems(qualityMenu);
-        qualityMenu.style.display = 'flex';
+        openQualityMenu(qualityMenu);
       }
     });
 
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-      document.addEventListener('click', (e) => {
+      const handleOutsideClose = (e) => {
         if (!group.contains(e.target)) {
-          qualityMenu.style.display = 'none';
+          closeQualityMenu(qualityMenu);
+        }
+      };
+
+      document.addEventListener('pointerdown', handleOutsideClose, true);
+      document.addEventListener('click', handleOutsideClose, true);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          closeQualityMenu(qualityMenu);
         }
       });
     }
@@ -1980,6 +2027,8 @@
       getEstimatedSizes,
       saveQualityPreference,
       BSTATION_QUALITY_OPTIONS,
+      openQualityMenu,
+      closeQualityMenu,
       SVG_ICONS
     };
   }
