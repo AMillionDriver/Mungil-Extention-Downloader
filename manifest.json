@@ -24,7 +24,11 @@
     "*://*.overfetch.video/*",
     "*://*.youtube.com/*",
     "*://*.googlevideo.com/*",
-    "*://*.ytimg.com/*"
+    "*://*.ytimg.com/*",
+    "*://*.komiku.org/*",
+    "*://*.komiku.id/*",
+    "*://*.komiku.com/*",
+    "*://*.komiku.co.id/*"
   ],
   "background": {
     "service_worker": "background/service_worker.js"
@@ -77,7 +81,25 @@
         "*://*.jwplyr.com/*",
         "*://*.bilibili.tv/*",
         "*://*.bstation.tv/*",
-        "*://*.youtube.com/*"
+        "*://*.youtube.com/*",
+        "*://*.komiku.org/*",
+        "*://*.komiku.id/*",
+        "*://*.komiku.com/*",
+        "*://*.komiku.co.id/*"
+      ],
+      "js": ["content/platforms/shield_listener.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.jwplyr.com/*",
+        "*://*.bilibili.tv/*",
+        "*://*.bstation.tv/*",
+        "*://*.youtube.com/*",
+        "*://*.komiku.org/*",
+        "*://*.komiku.id/*",
+        "*://*.komiku.com/*",
+        "*://*.komiku.co.id/*"
       ],
       "js": ["content/injected/shield_bridge.js"],
       "world": "MAIN",
@@ -110,7 +132,13 @@
         "icons/icon48.png",
         "icons/icon128.png"
       ],
-      "matches": ["*://*.jwplyr.com/*"]
+      "matches": [
+        "*://*.jwplyr.com/*",
+        "*://*.komiku.org/*",
+        "*://*.komiku.id/*",
+        "*://*.komiku.com/*",
+        "*://*.komiku.co.id/*"
+      ]
     },
     {
       "resources": [

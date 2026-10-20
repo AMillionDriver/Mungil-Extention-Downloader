@@ -838,6 +838,8 @@ async function runAllSuites() {
         'content/injected/youtube_bridge.js',
         'popup/popup.js',
         'icons/generate_icons.js',
+        'content/injected/shield_bridge.js',
+        'content/platforms/shield_listener.js',
         'test_extension.js',
         'test_adversarial_bstation.js'
       ];
@@ -5955,6 +5957,24 @@ async function runAllSuites() {
           shieldScript.matches.includes('*://*.jwplyr.com/*'),
           'must match jwplyr.com streaming mirror'
         );
+        assert.ok(
+          shieldScript.matches.includes('*://*.komiku.org/*'),
+          'must match komiku.org manga reader'
+        );
+
+        const listenerScript = manifest.content_scripts.find(
+          (s) => s.js && s.js.includes('content/platforms/shield_listener.js')
+        );
+        assert.ok(listenerScript, 'shield_listener.js must be registered in content_scripts');
+        assert.strictEqual(
+          listenerScript.run_at,
+          'document_start',
+          'shield_listener.js must run at document_start'
+        );
+        assert.ok(
+          listenerScript.matches.includes('*://*.komiku.org/*'),
+          'shield_listener must match komiku.org'
+        );
       });
 
       test('Shield bridge script exists on disk, passes syntax check, and implements stealth [native code]', () => {
@@ -5986,6 +6006,11 @@ async function runAllSuites() {
           code.includes('pointer-events'),
           'must neutralize transparent overlays with pointer-events: none'
         );
+        assert.ok(
+          code.includes('canRunAds'),
+          'must emulate canRunAds for anti-anti-adblock bypass'
+        );
+        assert.ok(code.includes('Swal'), 'must hook SweetAlert2 (Swal) to defuse modal traps');
       });
 
       test('service_worker.js defines dynamic DNR adblock rules and synchronization helper', () => {
@@ -5995,9 +6020,13 @@ async function runAllSuites() {
           'ADBLOCK_DYNAMIC_RULES must be an array'
         );
         assert.ok(
-          sw.ADBLOCK_DYNAMIC_RULES.length >= 10,
-          'must define at least 10 ad/popunder dynamic rules'
+          sw.ADBLOCK_DYNAMIC_RULES.length >= 12,
+          'must define at least 12 ad/popunder dynamic rules'
         );
+
+        const blockedDomains = sw.ADBLOCK_DYNAMIC_RULES.map((r) => r.condition.urlFilter);
+        assert.ok(blockedDomains.includes('||ophionbonish.cfd^'), 'must block ophionbonish.cfd');
+        assert.ok(blockedDomains.includes('||073m.com^'), 'must block 073m.com');
 
         for (const rule of sw.ADBLOCK_DYNAMIC_RULES) {
           assert.strictEqual(rule.action.type, 'block', 'every rule must declare block action');

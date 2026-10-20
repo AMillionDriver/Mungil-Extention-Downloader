@@ -1889,6 +1889,24 @@ const ADBLOCK_DYNAMIC_RULES = [
       urlFilter: '||trafficspecialist.org^',
       resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
     }
+  },
+  {
+    id: 90011,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||ophionbonish.cfd^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90012,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||073m.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
   }
 ];
 

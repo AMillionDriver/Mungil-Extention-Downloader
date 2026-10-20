@@ -1,5 +1,5 @@
 /**
- * Mungil Security Shield - Injected Anti-Clickjacking & Popunder Guard
+ * Mungil Security Shield - Injected Anti-Clickjacking, Popunder & Anti-Adblock Defuser
  * Runs in MAIN world at document_start to establish early protective boundaries.
  *
  * Capabilities:
@@ -7,7 +7,8 @@
  * 2. Iframe function harvesting prevention (Node.prototype.appendChild trap).
  * 3. Synthetic anchor click & form submit defuser for unprompted popunders.
  * 4. Transparent overlay & cursor-tracking hitbox neutralizer (MutationObserver).
- * 5. Opt-in: Remains pure passthrough unless shield_clickjack is explicitly enabled.
+ * 5. Anti-Anti-Adblock Bait Emulation & SweetAlert2 modal suppressor.
+ * 6. Opt-in: Remains pure passthrough unless shield_clickjack is explicitly enabled.
  */
 
 (function initMungilShield() {
@@ -32,6 +33,60 @@
     },
     true
   );
+
+  // --------------------------------------------------------------------------
+  // Anti-Anti-Adblock Emulation & Bait Protection
+  // --------------------------------------------------------------------------
+  try {
+    window.ads_detected = false;
+    window.canRunAds = true;
+    window.isAdblockActive = false;
+    window.adblockDetected = false;
+
+    // Defuse getter/setter traps for common anti-adblock variables
+    Object.defineProperty(window, 'ads_detected', {
+      get: () => false,
+      set: () => {},
+      configurable: true
+    });
+    Object.defineProperty(window, 'canRunAds', {
+      get: () => true,
+      set: () => {},
+      configurable: true
+    });
+  } catch (_) {}
+
+  // Hook SweetAlert2 (Swal) to defuse anti-adblock modals at invocation
+  try {
+    let swalInstance = window.Swal;
+    Object.defineProperty(window, 'Swal', {
+      get: () => {
+        if (!swalInstance) return undefined;
+        return new Proxy(swalInstance, {
+          get(target, prop) {
+            if (prop === 'fire') {
+              return function (options) {
+                if (isClickjackShieldActive || isAdblockShieldActive) {
+                  const str = typeof options === 'string' ? options : JSON.stringify(options || {});
+                  if (/adblock|iklan|nonaktifkan/i.test(str)) {
+                    console.warn('[Mungil Shield] Defused Swal anti-adblock modal:', str);
+                    suppressAntiAdblockModal();
+                    return Promise.resolve({ isConfirmed: false, isDismissed: true });
+                  }
+                }
+                return target.fire.apply(target, arguments);
+              };
+            }
+            return target[prop];
+          }
+        });
+      },
+      set: (val) => {
+        swalInstance = val;
+      },
+      configurable: true
+    });
+  } catch (_) {}
 
   // Sync configuration from isolated content script via custom event or DOM dataset
   function updateConfig(config = {}) {
@@ -74,8 +129,15 @@
       return true;
     }
 
-    // Common popunder & ad network indicators
+    // Common popunder, adware, tracker, and affiliate redirect patterns
     const suspiciousPatterns = [
+      'ophionbonish',
+      '073m.com',
+      'shope.ee',
+      'shp.ee',
+      'shopee.',
+      'lazada.',
+      'tokopedia.',
       'adsterra',
       'popcash',
       'propellerads',
@@ -91,7 +153,10 @@
       'smartlink',
       'go.php?',
       'click.php?',
-      'out.php?'
+      'out.php?',
+      'affiliate',
+      'campaign',
+      'offer'
     ];
 
     for (const pat of suspiciousPatterns) {
@@ -166,18 +231,87 @@
     return nativeAnchorClick.apply(this, arguments);
   };
 
+  // Intercept clickjacking links in capturing phase
+  window.addEventListener(
+    'click',
+    (e) => {
+      if (!isClickjackShieldActive) return;
+
+      const link = e.target && e.target.closest ? e.target.closest('a') : null;
+      if (link) {
+        const href = link.getAttribute('href') || link.href || '';
+        const target = link.getAttribute('target') || link.target || '';
+        if (target === '_blank' && isSuspiciousPopunder(href)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          console.warn('[Mungil Shield] Intercepted clickjack link navigation:', href);
+          return false;
+        }
+      }
+    },
+    true
+  );
+
   // --------------------------------------------------------------------------
-  // 4. Transparent Overlay & Cursor-Following Hitbox Neutralizer
+  // 4. Anti-Adblock SweetAlert2 Modal Suppressor
+  // --------------------------------------------------------------------------
+  function suppressAntiAdblockModal() {
+    try {
+      const swalContainers = document.querySelectorAll(
+        '#swal2-container, .swal2-container, .modal-backdrop, .swal2-backdrop-show, [class*="adblock-modal"]'
+      );
+      for (const el of swalContainers) {
+        const text = el.textContent || '';
+        if (
+          text.includes('Adblock') ||
+          text.includes('adblock') ||
+          text.includes('Komiku gratis') ||
+          text.includes('iklan') ||
+          text.includes('Iklan') ||
+          el.querySelector('.swal2-title')
+        ) {
+          el.style.setProperty('display', 'none', 'important');
+          el.style.setProperty('visibility', 'hidden', 'important');
+          el.style.setProperty('pointer-events', 'none', 'important');
+          if (typeof el.remove === 'function') {
+            el.remove();
+          }
+        }
+      }
+
+      // Restore scroll lock if body or html was frozen
+      if (document.body) {
+        if (document.body.classList.contains('swal2-shown')) {
+          document.body.classList.remove('swal2-shown');
+        }
+        document.body.style.setProperty('overflow', 'auto', 'important');
+      }
+      if (document.documentElement) {
+        if (document.documentElement.classList.contains('swal2-shown')) {
+          document.documentElement.classList.remove('swal2-shown');
+        }
+        document.documentElement.style.setProperty('overflow', 'auto', 'important');
+      }
+    } catch (_) {}
+  }
+
+  // --------------------------------------------------------------------------
+  // 5. Transparent Overlay & Cursor-Following Hitbox Neutralizer
   // --------------------------------------------------------------------------
   function neutralizeOverlayElement(el) {
     if (!el || !(el instanceof HTMLElement)) return;
 
-    // Do not touch video elements or legitimate player controls
+    // Do not touch images (comic readers), video, audio, or form controls
     const tagName = el.tagName.toLowerCase();
     if (
+      tagName === 'img' ||
+      tagName === 'picture' ||
       tagName === 'video' ||
       tagName === 'audio' ||
       tagName === 'iframe' ||
+      tagName === 'button' ||
+      tagName === 'input' ||
+      tagName === 'select' ||
       el.id === 'mungil-batch-modal' ||
       el.closest('#mungil-batch-modal')
     ) {
@@ -196,11 +330,15 @@
 
       // Detect full viewport transparent overlay or high-z hitbox
       const isFixedOrAbsolute = pos === 'fixed' || pos === 'absolute';
-      const isUltraHighZ = !isNaN(zIndex) && zIndex >= 99999;
-      const isTransparent = opacity <= 0.05 || style.backgroundColor === 'transparent';
-      const isHugeDimensions = w >= winW * 0.7 && h >= winH * 0.7;
+      const isUltraHighZ = !isNaN(zIndex) && zIndex >= 1000;
+      const isTransparent =
+        opacity <= 0.05 ||
+        style.backgroundColor === 'transparent' ||
+        style.backgroundColor === 'rgba(0, 0, 0, 0)';
+      const isLargeArea =
+        (w >= winW * 0.5 && h >= winH * 0.5) || (w >= 300 && h >= 300 && !el.textContent.trim());
 
-      if (isFixedOrAbsolute && isUltraHighZ && isTransparent && isHugeDimensions) {
+      if (isFixedOrAbsolute && isUltraHighZ && isTransparent && isLargeArea) {
         console.warn('[Mungil Shield] Neutralized transparent overlay clickjack trap:', el);
         el.style.setProperty('pointer-events', 'none', 'important');
         el.style.setProperty('display', 'none', 'important');
@@ -211,6 +349,7 @@
   function scanOverlays() {
     if (!isClickjackShieldActive) return;
     try {
+      suppressAntiAdblockModal();
       const candidates = document.querySelectorAll(
         'div[style*="z-index"], a[style*="z-index"], span[style*="z-index"]'
       );
@@ -220,8 +359,11 @@
     } catch (_) {}
   }
 
-  // MutationObserver for dynamically injected overlays
+  // MutationObserver for dynamically injected overlays and anti-adblock modals
   const overlayObserver = new MutationObserver((mutations) => {
+    if (!isClickjackShieldActive && !isAdblockShieldActive) return;
+    suppressAntiAdblockModal();
+
     if (!isClickjackShieldActive) return;
     for (const m of mutations) {
       for (const node of m.addedNodes) {
@@ -244,7 +386,7 @@
   }
 
   // --------------------------------------------------------------------------
-  // 5. Cosmetic Adblock Rule Injection
+  // 6. Cosmetic Adblock Rule Injection
   // --------------------------------------------------------------------------
   function applyCosmeticAdRules() {
     if (document.getElementById('mungil-cosmetic-ad-shield')) return;
@@ -252,7 +394,7 @@
       const style = document.createElement('style');
       style.id = 'mungil-cosmetic-ad-shield';
       style.textContent = `
-        /* Mungil Cosmetic Ad & Banner Shield */
+        /* Mungil Cosmetic Ad, Banner & Anti-Adblock Modal Shield */
         [id*="ad-banner"],
         [class*="ad-banner"],
         [id*="popunder"],
@@ -261,10 +403,17 @@
         .jw-ad-container,
         .floating-ad,
         .floating-banner,
+        #swal2-container,
+        .swal2-container,
+        .modal-backdrop,
+        .swal2-backdrop-show,
+        [class*="adblock-modal"],
         iframe[src*="adsterra"],
         iframe[src*="popcash"],
         iframe[src*="propellerads"],
-        iframe[src*="exoclick"] {
+        iframe[src*="exoclick"],
+        iframe[src*="monetag"],
+        iframe[src*="ophionbonish"] {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;
@@ -272,15 +421,20 @@
           height: 0 !important;
           width: 0 !important;
         }
+
+        body.swal2-shown,
+        html.swal2-shown {
+          overflow: auto !important;
+        }
       `;
       (document.head || document.documentElement).appendChild(style);
     } catch (_) {}
   }
 
-  // Periodic scan for residual overlays every 3 seconds if active
+  // Periodic scan for residual overlays and modals every 1.5 seconds if active
   setInterval(() => {
-    if (isClickjackShieldActive) {
+    if (isClickjackShieldActive || isAdblockShieldActive) {
       scanOverlays();
     }
-  }, 3000);
+  }, 1500);
 })();
