@@ -136,6 +136,11 @@
     const origConsoleLog = console.log;
     console.log = function (...args) {
       try {
+        // Suppress TeraBox's endless Google SDK retry log loop
+        if (args && typeof args[0] === 'string' && args[0].includes('google sdk init settimeout')) {
+          return;
+        }
+
         if (
           args &&
           args.length >= 2 &&
