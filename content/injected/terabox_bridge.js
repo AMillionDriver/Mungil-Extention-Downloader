@@ -201,6 +201,134 @@
     return `${val.toFixed(i === 0 ? 0 : 2)} ${units[i] || 'B'}`;
   }
 
+  function getCookie(name) {
+    try {
+      if (typeof document === 'undefined' || !document.cookie) return '';
+      const parts = document.cookie.split(';');
+      for (const part of parts) {
+        const trimmed = part.trim();
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx !== -1) {
+          const k = trimmed.slice(0, eqIdx);
+          const v = trimmed.slice(eqIdx + 1);
+          if (k === name) return decodeURIComponent(v);
+        }
+      }
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /**
+   * Pure JS RFC 2104 HMAC-SHA1 calculation for signing TeraBox /share/streaming URLs.
+   * Matches TeraBox internal crypto-vendor exactly.
+   * @param {string} message
+   * @param {string} key
+   * @returns {string} hex digest
+   */
+  function hmacSha1PureJs(message, key) {
+    function sha1(bytes) {
+      let h0 = 0x67452301,
+        h1 = 0xefcdab89,
+        h2 = 0x98badcfe,
+        h3 = 0x10325476,
+        h4 = 0xc3d2e1f0;
+      const n = bytes.length;
+      const bitLen = n * 8;
+      const withPadding = new Uint8Array((((n + 8) >> 6) << 6) + 64);
+      withPadding.set(bytes);
+      withPadding[n] = 0x80;
+      const view = new DataView(withPadding.buffer);
+      view.setUint32(withPadding.length - 4, bitLen, false);
+
+      const w = new Uint32Array(80);
+      for (let i = 0; i < withPadding.length; i += 64) {
+        for (let j = 0; j < 16; j++) {
+          w[j] = view.getUint32(i + j * 4, false);
+        }
+        for (let j = 16; j < 80; j++) {
+          const val = w[j - 3] ^ w[j - 8] ^ w[j - 14] ^ w[j - 16];
+          w[j] = (val << 1) | (val >>> 31);
+        }
+
+        let a = h0,
+          b = h1,
+          c = h2,
+          d = h3,
+          e = h4;
+        for (let j = 0; j < 80; j++) {
+          let f, k;
+          if (j < 20) {
+            f = (b & c) | (~b & d);
+            k = 0x5a827999;
+          } else if (j < 40) {
+            f = b ^ c ^ d;
+            k = 0x6ed9eba1;
+          } else if (j < 60) {
+            f = (b & c) | (b & d) | (c & d);
+            k = 0x8f1bbcdc;
+          } else {
+            f = b ^ c ^ d;
+            k = 0xca62c1d6;
+          }
+          const temp = (((a << 5) | (a >>> 27)) + f + e + k + w[j]) >>> 0;
+          e = d;
+          d = c;
+          c = ((b << 30) | (b >>> 2)) >>> 0;
+          b = a;
+          a = temp;
+        }
+        h0 = (h0 + a) >>> 0;
+        h1 = (h1 + b) >>> 0;
+        h2 = (h2 + c) >>> 0;
+        h3 = (h3 + d) >>> 0;
+        h4 = (h4 + e) >>> 0;
+      }
+
+      const res = new Uint8Array(20);
+      const resView = new DataView(res.buffer);
+      resView.setUint32(0, h0, false);
+      resView.setUint32(4, h1, false);
+      resView.setUint32(8, h2, false);
+      resView.setUint32(12, h3, false);
+      resView.setUint32(16, h4, false);
+      return res;
+    }
+
+    const keyBytes = new TextEncoder().encode(key);
+    const msgBytes = new TextEncoder().encode(message);
+    const blockSize = 64;
+    let keyPadded = new Uint8Array(blockSize);
+    if (keyBytes.length > blockSize) {
+      const hashedKey = sha1(keyBytes);
+      keyPadded.set(hashedKey);
+    } else {
+      keyPadded.set(keyBytes);
+    }
+
+    const oKeyPad = new Uint8Array(blockSize);
+    const iKeyPad = new Uint8Array(blockSize);
+    for (let i = 0; i < blockSize; i++) {
+      oKeyPad[i] = keyPadded[i] ^ 0x5c;
+      iKeyPad[i] = keyPadded[i] ^ 0x36;
+    }
+
+    const innerMsg = new Uint8Array(blockSize + msgBytes.length);
+    innerMsg.set(iKeyPad, 0);
+    innerMsg.set(msgBytes, blockSize);
+    const innerHash = sha1(innerMsg);
+
+    const outerMsg = new Uint8Array(blockSize + innerHash.length);
+    outerMsg.set(oKeyPad, 0);
+    outerMsg.set(innerHash, blockSize);
+    const outerHash = sha1(outerMsg);
+
+    return Array.from(outerHash)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
   /**
    * Ingests a list of file records into the cache.
    * @param {Array<object>} list
@@ -328,9 +456,16 @@
       try {
         const parsed = new URL(url, window.location.origin);
         const fid = parsed.searchParams.get('fid');
-        if (fid && fileCache.has(fid)) {
-          const item = fileCache.get(fid);
-          if (!item.dlink) item.dlink = url;
+        const type = parsed.searchParams.get('type') || '';
+        if (fid) {
+          const item = fileCache.get(fid) || { fs_id: fid };
+          if (!item.streamUrls) item.streamUrls = {};
+          item.streamUrls[type] = url;
+          if (type.includes('360')) item.streamUrls['360'] = url;
+          if (type.includes('480')) item.streamUrls['480'] = url;
+          if (type.includes('720')) item.streamUrls['720'] = url;
+          if (type.includes('1080')) item.streamUrls['1080'] = url;
+          item.lastStreamUrl = url;
           fileCache.set(fid, item);
           notifyFilesUpdated();
         }
@@ -372,12 +507,13 @@
       const resp = await originalFetch.apply(this, args);
       try {
         const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
-        if (
+        if (url.includes('streaming')) {
+          handleApiResponse(url, {});
+        } else if (
           url.includes('shorturlinfo') ||
           url.includes('/share/list') ||
           url.includes('download') ||
-          url.includes('/api/fileinfo') ||
-          url.includes('streaming')
+          url.includes('/api/fileinfo')
         ) {
           resp
             .clone()
@@ -402,12 +538,13 @@
     this.addEventListener('load', () => {
       try {
         const url = String(this.__mungil_url || '');
-        if (
+        if (url.includes('streaming')) {
+          handleApiResponse(url, {});
+        } else if (
           url.includes('shorturlinfo') ||
           url.includes('/share/list') ||
           url.includes('download') ||
-          url.includes('/api/fileinfo') ||
-          url.includes('streaming')
+          url.includes('/api/fileinfo')
         ) {
           let data = null;
           if (this.responseType === 'json' && this.response) {
@@ -443,18 +580,73 @@
       (typeof window !== 'undefined' && window.jsToken) || activeShareInfo.bdstoken || '';
 
     // If an alternative HLS stream resolution (e.g. M3U8_AUTO_1080, M3U8_AUTO_720, M3U8_AUTO_480, M3U8_AUTO_360) is requested
-    if (preferredType && shareid && uk && sign && timestamp) {
+    if (preferredType && shareid && uk) {
+      const qNum = parseInt(String(preferredType).replace(/[^0-9]/g, ''), 10) || 360;
+      if (cached && cached.streamUrls && cached.streamUrls[qNum]) {
+        return cached.streamUrls[qNum];
+      }
+
+      // Check active VideoJS in DOM
+      try {
+        const vEl = typeof document !== 'undefined' && document.getElementById('videoplayer');
+        if (vEl && vEl.player && typeof vEl.player.currentSrc === 'function') {
+          const curSrc = vEl.player.currentSrc();
+          if (
+            curSrc &&
+            curSrc.includes('streaming') &&
+            (curSrc.includes(String(qNum)) || qNum === 360)
+          ) {
+            return curSrc;
+          }
+        }
+      } catch (_) {}
+
+      // Calculate signed streaming URL with official TeraBox algorithm
+      const isSafari =
+        typeof navigator !== 'undefined' &&
+        navigator.userAgent.includes('Safari') &&
+        !navigator.userAgent.includes('Chrome');
+      let streamType = '';
+      if (qNum === 360) {
+        streamType = isSafari ? 'M3U8_AUTO_360' : 'M3U8_FLV_264_360';
+      } else if (qNum === 480) {
+        streamType = isSafari ? 'M3U8_AUTO_480' : 'M3U8_FLV_264_480';
+      } else if (qNum === 1080) {
+        streamType = 'M3U8_AUTO_1080';
+      } else if (qNum === 2160) {
+        streamType = 'M3U8_AUTO_4K';
+      } else {
+        streamType = 'M3U8_AUTO_' + qNum;
+      }
+
+      const clienttype = 0;
+      const channel = 'dubox';
+      const appId = 250528;
+      const web = 1;
+      const ts = Math.floor(Date.now() / 1000);
+      const browserid = getCookie('browserid') || '';
+      const streamSign = hmacSha1PureJs(
+        `${clienttype}${channel}${browserid}${ts}`,
+        'iuuPc64E4Fhn0rTXEzrnbLph0o5qyEEa'
+      );
       const origin =
         (typeof window !== 'undefined' && window.location.origin) || 'https://www.terabox.app';
-      const streamUrl = `${origin}/share/streaming?app_id=250528&web=1&channel=dubox&clienttype=0&jsToken=${encodeURIComponent(
-        token
-      )}&dp-logid=${Date.now()}&shareid=${encodeURIComponent(shareid)}&uk=${encodeURIComponent(
+      const streamUrl = `${origin}/share/streaming?uk=${encodeURIComponent(
         uk
-      )}&sign=${encodeURIComponent(sign)}&timestamp=${encodeURIComponent(
-        timestamp
-      )}&primaryid=${encodeURIComponent(shareid)}&fid=${encodeURIComponent(fsId)}&type=${encodeURIComponent(
-        preferredType
-      )}`;
+      )}&shareid=${encodeURIComponent(shareid)}&type=${encodeURIComponent(
+        streamType
+      )}&fid=${encodeURIComponent(fsId)}&sign=${encodeURIComponent(
+        streamSign
+      )}&timestamp=${ts}&jsToken=${encodeURIComponent(
+        token
+      )}&esl=1&isplayer=1&ehps=1&clienttype=${clienttype}&app_id=${appId}&web=${web}&channel=${channel}`;
+
+      if (cached) {
+        if (!cached.streamUrls) cached.streamUrls = {};
+        cached.streamUrls[qNum] = streamUrl;
+        cached.dlink = streamUrl;
+        fileCache.set(fsId, cached);
+      }
       return streamUrl;
     }
 
