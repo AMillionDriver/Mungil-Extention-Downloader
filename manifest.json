@@ -78,6 +78,7 @@
     },
     {
       "matches": [
+        "*://*/*",
         "*://*.jwplyr.com/*",
         "*://*.bilibili.tv/*",
         "*://*.bstation.tv/*",
@@ -85,13 +86,16 @@
         "*://*.komiku.org/*",
         "*://*.komiku.id/*",
         "*://*.komiku.com/*",
-        "*://*.komiku.co.id/*"
+        "*://*.komiku.co.id/*",
+        "*://*.komiku.plus/*",
+        "*://*.komiku.vip/*"
       ],
       "js": ["content/platforms/shield_listener.js"],
       "run_at": "document_start"
     },
     {
       "matches": [
+        "*://*/*",
         "*://*.jwplyr.com/*",
         "*://*.bilibili.tv/*",
         "*://*.bstation.tv/*",
@@ -99,7 +103,9 @@
         "*://*.komiku.org/*",
         "*://*.komiku.id/*",
         "*://*.komiku.com/*",
-        "*://*.komiku.co.id/*"
+        "*://*.komiku.co.id/*",
+        "*://*.komiku.plus/*",
+        "*://*.komiku.vip/*"
       ],
       "js": ["content/injected/shield_bridge.js"],
       "world": "MAIN",
@@ -133,11 +139,14 @@
         "icons/icon128.png"
       ],
       "matches": [
+        "*://*/*",
         "*://*.jwplyr.com/*",
         "*://*.komiku.org/*",
         "*://*.komiku.id/*",
         "*://*.komiku.com/*",
-        "*://*.komiku.co.id/*"
+        "*://*.komiku.co.id/*",
+        "*://*.komiku.plus/*",
+        "*://*.komiku.vip/*"
       ]
     },
     {

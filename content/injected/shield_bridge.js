@@ -3,12 +3,13 @@
  * Runs in MAIN world at document_start to establish early protective boundaries.
  *
  * Capabilities:
- * 1. Stealth window.open wrapper with "[native code]" .toString() spoofing.
- * 2. Iframe function harvesting prevention (Node.prototype.appendChild trap).
- * 3. Synthetic anchor click & form submit defuser for unprompted popunders.
- * 4. Transparent overlay & cursor-tracking hitbox neutralizer (MutationObserver).
- * 5. Anti-Anti-Adblock Bait Emulation & SweetAlert2 modal suppressor.
- * 6. Opt-in: Remains pure passthrough unless shield_clickjack is explicitly enabled.
+ * 1. Stealth window.open wrapper with "[native code]" .toString() spoofing & dummy window mock.
+ * 2. Origin & element context verification: blocks third-party popunders triggered by image/background clicks.
+ * 3. Iframe function harvesting prevention (Node.prototype.appendChild trap).
+ * 4. Synthetic anchor click & form submit defuser for unprompted popunders.
+ * 5. Transparent overlay & cursor-tracking hitbox neutralizer (MutationObserver).
+ * 6. Anti-Anti-Adblock Bait Emulation & SweetAlert2 modal suppressor.
+ * 7. Opt-in: Dynamic detection from dataset/attributes; remains passthrough unless enabled.
  */
 
 (function initMungilShield() {
@@ -21,18 +22,68 @@
   let isClickjackShieldActive = false;
   let isAdblockShieldActive = false;
 
-  // Track recent genuine user clicks with timestamps
+  // Track recent genuine user clicks and clicked element
   let lastUserClickTimestamp = 0;
+  let lastClickedElement = null;
 
   window.addEventListener(
     'pointerdown',
     (e) => {
       if (e.isTrusted) {
         lastUserClickTimestamp = Date.now();
+        lastClickedElement = e.target;
       }
     },
     true
   );
+
+  window.addEventListener(
+    'mousedown',
+    (e) => {
+      if (e.isTrusted) {
+        lastUserClickTimestamp = Date.now();
+        lastClickedElement = e.target;
+      }
+    },
+    true
+  );
+
+  // Dynamic status evaluation: checks memory flag and DOM attributes synced from isolated world
+  function isShieldClickjackActive() {
+    if (isClickjackShieldActive) return true;
+    if (typeof document !== 'undefined') {
+      const root = document.documentElement || document.body;
+      if (root) {
+        const attr =
+          root.getAttribute('data-shield-clickjack') ||
+          root.getAttribute('data-mungil-clickjack') ||
+          root.dataset?.shieldClickjack;
+        if (attr === 'true') {
+          isClickjackShieldActive = true;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function isShieldAdblockActive() {
+    if (isAdblockShieldActive) return true;
+    if (typeof document !== 'undefined') {
+      const root = document.documentElement || document.body;
+      if (root) {
+        const attr =
+          root.getAttribute('data-shield-adblock') ||
+          root.getAttribute('data-mungil-adblock') ||
+          root.dataset?.shieldAdblock;
+        if (attr === 'true') {
+          isAdblockShieldActive = true;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 
   // --------------------------------------------------------------------------
   // Anti-Anti-Adblock Emulation & Bait Protection
@@ -66,7 +117,7 @@
           get(target, prop) {
             if (prop === 'fire') {
               return function (options) {
-                if (isClickjackShieldActive || isAdblockShieldActive) {
+                if (isShieldClickjackActive() || isShieldAdblockActive()) {
                   const str = typeof options === 'string' ? options : JSON.stringify(options || {});
                   if (/adblock|iklan|nonaktifkan/i.test(str)) {
                     console.warn('[Mungil Shield] Defused Swal anti-adblock modal:', str);
@@ -107,30 +158,74 @@
     }
   });
 
-  // Check if dataset was set on documentElement by isolated content script
-  if (document.documentElement) {
-    if (document.documentElement.dataset.shieldClickjack === 'true') {
-      isClickjackShieldActive = true;
-    }
-    if (document.documentElement.dataset.shieldAdblock === 'true') {
-      isAdblockShieldActive = true;
-    }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('MUNGIL_SHIELD_CONFIG', (e) => {
+      if (e && e.detail) {
+        updateConfig(e.detail);
+      }
+    });
+  }
+
+  // Observe attribute changes on root for real-time toggle reflection
+  if (typeof MutationObserver !== 'undefined' && document.documentElement) {
+    try {
+      const rootObserver = new MutationObserver(() => {
+        isShieldClickjackActive();
+        if (isShieldAdblockActive()) {
+          applyCosmeticAdRules();
+        }
+      });
+      rootObserver.observe(document.documentElement, { attributes: true });
+    } catch (_) {}
   }
 
   // --------------------------------------------------------------------------
-  // 1. Stealth window.open Defuser
+  // 1. Origin & Suspicious Popunder Target Detection
   // --------------------------------------------------------------------------
-  const nativeOpen = window.open;
-
-  function isSuspiciousPopunder(url) {
-    if (!url || typeof url !== 'string') return true;
-    const lower = url.toLowerCase().trim();
-    if (lower === '' || lower === 'about:blank' || lower.startsWith('javascript:')) {
+  function isSameOriginTarget(targetUrl) {
+    if (!targetUrl || typeof targetUrl !== 'string') return false;
+    const trimmed = targetUrl.trim();
+    if (
+      trimmed.startsWith('/') ||
+      trimmed.startsWith('?') ||
+      trimmed.startsWith('#') ||
+      trimmed.startsWith('./') ||
+      trimmed.startsWith('../')
+    ) {
       return true;
     }
 
-    // Common popunder, adware, tracker, and affiliate redirect patterns
-    const suspiciousPatterns = [
+    try {
+      const parsed = new URL(trimmed, window.location.href);
+      const currentHost = window.location.hostname.toLowerCase();
+      const targetHost = parsed.hostname.toLowerCase();
+
+      if (targetHost === currentHost) return true;
+
+      // Check apex domain (e.g. komiku.org vs api.komiku.org, bilibili.tv vs api.bilibili.tv)
+      const curParts = currentHost.split('.').filter(Boolean);
+      const tarParts = targetHost.split('.').filter(Boolean);
+      if (curParts.length >= 2 && tarParts.length >= 2) {
+        const curApex = curParts.slice(-2).join('.');
+        const tarApex = tarParts.slice(-2).join('.');
+        if (curApex === tarApex) return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isKnownAdPattern(url) {
+    if (!url || typeof url !== 'string') return false;
+    const lower = url.toLowerCase().trim();
+
+    const patterns = [
+      'frs2c',
+      'frs2.',
+      'link2?',
+      'var_3=',
+      'ymid=',
       'ophionbonish',
       '073m.com',
       'shope.ee',
@@ -159,28 +254,119 @@
       'offer'
     ];
 
-    for (const pat of suspiciousPatterns) {
+    for (const pat of patterns) {
       if (lower.includes(pat)) return true;
     }
+    return false;
+  }
 
-    // Check if opened without a recent genuine physical user click within 1000ms
+  function isPopunderOrThirdPartyHijack(url) {
+    if (!url || typeof url !== 'string') return true;
+    const lower = url.toLowerCase().trim();
+    if (lower === '' || lower === 'about:blank' || lower.startsWith('javascript:')) {
+      return true;
+    }
+
+    // Always block known ad networks and redirect patterns
+    if (isKnownAdPattern(lower)) {
+      return true;
+    }
+
+    // If opening a same-origin URL, allow
+    if (isSameOriginTarget(url)) {
+      return false;
+    }
+
+    // The destination is a 3rd-party external domain.
+    // Check what the user clicked recently:
     const timeSinceClick = Date.now() - lastUserClickTimestamp;
-    if (timeSinceClick > 1000) {
+    if (timeSinceClick > 3000) {
+      // Unprompted or delayed popunder
+      return true;
+    }
+
+    // If user clicked on comic images, canvas, background, or reader body:
+    if (lastClickedElement && lastClickedElement instanceof HTMLElement) {
+      const tag = lastClickedElement.tagName.toLowerCase();
+      if (
+        tag === 'img' ||
+        tag === 'picture' ||
+        tag === 'canvas' ||
+        tag === 'svg' ||
+        tag === 'body' ||
+        tag === 'html' ||
+        tag === 'section' ||
+        tag === 'article' ||
+        lastClickedElement.closest('#chapter-image, .chapter-body, .reader-area, .content-comic')
+      ) {
+        // Legitimate user reading interaction was hijacked to open 3rd party ad!
+        return true;
+      }
+
+      // Check if clicked element was an invisible overlay
+      try {
+        const style = window.getComputedStyle(lastClickedElement);
+        const opacity = parseFloat(style.opacity);
+        const rect = lastClickedElement.getBoundingClientRect();
+        const winW = window.innerWidth || 1000;
+        const winH = window.innerHeight || 800;
+        if (
+          opacity <= 0.05 ||
+          (rect.width >= winW * 0.4 && rect.height >= winH * 0.4 && style.position === 'fixed')
+        ) {
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    // By default, any 3rd party window.open during non-anchor click is blocked
+    if (!lastClickedElement || !(lastClickedElement.closest && lastClickedElement.closest('a'))) {
       return true;
     }
 
     return false;
   }
 
+  // Dummy mock window returned to deceiving popunder scripts so they don't fire secondary evasion traps
+  function createDummyWindow() {
+    return {
+      closed: false,
+      name: '',
+      opener: window,
+      focus: function () {},
+      blur: function () {},
+      close: function () {
+        this.closed = true;
+      },
+      location: {
+        href: '',
+        replace: function () {},
+        assign: function () {},
+        reload: function () {}
+      },
+      document: {
+        write: function () {},
+        writeln: function () {},
+        open: function () {},
+        close: function () {}
+      }
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // 2. Stealth window.open Defuser
+  // --------------------------------------------------------------------------
+  const nativeOpen = window.open;
+
   const safeOpen = function (url, _target, _features) {
-    if (isClickjackShieldActive && isSuspiciousPopunder(url)) {
-      console.warn('[Mungil Shield] Blocked unauthorized popunder / window.open:', url);
-      return null;
+    if (isShieldClickjackActive() && isPopunderOrThirdPartyHijack(url)) {
+      console.warn('[Mungil Shield] Neutralized unauthorized popunder / window.open:', url);
+      return createDummyWindow();
     }
     return nativeOpen.apply(this, arguments);
   };
 
-  // Stealth .toString() kamuflase agar anti-adblock tidak mendeteksi tampering
+  // Stealth .toString() camouflage
   try {
     Object.defineProperty(safeOpen, 'toString', {
       value: function () {
@@ -202,12 +388,12 @@
   }
 
   // --------------------------------------------------------------------------
-  // 2. Iframe Function Harvesting Trap
+  // 3. Iframe Function Harvesting Trap
   // --------------------------------------------------------------------------
   const nativeAppendChild = Node.prototype.appendChild;
   Node.prototype.appendChild = function (child) {
     const result = nativeAppendChild.apply(this, arguments);
-    if (isClickjackShieldActive && child instanceof HTMLIFrameElement && child.contentWindow) {
+    if (isShieldClickjackActive() && child instanceof HTMLIFrameElement && child.contentWindow) {
       try {
         child.contentWindow.open = safeOpen;
       } catch (_) {}
@@ -216,14 +402,13 @@
   };
 
   // --------------------------------------------------------------------------
-  // 3. Anchor & Form Popunder Click Defuser
+  // 4. Anchor & Form Popunder Click Defuser
   // --------------------------------------------------------------------------
   const nativeAnchorClick = HTMLAnchorElement.prototype.click;
   HTMLAnchorElement.prototype.click = function () {
-    if (isClickjackShieldActive) {
+    if (isShieldClickjackActive()) {
       const href = this.getAttribute('href') || this.href || '';
-      const target = this.getAttribute('target') || this.target || '';
-      if (target === '_blank' && isSuspiciousPopunder(href)) {
+      if (isPopunderOrThirdPartyHijack(href)) {
         console.warn('[Mungil Shield] Blocked synthetic anchor click popunder:', href);
         return;
       }
@@ -235,16 +420,23 @@
   window.addEventListener(
     'click',
     (e) => {
-      if (!isClickjackShieldActive) return;
+      if (!isShieldClickjackActive()) return;
 
       const link = e.target && e.target.closest ? e.target.closest('a') : null;
       if (link) {
         const href = link.getAttribute('href') || link.href || '';
-        const target = link.getAttribute('target') || link.target || '';
-        if (target === '_blank' && isSuspiciousPopunder(href)) {
+        if (href && isPopunderOrThirdPartyHijack(href)) {
           e.preventDefault();
+          e.stopPropagation();
           e.stopImmediatePropagation();
           console.warn('[Mungil Shield] Intercepted clickjack link navigation:', href);
+          try {
+            link.style.setProperty('pointer-events', 'none', 'important');
+            link.style.setProperty('display', 'none', 'important');
+            if (typeof link.remove === 'function') {
+              link.remove();
+            }
+          } catch (_) {}
           return false;
         }
       }
@@ -253,7 +445,7 @@
   );
 
   // --------------------------------------------------------------------------
-  // 4. Anti-Adblock SweetAlert2 Modal Suppressor
+  // 5. Anti-Adblock SweetAlert2 Modal Suppressor
   // --------------------------------------------------------------------------
   function suppressAntiAdblockModal() {
     try {
@@ -296,7 +488,7 @@
   }
 
   // --------------------------------------------------------------------------
-  // 5. Transparent Overlay & Cursor-Following Hitbox Neutralizer
+  // 6. Transparent Overlay & Cursor-Following Hitbox Neutralizer
   // --------------------------------------------------------------------------
   function neutralizeOverlayElement(el) {
     if (!el || !(el instanceof HTMLElement)) return;
@@ -330,13 +522,13 @@
 
       // Detect full viewport transparent overlay or high-z hitbox
       const isFixedOrAbsolute = pos === 'fixed' || pos === 'absolute';
-      const isUltraHighZ = !isNaN(zIndex) && zIndex >= 1000;
+      const isUltraHighZ = !isNaN(zIndex) && zIndex >= 100;
       const isTransparent =
         opacity <= 0.05 ||
         style.backgroundColor === 'transparent' ||
         style.backgroundColor === 'rgba(0, 0, 0, 0)';
       const isLargeArea =
-        (w >= winW * 0.5 && h >= winH * 0.5) || (w >= 300 && h >= 300 && !el.textContent.trim());
+        (w >= winW * 0.4 && h >= winH * 0.4) || (w >= 200 && h >= 200 && !el.textContent.trim());
 
       if (isFixedOrAbsolute && isUltraHighZ && isTransparent && isLargeArea) {
         console.warn('[Mungil Shield] Neutralized transparent overlay clickjack trap:', el);
@@ -347,9 +539,10 @@
   }
 
   function scanOverlays() {
-    if (!isClickjackShieldActive) return;
+    if (!isShieldClickjackActive() && !isShieldAdblockActive()) return;
     try {
       suppressAntiAdblockModal();
+      if (!isShieldClickjackActive()) return;
       const candidates = document.querySelectorAll(
         'div[style*="z-index"], a[style*="z-index"], span[style*="z-index"]'
       );
@@ -361,10 +554,10 @@
 
   // MutationObserver for dynamically injected overlays and anti-adblock modals
   const overlayObserver = new MutationObserver((mutations) => {
-    if (!isClickjackShieldActive && !isAdblockShieldActive) return;
+    if (!isShieldClickjackActive() && !isShieldAdblockActive()) return;
     suppressAntiAdblockModal();
 
-    if (!isClickjackShieldActive) return;
+    if (!isShieldClickjackActive()) return;
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node instanceof HTMLElement) {
@@ -386,7 +579,7 @@
   }
 
   // --------------------------------------------------------------------------
-  // 6. Cosmetic Adblock Rule Injection
+  // 7. Cosmetic Adblock Rule Injection
   // --------------------------------------------------------------------------
   function applyCosmeticAdRules() {
     if (document.getElementById('mungil-cosmetic-ad-shield')) return;
@@ -413,7 +606,9 @@
         iframe[src*="propellerads"],
         iframe[src*="exoclick"],
         iframe[src*="monetag"],
-        iframe[src*="ophionbonish"] {
+        iframe[src*="ophionbonish"],
+        iframe[src*="frs2c"],
+        iframe[src*="073m"] {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;
@@ -433,7 +628,7 @@
 
   // Periodic scan for residual overlays and modals every 1.5 seconds if active
   setInterval(() => {
-    if (isClickjackShieldActive || isAdblockShieldActive) {
+    if (isShieldClickjackActive() || isShieldAdblockActive()) {
       scanOverlays();
     }
   }, 1500);

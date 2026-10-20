@@ -1907,6 +1907,15 @@ const ADBLOCK_DYNAMIC_RULES = [
       urlFilter: '||073m.com^',
       resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
     }
+  },
+  {
+    id: 90013,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||frs2c.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image', 'other']
+    }
   }
 ];
 

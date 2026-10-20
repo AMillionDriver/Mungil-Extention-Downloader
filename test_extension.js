@@ -6020,13 +6020,14 @@ async function runAllSuites() {
           'ADBLOCK_DYNAMIC_RULES must be an array'
         );
         assert.ok(
-          sw.ADBLOCK_DYNAMIC_RULES.length >= 12,
-          'must define at least 12 ad/popunder dynamic rules'
+          sw.ADBLOCK_DYNAMIC_RULES.length >= 13,
+          'must define at least 13 ad/popunder dynamic rules'
         );
 
         const blockedDomains = sw.ADBLOCK_DYNAMIC_RULES.map((r) => r.condition.urlFilter);
         assert.ok(blockedDomains.includes('||ophionbonish.cfd^'), 'must block ophionbonish.cfd');
         assert.ok(blockedDomains.includes('||073m.com^'), 'must block 073m.com');
+        assert.ok(blockedDomains.includes('||frs2c.com^'), 'must block frs2c.com');
 
         for (const rule of sw.ADBLOCK_DYNAMIC_RULES) {
           assert.strictEqual(rule.action.type, 'block', 'every rule must declare block action');
