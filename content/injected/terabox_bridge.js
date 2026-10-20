@@ -346,38 +346,172 @@
   /**
    * Synchronizes metadata from window.yunData.
    */
+  function getLivePlayer() {
+    try {
+      if (typeof window === 'undefined') return null;
+      if (window.__pinia && window.__pinia.state && window.__pinia.state.value) {
+        const v = window.__pinia.state.value.video;
+        if (v && v.videoPlayerInstance) return v.videoPlayerInstance;
+      }
+      if (window.__pinia && window.__pinia._s && window.__pinia._s.has('video')) {
+        const v = window.__pinia._s.get('video');
+        if (v && v.videoPlayerInstance) return v.videoPlayerInstance;
+      }
+      if (typeof window.videojs === 'function') {
+        if (window.videojs.getPlayer) {
+          const p = window.videojs.getPlayer('videoplayer');
+          if (p) return p;
+        }
+        if (window.videojs.players && window.videojs.players.videoplayer) {
+          return window.videojs.players.videoplayer;
+        }
+      }
+      const el = typeof document !== 'undefined' && document.getElementById('videoplayer');
+      if (el && el.player) return el.player;
+    } catch (_) {}
+    return null;
+  }
+
+  function saveLiveStreamUrl(url, clarity = null) {
+    if (!url || typeof url !== 'string' || !url.includes('streaming')) return;
+    try {
+      const parsed = new URL(
+        url,
+        (typeof window !== 'undefined' && window.location.origin) || 'https://www.terabox.app'
+      );
+      const fid = parsed.searchParams.get('fid');
+      const type = parsed.searchParams.get('type') || '';
+
+      let target = null;
+      if (fid && fileCache.has(fid)) {
+        target = fileCache.get(fid);
+      } else {
+        for (const it of fileCache.values()) {
+          if (it.isActive || it.isVideo) {
+            target = it;
+            break;
+          }
+        }
+      }
+
+      if (target) {
+        if (!target.streamUrls) target.streamUrls = {};
+        target.streamUrls[type] = url;
+        if (clarity) target.streamUrls[String(clarity)] = url;
+        for (const q of [360, 480, 720, 1080, 2160]) {
+          if (type.includes(String(q))) {
+            target.streamUrls[String(q)] = url;
+          }
+        }
+        target.lastStreamUrl = url;
+        fileCache.set(target.fs_id, target);
+      }
+    } catch (_) {}
+  }
+
+  function extractFromLivePlayer() {
+    try {
+      const player = getLivePlayer();
+      if (!player) return;
+
+      if (typeof player.currentSrc === 'function') {
+        const cur = player.currentSrc();
+        if (cur && cur.includes('streaming')) {
+          saveLiveStreamUrl(cur);
+        }
+      }
+
+      const ctrl = player.controlBar;
+      if (ctrl && typeof ctrl.getChild === 'function') {
+        const resMenu = ctrl.getChild('ResolutionSwitcherMenu');
+        if (resMenu) {
+          const items =
+            resMenu.items || resMenu.children_ || (resMenu.menu && resMenu.menu.children) || [];
+          for (const it of items) {
+            if (!it || !it.options_) continue;
+            const val = it.options_.value || it.options_.src;
+            const clarity = it.options_.clarityOption;
+            if (val && typeof val === 'string' && val.includes('streaming')) {
+              saveLiveStreamUrl(val, clarity);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   /**
-   * Synchronizes metadata from window.yunData or window.templateData.
+   * Synchronizes metadata from window.yunData, window.templateData, or window.__pinia.
    */
   function syncYunData() {
     try {
       const data =
         (typeof window !== 'undefined' && (window.yunData || window.templateData)) || null;
-      if (!data || typeof data !== 'object') return;
+      if (data && typeof data === 'object') {
+        activeShareInfo = {
+          shareid: data.SHARE_ID || data.shareid || activeShareInfo.shareid,
+          uk: data.UK || data.uk || data.uk_str || activeShareInfo.uk,
+          sign: data.SIGN || data.sign || activeShareInfo.sign,
+          timestamp: data.TIMESTAMP || data.timestamp || activeShareInfo.timestamp,
+          bdstoken: data.BDSTOKEN || data.bdstoken || activeShareInfo.bdstoken
+        };
 
-      activeShareInfo = {
-        shareid: data.SHARE_ID || data.shareid || activeShareInfo.shareid,
-        uk: data.UK || data.uk || data.uk_str || activeShareInfo.uk,
-        sign: data.SIGN || data.sign || activeShareInfo.sign,
-        timestamp: data.TIMESTAMP || data.timestamp || activeShareInfo.timestamp,
-        bdstoken: data.BDSTOKEN || data.bdstoken || activeShareInfo.bdstoken
-      };
+        if (Array.isArray(data.FILEINFO)) {
+          ingestFileList(data.FILEINFO);
+        } else if (data.FILEINFO && typeof data.FILEINFO === 'object') {
+          const norm = normalizeTeraBoxFile(data.FILEINFO);
+          if (norm) fileCache.set(norm.fs_id, norm);
+        }
 
-      if (Array.isArray(data.FILEINFO)) {
-        ingestFileList(data.FILEINFO);
-      } else if (data.FILEINFO && typeof data.FILEINFO === 'object') {
-        const norm = normalizeTeraBoxFile(data.FILEINFO);
-        if (norm) fileCache.set(norm.fs_id, norm);
+        if (Array.isArray(data.list)) {
+          ingestFileList(data.list);
+        } else if (data.fileInfo && typeof data.fileInfo === 'object') {
+          const norm = normalizeTeraBoxFile(data.fileInfo);
+          if (norm) fileCache.set(norm.fs_id, norm);
+        }
       }
 
-      if (Array.isArray(data.list)) {
-        ingestFileList(data.list);
-      } else if (data.fileInfo && typeof data.fileInfo === 'object') {
-        const norm = normalizeTeraBoxFile(data.fileInfo);
-        if (norm) fileCache.set(norm.fs_id, norm);
+      // Sync from Vue 3 Pinia stores (modern TeraBox web app)
+      if (typeof window !== 'undefined' && window.__pinia && window.__pinia.state) {
+        const state = window.__pinia.state.value;
+        if (state) {
+          const share = state.share;
+          if (share && share.shareInfo) {
+            activeShareInfo = {
+              shareid: share.shareInfo.shareid || activeShareInfo.shareid,
+              uk: share.shareInfo.uk || share.shareInfo.shareuk || activeShareInfo.uk,
+              sign: share.shareInfo.sign || activeShareInfo.sign,
+              timestamp: share.shareInfo.timestamp || activeShareInfo.timestamp,
+              bdstoken: activeShareInfo.bdstoken,
+              shorturl: share.shareInfo.surl || activeShareInfo.shorturl
+            };
+          }
+          if (share && Array.isArray(share.fileList)) {
+            ingestFileList(share.fileList);
+          }
+          if (share && share.currentFile) {
+            const norm = normalizeTeraBoxFile(share.currentFile);
+            if (norm) {
+              norm.isActive = true;
+              fileCache.set(norm.fs_id, norm);
+            }
+          }
+
+          const video = state.video;
+          if (video) {
+            const liveSrc =
+              video.videoPlayerParams?.sources?.src || video.videoPlayerParams?.videoPath;
+            if (liveSrc && typeof liveSrc === 'string' && liveSrc.includes('streaming')) {
+              saveLiveStreamUrl(liveSrc);
+            }
+          }
+        }
       }
+
+      // Extract from active VideoJS Player instance
+      extractFromLivePlayer();
     } catch (err) {
-      console.warn(`${LOG_PREFIX} Error syncing yunData/templateData:`, err);
+      console.warn(`${LOG_PREFIX} Error syncing metadata:`, err);
     }
   }
 
@@ -580,74 +714,82 @@
       (typeof window !== 'undefined' && window.jsToken) || activeShareInfo.bdstoken || '';
 
     // If an alternative HLS stream resolution (e.g. M3U8_AUTO_1080, M3U8_AUTO_720, M3U8_AUTO_480, M3U8_AUTO_360) is requested
-    if (preferredType && shareid && uk) {
+    if (preferredType) {
       const qNum = parseInt(String(preferredType).replace(/[^0-9]/g, ''), 10) || 360;
+
+      // 1. Check cached resolution streamUrls (from live player or previous extraction)
       if (cached && cached.streamUrls && cached.streamUrls[qNum]) {
         return cached.streamUrls[qNum];
       }
 
-      // Check active VideoJS in DOM
-      try {
-        const vEl = typeof document !== 'undefined' && document.getElementById('videoplayer');
-        if (vEl && vEl.player && typeof vEl.player.currentSrc === 'function') {
-          const curSrc = vEl.player.currentSrc();
-          if (
-            curSrc &&
-            curSrc.includes('streaming') &&
-            (curSrc.includes(String(qNum)) || qNum === 360)
-          ) {
-            return curSrc;
-          }
+      // 2. Extract directly from active Live Player & ResolutionSwitcherMenu
+      extractFromLivePlayer();
+      if (cached && cached.streamUrls && cached.streamUrls[qNum]) {
+        return cached.streamUrls[qNum];
+      }
+
+      // 3. Fallback to active live player current playing src if compatible
+      const livePlayer = getLivePlayer();
+      if (livePlayer && typeof livePlayer.currentSrc === 'function') {
+        const curSrc = livePlayer.currentSrc();
+        if (
+          curSrc &&
+          curSrc.includes('streaming') &&
+          (curSrc.includes(String(qNum)) || qNum === 360)
+        ) {
+          return curSrc;
         }
-      } catch (_) {}
-
-      // Calculate signed streaming URL with official TeraBox algorithm
-      const isSafari =
-        typeof navigator !== 'undefined' &&
-        navigator.userAgent.includes('Safari') &&
-        !navigator.userAgent.includes('Chrome');
-      let streamType = '';
-      if (qNum === 360) {
-        streamType = isSafari ? 'M3U8_AUTO_360' : 'M3U8_FLV_264_360';
-      } else if (qNum === 480) {
-        streamType = isSafari ? 'M3U8_AUTO_480' : 'M3U8_FLV_264_480';
-      } else if (qNum === 1080) {
-        streamType = 'M3U8_AUTO_1080';
-      } else if (qNum === 2160) {
-        streamType = 'M3U8_AUTO_4K';
-      } else {
-        streamType = 'M3U8_AUTO_' + qNum;
       }
 
-      const clienttype = 0;
-      const channel = 'dubox';
-      const appId = 250528;
-      const web = 1;
-      const ts = Math.floor(Date.now() / 1000);
-      const browserid = getCookie('browserid') || '';
-      const streamSign = hmacSha1PureJs(
-        `${clienttype}${channel}${browserid}${ts}`,
-        'iuuPc64E4Fhn0rTXEzrnbLph0o5qyEEa'
-      );
-      const origin =
-        (typeof window !== 'undefined' && window.location.origin) || 'https://www.terabox.app';
-      const streamUrl = `${origin}/share/streaming?uk=${encodeURIComponent(
-        uk
-      )}&shareid=${encodeURIComponent(shareid)}&type=${encodeURIComponent(
-        streamType
-      )}&fid=${encodeURIComponent(fsId)}&sign=${encodeURIComponent(
-        streamSign
-      )}&timestamp=${ts}&jsToken=${encodeURIComponent(
-        token
-      )}&esl=1&isplayer=1&ehps=1&clienttype=${clienttype}&app_id=${appId}&web=${web}&channel=${channel}`;
+      // 4. Calculate signed streaming URL with official TeraBox algorithm
+      if (shareid && uk) {
+        let streamType = '';
+        if (qNum === 360) {
+          streamType = 'M3U8_AUTO_360';
+        } else if (qNum === 480) {
+          const isSafari =
+            typeof navigator !== 'undefined' &&
+            navigator.userAgent.includes('Safari') &&
+            !navigator.userAgent.includes('Chrome');
+          streamType = isSafari ? 'M3U8_AUTO_480' : 'M3U8_FLV_264_480';
+        } else if (qNum === 1080) {
+          streamType = 'M3U8_AUTO_1080';
+        } else if (qNum === 2160) {
+          streamType = 'M3U8_AUTO_4K';
+        } else {
+          streamType = 'M3U8_AUTO_' + qNum;
+        }
 
-      if (cached) {
-        if (!cached.streamUrls) cached.streamUrls = {};
-        cached.streamUrls[qNum] = streamUrl;
-        cached.dlink = streamUrl;
-        fileCache.set(fsId, cached);
+        const clienttype = 0;
+        const channel = 'dubox';
+        const appId = 250528;
+        const web = 1;
+        const ts = Math.floor(Date.now() / 1000);
+        const browserid = getCookie('browserid') || '';
+        const streamSign = hmacSha1PureJs(
+          `${clienttype}${channel}${browserid}${ts}`,
+          'iuuPc64E4Fhn0rTXEzrnbLph0o5qyEEa'
+        );
+        const origin =
+          (typeof window !== 'undefined' && window.location.origin) || 'https://www.terabox.app';
+        const streamUrl = `${origin}/share/streaming?uk=${encodeURIComponent(
+          uk
+        )}&shareid=${encodeURIComponent(shareid)}&type=${encodeURIComponent(
+          streamType
+        )}&fid=${encodeURIComponent(fsId)}&sign=${encodeURIComponent(
+          streamSign
+        )}&timestamp=${ts}&jsToken=${encodeURIComponent(
+          token
+        )}&esl=1&isplayer=1&ehps=1&clienttype=${clienttype}&app_id=${appId}&web=${web}&channel=${channel}`;
+
+        if (cached) {
+          if (!cached.streamUrls) cached.streamUrls = {};
+          cached.streamUrls[qNum] = streamUrl;
+          cached.dlink = streamUrl;
+          fileCache.set(fsId, cached);
+        }
+        return streamUrl;
       }
-      return streamUrl;
     }
 
     // Strategy 1: Native TeraBox POST /share/download with fid_list

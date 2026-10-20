@@ -788,8 +788,16 @@
   // =========================================================================
 
   function injectPlayerButton() {
+    if (
+      typeof document === 'undefined' ||
+      typeof document.querySelector !== 'function' ||
+      !document.body
+    ) {
+      return;
+    }
     if (document.querySelector('.jwplyr-player-dl-btn')) return;
 
+    if (typeof window === 'undefined' || !window.location || !window.location.pathname) return;
     const isVideoPage =
       window.location.pathname.includes('/d/') || window.location.pathname.includes('/e/');
     if (!isVideoPage) return;
@@ -855,6 +863,15 @@
   function onDomMutated() {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      if (
+        typeof window === 'undefined' ||
+        !window.location ||
+        !window.location.pathname ||
+        typeof document === 'undefined' ||
+        !document.body
+      ) {
+        return;
+      }
       const isFolder = window.location.pathname.includes('/f/');
       if (isFolder) {
         injectCardButtons();

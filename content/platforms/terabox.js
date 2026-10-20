@@ -236,7 +236,32 @@
       }
 
       if (!text || !text.includes('#EXTM3U')) {
-        throw new Error('Server TeraBox tidak mengembalikan playlist M3U8 valid untuk stream ini');
+        let isVip = false;
+        let errMsg = '';
+        try {
+          if (text && text.trim().startsWith('{')) {
+            const json = JSON.parse(text);
+            if (json && (json.errno !== undefined || json.error !== undefined)) {
+              if (
+                json.errno === 10027 ||
+                json.errno === 10031 ||
+                /vip|privilege/i.test(json.errmsg || '')
+              ) {
+                isVip = true;
+              }
+              errMsg = json.errmsg || `errno: ${json.errno}`;
+            }
+          }
+        } catch (_) {}
+
+        if (isVip) {
+          throw new Error(
+            `Resolusi ini memerlukan akun TeraBox VIP (${errMsg || 'VIP required'}). Silakan unduh Original atau 360p.`
+          );
+        }
+        throw new Error(
+          `Server TeraBox tidak mengembalikan playlist M3U8 valid untuk stream ini${errMsg ? ` (${errMsg})` : ''}. Silakan gunakan resolusi lain atau Original.`
+        );
       }
 
       // If master playlist with multiple variant streams, resolve first sub-stream
@@ -346,11 +371,12 @@
       if (btnEl) {
         btnEl.classList.remove('loading');
         btnEl.classList.add('error');
-        btnEl.innerHTML = `<span>Gagal Stream</span>`;
+        const isVip = err.message && err.message.includes('VIP');
+        btnEl.innerHTML = `<span>${isVip ? 'Perlu Akun VIP' : 'Gagal Stream'}</span>`;
         setTimeout(() => {
           btnEl.classList.remove('error');
           btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
-        }, 3000);
+        }, 3500);
       }
       throw err;
     }
@@ -457,11 +483,12 @@
       if (btnEl) {
         btnEl.classList.remove('loading');
         btnEl.classList.add('error');
-        btnEl.innerHTML = `<span>Error</span>`;
+        const isVip = err.message && err.message.includes('VIP');
+        btnEl.innerHTML = `<span>${isVip ? 'Perlu VIP (Gunakan 360p/Original)' : 'Gagal Mengunduh'}</span>`;
         setTimeout(() => {
           btnEl.classList.remove('error');
           btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
-        }, 3000);
+        }, 3500);
       }
     }
   }
