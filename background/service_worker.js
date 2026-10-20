@@ -1114,9 +1114,10 @@ function checkAndProcessQueue() {
  */
 function downloadViaNativeYtDlp(params = {}, tabId = null) {
   return new Promise((resolve, reject) => {
-    const videoId = params.videoId || params.id;
+    const videoId =
+      params.videoId || params.id || (params.url ? sanitizeVideoId(params.url) : null);
     if (!videoId) {
-      return reject(new Error('Missing YouTube video identifier'));
+      return reject(new Error('Missing video identifier'));
     }
 
     // Duplicate Download Guard: Reject concurrent downloads of identical video
@@ -1137,12 +1138,19 @@ function downloadViaNativeYtDlp(params = {}, tabId = null) {
       });
     }
 
+    const platform =
+      params.platform ||
+      (params.url && (params.url.includes('bilibili.tv') || params.url.includes('bilibili.com'))
+        ? 'bstation'
+        : 'youtube');
+
     // If active workers at capacity, enqueue job
     if (activeDownloadWorkers >= MAX_CONCURRENT_DOWNLOADS) {
       activeDownloads[videoId] = {
         videoId,
-        title: params.title || 'YouTube Video',
-        author: params.author || 'Creator',
+        title: params.title || (platform === 'bstation' ? 'Bstation Video' : 'YouTube Video'),
+        author: params.author || (platform === 'bstation' ? 'Bstation' : 'Creator'),
+        platform,
         startTime: Date.now(),
         status: 'queued',
         part: 'Dalam Antrean...',
@@ -1152,8 +1160,9 @@ function downloadViaNativeYtDlp(params = {}, tabId = null) {
         eta: ''
       };
 
-      broadcastToAllTabs({
+      const queuedPayload = {
         type: 'YT_NATIVE_PROGRESS',
+        platform,
         videoId: videoId,
         title: params.title,
         author: params.author,
@@ -1161,7 +1170,9 @@ function downloadViaNativeYtDlp(params = {}, tabId = null) {
         percent: 0,
         status: 'queued',
         message: 'Menunggu antrean unduhan lain selesai...'
-      });
+      };
+      broadcastToAllTabs(queuedPayload);
+      broadcastToAllTabs({ ...queuedPayload, type: 'NATIVE_DOWNLOAD_PROGRESS' });
 
       downloadQueue.push({ params, tabId, resolve, reject });
       return;
@@ -1208,11 +1219,18 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
       return reject(new Error('Failed to connect to Native Host: ' + err.message));
     }
 
+    const platform =
+      params.platform ||
+      (params.url && (params.url.includes('bilibili.tv') || params.url.includes('bilibili.com'))
+        ? 'bstation'
+        : 'youtube');
+
     // Register active download state
     activeDownloads[videoId] = {
       videoId,
-      title: params.title || 'YouTube Video',
-      author: params.author || 'Creator',
+      title: params.title || (platform === 'bstation' ? 'Bstation Video' : 'YouTube Video'),
+      author: params.author || (platform === 'bstation' ? 'Bstation' : 'Creator'),
+      platform,
       startTime: Date.now(),
       status: 'downloading',
       part: isDataSaver ? 'Video (Progressive)' : 'Memulai...',
@@ -1251,8 +1269,9 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
         }
 
         // Broadcast real-time progress to all tabs and popup
-        broadcastToAllTabs({
+        const progPayload = {
           type: 'YT_NATIVE_PROGRESS',
+          platform,
           videoId: videoId,
           title: params.title,
           author: params.author,
@@ -1263,7 +1282,9 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           eta: msg.eta,
           status: msg.status,
           message: msg.message
-        });
+        };
+        broadcastToAllTabs(progPayload);
+        broadcastToAllTabs({ ...progPayload, type: 'NATIVE_DOWNLOAD_PROGRESS' });
         return;
       }
 
@@ -1306,8 +1327,9 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           videoId: videoId
         });
 
-        broadcastToAllTabs({
+        const completePayload = {
           type: 'YT_NATIVE_COMPLETE',
+          platform,
           videoId: videoId,
           filename: finalName,
           title: params.title,
@@ -1317,13 +1339,15 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           timeStr: timeStr,
           folder: msg.folder,
           message: 'Video berhasil tersimpan di Downloads!'
-        });
+        };
+        broadcastToAllTabs(completePayload);
+        broadcastToAllTabs({ ...completePayload, type: 'NATIVE_DOWNLOAD_COMPLETE' });
 
         await recordDownloadTelemetry({
           author: params.author,
           videoId: videoId,
           title: params.title,
-          platform: 'youtube',
+          platform: platform,
           filename: finalName
         });
 
@@ -1528,10 +1552,14 @@ function handleMessage(message, sender, sendResponse) {
       message.payload && typeof message.payload === 'object' ? message.payload : message;
     const tabId = sender && sender.tab ? sender.tab.id : null;
 
-    // If downloading from YouTube, prioritize native yt-dlp host
+    // If downloading from YouTube or Bstation, prioritize native yt-dlp host
     if (
       payload.platform === 'youtube' ||
-      (payload.url && payload.url.includes('youtube.com')) ||
+      payload.platform === 'bstation' ||
+      (payload.url &&
+        (payload.url.includes('youtube.com') ||
+          payload.url.includes('bilibili.tv') ||
+          payload.url.includes('bilibili.com'))) ||
       payload.nativeOnly
     ) {
       downloadViaNativeYtDlp(payload, tabId)

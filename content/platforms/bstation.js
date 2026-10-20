@@ -524,6 +524,55 @@
     }
   }
 
+  function getCanonicalBstationUrl(info) {
+    if (typeof window === 'undefined' || !window.location) return '';
+    const href = window.location.href || '';
+    const pathname = window.location.pathname || '';
+    const playMatch = pathname.match(/\/play\/(\d+)(?:\/(\d+))?/);
+    if (playMatch) {
+      const seasonId = playMatch[1];
+      const targetEpId = (info && info.episodeId) || playMatch[2];
+      if (seasonId && targetEpId) {
+        return `https://www.bilibili.tv/id/play/${seasonId}/${targetEpId}`;
+      }
+      return `https://www.bilibili.tv/id/play/${seasonId}`;
+    }
+    return href;
+  }
+
+  async function fallbackInPageDownload(btn, videoInfo, filename) {
+    let stream = null;
+    try {
+      stream = await requestBridgeStream({ ep_id: videoInfo.episodeId, qn: 64 }, 4000);
+    } catch (_) {}
+
+    if (!stream || (!stream.playUrl && !stream.url)) {
+      try {
+        stream = await requestBridgeStream({ qn: 64 }, 3000);
+      } catch (_) {}
+    }
+
+    if (!stream || (!stream.playUrl && !stream.url)) {
+      const videoEl = document.querySelector('video');
+      if (videoEl && videoEl.src && videoEl.src.startsWith('http')) {
+        stream = { url: videoEl.src, quality: '720p' };
+      }
+    }
+
+    if (!stream || (!stream.playUrl && !stream.url)) {
+      throw new Error('Aliran video tidak ditemukan');
+    }
+
+    const streamUrl = stream.playUrl || stream.url;
+    setPlayerButtonState(btn, 'loading', 'Mengunduh...');
+    await downloadStreamInPage({
+      url: streamUrl,
+      filename: filename,
+      title: videoInfo.animeTitle
+    });
+    setPlayerButtonState(btn, 'success', 'Tersimpan!');
+  }
+
   /**
    * Injects 1-click download button into player controls or action bar.
    */
@@ -552,49 +601,54 @@
       e.preventDefault();
       if (btn.disabled) return;
 
-      setPlayerButtonState(btn, 'loading', 'Mengekstrak...');
-      try {
-        const videoInfo = getActiveVideoInfo();
-        let stream = null;
+      const videoInfo = getActiveVideoInfo();
+      const canonicalUrl = getCanonicalBstationUrl(videoInfo);
+      const filename = formatBstationFilename({
+        title: videoInfo.animeTitle || 'Bstation Video',
+        episode: videoInfo.episodeTitle || 'E01',
+        quality: '720p'
+      });
 
-        try {
-          stream = await requestBridgeStream({ ep_id: videoInfo.episodeId, qn: 64 }, 4000);
-        } catch (_) {}
+      setPlayerButtonState(btn, 'loading', 'Menyiapkan unduhan...');
 
-        if (!stream || (!stream.playUrl && !stream.url)) {
-          try {
-            // Retry bridge without specific ep_id to let bridge resolve active episode
-            stream = await requestBridgeStream({ qn: 64 }, 3000);
-          } catch (_) {}
-        }
-
-        if (!stream || (!stream.playUrl && !stream.url)) {
-          // Check if active video has valid http src on video element
-          const videoEl = document.querySelector('video');
-          if (videoEl && videoEl.src && videoEl.src.startsWith('http')) {
-            stream = { url: videoEl.src, quality: '720p' };
+      // Priority 1: Native Host (yt-dlp + FFmpeg muxing)
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            action: 'DOWNLOAD_VIDEO',
+            platform: 'bstation',
+            url: canonicalUrl,
+            videoId: videoInfo.episodeId || String(Date.now()),
+            title: `${videoInfo.animeTitle || 'Bstation Anime'} - ${videoInfo.episodeTitle || 'E01'}`,
+            author: 'Bstation',
+            quality: '720p',
+            filename: filename
+          },
+          async (response) => {
+            if (chrome.runtime.lastError || !response || !response.success) {
+              console.warn(
+                '[Bstation Downloader] Native download failed, attempting in-page stream fallback:',
+                chrome.runtime.lastError?.message || response?.error
+              );
+              try {
+                await fallbackInPageDownload(btn, videoInfo, filename);
+              } catch (fallbackErr) {
+                console.error('[Bstation Downloader] In-page fallback also failed:', fallbackErr);
+                setPlayerButtonState(btn, 'error', fallbackErr.message || 'Gagal');
+              }
+            } else if (response.alreadyActive) {
+              setPlayerButtonState(btn, 'loading', response.message || 'Sedang diunduh...');
+            } else {
+              setPlayerButtonState(btn, 'success', 'Tersimpan di Downloads!');
+            }
           }
-        }
+        );
+        return;
+      }
 
-        if (!stream || (!stream.playUrl && !stream.url)) {
-          throw new Error('Aliran video tidak ditemukan');
-        }
-
-        const streamUrl = stream.playUrl || stream.url;
-        const filename = formatBstationFilename({
-          title: videoInfo.animeTitle || 'Bstation Video',
-          episode: videoInfo.episodeTitle || 'E01',
-          quality: stream.qualityLabel || '720p'
-        });
-
-        setPlayerButtonState(btn, 'loading', 'Mengunduh...');
-        await downloadStreamInPage({
-          url: streamUrl,
-          filename: filename,
-          title: videoInfo.animeTitle
-        });
-
-        setPlayerButtonState(btn, 'success', 'Tersimpan!');
+      // Priority 2: In-page fallback if runtime messaging is unavailable
+      try {
+        await fallbackInPageDownload(btn, videoInfo, filename);
       } catch (err) {
         console.error('[Bstation Downloader] Player download failed:', err);
         setPlayerButtonState(btn, 'error', err.message || 'Gagal');
@@ -1398,21 +1452,59 @@
               return { url: videoEl.src, quality };
             }
 
-            throw new Error(`Aliran video untuk Episode ${epIndex} tidak ditemukan`);
+            // Tier 5: Fallback to Native yt-dlp host
+            return { native: true, epId };
           },
           downloadStream: async (stream) => {
-            const streamUrl = stream.playUrl || stream.url;
             const actualQuality = stream.qualityLabel || quality;
             const filename = formatBstationFilename({
               title: seriesData.animeTitle,
               episode: epIndex,
               quality: actualQuality
             });
-            await downloadStreamInPage({
-              url: streamUrl,
-              filename: filename,
-              title: seriesData.animeTitle
-            });
+
+            if (stream && (stream.playUrl || stream.url)) {
+              await downloadStreamInPage({
+                url: stream.playUrl || stream.url,
+                filename: filename,
+                title: seriesData.animeTitle
+              });
+              return;
+            }
+
+            // Route via Native yt-dlp host
+            const canonicalUrl = getCanonicalBstationUrl({ episodeId: epId });
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+              await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage(
+                  {
+                    action: 'DOWNLOAD_VIDEO',
+                    platform: 'bstation',
+                    url: canonicalUrl,
+                    videoId: epId,
+                    title: `${seriesData.animeTitle} - Episode ${epIndex}`,
+                    author: 'Bstation',
+                    quality: actualQuality,
+                    filename: filename
+                  },
+                  (res) => {
+                    if (chrome.runtime.lastError || !res || !res.success) {
+                      reject(
+                        new Error(
+                          chrome.runtime.lastError?.message ||
+                            res?.error ||
+                            `Gagal mengunduh Episode ${epIndex}`
+                        )
+                      );
+                    } else {
+                      resolve(res);
+                    }
+                  }
+                );
+              });
+            } else {
+              throw new Error(`Aliran video untuk Episode ${epIndex} tidak ditemukan`);
+            }
           }
         });
       });
@@ -1535,43 +1627,87 @@
 
       if (action === 'DOWNLOAD_ACTIVE_VIDEO') {
         const info = getActiveVideoInfo();
-        (async () => {
-          try {
-            let stream = null;
-            try {
-              stream = await requestBridgeStream({ ep_id: info.episodeId, qn: 64 }, 4000);
-            } catch (_) {}
+        const canonicalUrl = getCanonicalBstationUrl(info);
+        const reqQuality = message.quality || '720p';
+        const filename = formatBstationFilename({
+          title: info.animeTitle || 'Bstation Video',
+          episode: info.episodeTitle || 'E01',
+          quality: reqQuality
+        });
 
-            if (!stream || (!stream.playUrl && !stream.url)) {
-              const v = document.querySelector('video');
-              if (v && v.src && v.src.startsWith('http')) {
-                stream = { url: v.src, quality: '720p' };
+        const btn = document.querySelector('.bs-dl-btn');
+        if (btn) setPlayerButtonState(btn, 'loading', 'Menyiapkan unduhan...');
+
+        chrome.runtime.sendMessage(
+          {
+            action: 'DOWNLOAD_VIDEO',
+            platform: 'bstation',
+            url: canonicalUrl,
+            videoId: info.episodeId || String(Date.now()),
+            title: `${info.animeTitle || 'Bstation Anime'} - ${info.episodeTitle || 'E01'}`,
+            author: 'Bstation',
+            quality: reqQuality,
+            filename: filename
+          },
+          async (res) => {
+            if (chrome.runtime.lastError || !res || !res.success) {
+              console.warn(
+                '[Bstation Downloader] Native download failed, attempting in-page fallback:',
+                chrome.runtime.lastError?.message || res?.error
+              );
+              try {
+                await fallbackInPageDownload(btn, info, filename);
+                sendResponse({ success: true, filename, platform: 'bstation' });
+              } catch (err) {
+                sendResponse({ success: false, error: err.message || 'Download failed' });
               }
+            } else {
+              sendResponse({ success: true, filename, platform: 'bstation' });
             }
-
-            if (!stream || (!stream.playUrl && !stream.url)) {
-              throw new Error('Aliran video tidak ditemukan');
-            }
-
-            const streamUrl = stream.playUrl || stream.url;
-            const filename = formatBstationFilename({
-              title: info.animeTitle,
-              episode: info.episodeTitle,
-              quality: stream.qualityLabel || '720p'
-            });
-
-            await downloadStreamInPage({
-              url: streamUrl,
-              filename: filename,
-              title: info.animeTitle
-            });
-
-            sendResponse({ success: true, filename, platform: 'bstation' });
-          } catch (err) {
-            sendResponse({ success: false, error: err.message || 'Download failed' });
           }
-        })();
+        );
         return true; // Keep channel open
+      }
+
+      if (action === 'NATIVE_DOWNLOAD_PROGRESS' || action === 'YT_NATIVE_PROGRESS') {
+        const info = getActiveVideoInfo();
+        if (
+          message.videoId &&
+          info.episodeId &&
+          String(message.videoId) !== String(info.episodeId)
+        ) {
+          return false;
+        }
+        const btn = document.querySelector('.bs-dl-btn');
+        if (btn) {
+          let label = '';
+          if (message.status === 'merging') {
+            label = 'Menggabungkan Audio+Video...';
+          } else {
+            const partStr = message.part ? `${message.part}: ` : '';
+            const pctStr = message.percent !== undefined ? `${Math.round(message.percent)}%` : '';
+            const spdStr = message.speed ? ` (${message.speed})` : '';
+            label = `${partStr}${pctStr}${spdStr}`.trim() || 'Mengunduh...';
+          }
+          setPlayerButtonState(btn, 'loading', label);
+        }
+        return false;
+      }
+
+      if (action === 'NATIVE_DOWNLOAD_COMPLETE' || action === 'YT_NATIVE_COMPLETE') {
+        const info = getActiveVideoInfo();
+        if (
+          message.videoId &&
+          info.episodeId &&
+          String(message.videoId) !== String(info.episodeId)
+        ) {
+          return false;
+        }
+        const btn = document.querySelector('.bs-dl-btn');
+        if (btn) {
+          setPlayerButtonState(btn, 'success', 'Tersimpan di Downloads!');
+        }
+        return false;
       }
 
       return false;
@@ -1618,6 +1754,7 @@
       extractNumericEpId,
       setPlayerButtonState,
       scanAndInject,
+      getCanonicalBstationUrl,
       SVG_ICONS
     };
   }

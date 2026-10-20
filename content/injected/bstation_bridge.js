@@ -626,26 +626,40 @@
     }
 
     const tryFetch = async (targetQn) => {
-      let apiUrl = '';
       const fnvalParam = '&fnval=4048'; // Requests DASH with AV1 (1024) and HEVC (2048) support
+      const candidateUrls = [];
       if (ep_id) {
-        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}${fnvalParam}`;
+        candidateUrls.push(
+          `https://api.bilibili.tv/intl/gateway/web/playurl?platform=web&ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}${fnvalParam}`,
+          `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}${fnvalParam}`
+        );
       } else if (aid || bvid) {
-        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}${fnvalParam}`;
+        candidateUrls.push(
+          `https://api.bilibili.tv/intl/gateway/web/playurl?platform=web&aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}${fnvalParam}`,
+          `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}${fnvalParam}`
+        );
       } else {
         return null;
       }
 
-      try {
-        const res = await fetch(apiUrl, { credentials: 'include' });
-        if (!res.ok) return null;
-        const json = await res.json();
-        const normalized = normalizePlayurlResponse(json, { ep_id, aid, bvid, codecPreference });
-        if (normalized) {
-          cacheStreamItem(normalized);
-          return normalized;
-        }
-      } catch (_) {}
+      for (const apiUrl of candidateUrls) {
+        try {
+          const res = await fetch(apiUrl, { credentials: 'include' });
+          if (res.ok) {
+            const json = await res.json();
+            const normalized = normalizePlayurlResponse(json, {
+              ep_id,
+              aid,
+              bvid,
+              codecPreference
+            });
+            if (normalized) {
+              cacheStreamItem(normalized);
+              return normalized;
+            }
+          }
+        } catch (_) {}
+      }
       return null;
     };
 

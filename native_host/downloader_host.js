@@ -203,6 +203,14 @@ function handleIncomingMessage(msg) {
       isSingleStream = false;
     }
 
+    let outputTemplate = '%(title)s [%(id)s].%(ext)s';
+    if (msg.filename && typeof msg.filename === 'string') {
+      const cleanName = msg.filename.replace(/\.[a-zA-Z0-9]+$/, '').trim();
+      if (cleanName) {
+        outputTemplate = `${cleanName}.%(ext)s`;
+      }
+    }
+
     // Build optimized arguments: --concurrent-fragments 4, structured --progress-template, unbuffered --newline
     const args = [
       '-m',
@@ -221,7 +229,7 @@ function handleIncomingMessage(msg) {
       '--no-playlist',
       '--windows-filenames',
       '-o',
-      '%(title)s [%(id)s].%(ext)s',
+      outputTemplate,
       '-P',
       downloadDir
     ];
@@ -331,7 +339,10 @@ function handleIncomingMessage(msg) {
       activeChildProcess = null;
       if (code === 0) {
         let fileSizeFormatted = '';
-        const resolvedName = finalFilename || `${msg.title || 'YouTube_Video'}.mp4`;
+        const resolvedName =
+          finalFilename ||
+          msg.filename ||
+          `${(msg.title || 'Video').replace(/[*?"<>|/\\:]/g, '_')}.mp4`;
         try {
           const fullFilePath = path.join(downloadDir, resolvedName);
           if (fs.existsSync(fullFilePath)) {

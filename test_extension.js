@@ -4375,6 +4375,86 @@ async function runAllSuites() {
           global.window = originalWin;
         }
       });
+
+      test('getCanonicalBstationUrl constructs canonical episode playurl from season path and ep_id', () => {
+        const { getCanonicalBstationUrl } = bstationScript;
+        const originalWin = global.window;
+
+        try {
+          global.window = {
+            location: {
+              href: 'https://www.bilibili.tv/id/play/2431959?bstar_from=bstar-web.anime-tab.top-hits.all',
+              pathname: '/id/play/2431959'
+            }
+          };
+
+          const canonical = getCanonicalBstationUrl({ episodeId: '31508593' });
+          assert.strictEqual(
+            canonical,
+            'https://www.bilibili.tv/id/play/2431959/31508593',
+            'Must construct canonical episode playurl with seasonId and episodeId'
+          );
+        } finally {
+          global.window = originalWin;
+        }
+      });
+
+      test('injectPlayerButton dispatches DOWNLOAD_VIDEO with platform bstation and canonical URL to Service Worker', async () => {
+        const { injectPlayerButton } = bstationScript;
+        const container = new MockElement('div');
+        const originalDoc = global.document;
+        const originalWin = global.window;
+        const originalChrome = global.chrome;
+
+        let sentMessage = null;
+
+        try {
+          global.chrome = {
+            runtime: {
+              sendMessage: (payload, cb) => {
+                sentMessage = payload;
+                if (cb) cb({ success: true, filename: 'test.mp4' });
+              }
+            }
+          };
+
+          global.window = {
+            location: {
+              href: 'https://www.bilibili.tv/id/play/2431959',
+              pathname: '/id/play/2431959'
+            },
+            __INITIAL_STATE__: {
+              mediaInfo: { title: 'Reinkarnasi Santa Agung' },
+              epInfo: { ep_id: 31508593, short_title: '1' }
+            }
+          };
+
+          global.document = {
+            createElement: (tag) => new MockElement(tag),
+            querySelector: () => null
+          };
+
+          const btn = injectPlayerButton(container);
+          assert.ok(btn, 'injectPlayerButton must create and return button');
+
+          // Trigger click
+          btn.click();
+
+          assert.ok(sentMessage, 'Must dispatch runtime message');
+          assert.strictEqual(sentMessage.action, 'DOWNLOAD_VIDEO');
+          assert.strictEqual(sentMessage.platform, 'bstation');
+          assert.strictEqual(
+            sentMessage.url,
+            'https://www.bilibili.tv/id/play/2431959/31508593',
+            'Must pass canonical episode URL for yt-dlp extraction'
+          );
+          assert.strictEqual(sentMessage.videoId, '31508593');
+        } finally {
+          global.document = originalDoc;
+          global.window = originalWin;
+          global.chrome = originalChrome;
+        }
+      });
     }
   );
 
