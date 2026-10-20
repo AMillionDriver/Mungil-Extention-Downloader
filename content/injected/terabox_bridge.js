@@ -143,7 +143,8 @@
       dlink,
       category,
       md5,
-      thumb
+      thumb,
+      original_dlink: dlink && !dlink.includes('streaming') ? dlink : ''
     };
   }
 
@@ -164,12 +165,28 @@
           args[1] &&
           typeof args[1] === 'object'
         ) {
-          const norm = normalizeTeraBoxFile(args[1]);
+          for (const item of fileCache.values()) {
+            item.isActive = false;
+          }
+          let norm = normalizeTeraBoxFile(args[1]);
           if (norm) {
             norm.isActive = true;
             fileCache.set(norm.fs_id, norm);
-            notifyFilesUpdated();
+          } else {
+            const rawName = String(
+              args[1].server_filename || args[1].filename || args[1].name || ''
+            );
+            if (rawName) {
+              for (const item of fileCache.values()) {
+                if (item.filename === rawName) {
+                  item.isActive = true;
+                  fileCache.set(item.fs_id, item);
+                  break;
+                }
+              }
+            }
           }
+          notifyFilesUpdated();
         }
       } catch (_) {}
       return origConsoleLog.apply(this, args);
@@ -413,8 +430,9 @@
   async function resolveDlink(fsId, preferredType = null) {
     syncYunData();
     const cached = fileCache.get(fsId);
-    if (!preferredType && cached && cached.dlink && !cached.dlink.includes('streaming')) {
-      return cached.dlink;
+    if (!preferredType && cached) {
+      if (cached.original_dlink) return cached.original_dlink;
+      if (cached.dlink && !cached.dlink.includes('streaming')) return cached.dlink;
     }
 
     const shareid = activeShareInfo.shareid;
@@ -484,6 +502,7 @@
           if (directUrl) {
             if (cached) {
               cached.dlink = directUrl;
+              cached.original_dlink = directUrl;
               fileCache.set(fsId, cached);
             }
             return directUrl;
@@ -520,6 +539,7 @@
           if (directUrl) {
             if (cached) {
               cached.dlink = directUrl;
+              cached.original_dlink = directUrl;
               fileCache.set(fsId, cached);
             }
             return directUrl;

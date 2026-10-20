@@ -322,15 +322,7 @@
       }
     } catch (err) {
       console.error(`${LOG_PREFIX} downloadHlsStream error:`, err);
-      if (btnEl) {
-        btnEl.classList.remove('loading');
-        btnEl.classList.add('error');
-        btnEl.innerHTML = `<span>Gagal Stream</span>`;
-        setTimeout(() => {
-          btnEl.classList.remove('error');
-          btnEl.innerHTML = `${SVG_DOWNLOAD}<span>Unduh</span>`;
-        }, 3000);
-      }
+      throw err;
     }
   }
 
@@ -351,9 +343,9 @@
         const qCode = quality.replace('p', '');
         dlink = await resolveDlinkForFile(file.fs_id, `M3U8_AUTO_${qCode}`);
       } else {
-        dlink = file.dlink;
-        if (!dlink) {
-          dlink = await resolveDlinkForFile(file.fs_id);
+        dlink = file.original_dlink || file.dlink;
+        if (!dlink || dlink.includes('streaming')) {
+          dlink = await resolveDlinkForFile(file.fs_id, null);
         }
       }
 
@@ -389,10 +381,17 @@
             streamErr
           );
           if (btnEl) {
-            btnEl.innerHTML = `${SVG_SPINNER}<span>Mengambil file asli...</span>`;
+            btnEl.classList.remove('error');
+            btnEl.classList.add('loading');
+            btnEl.innerHTML = `${SVG_SPINNER}<span>Mengunduh Original...</span>`;
           }
           // Fallback to real direct download CDN link from POST /share/download
           dlink = await resolveDlinkForFile(file.fs_id, null);
+          if (!dlink) {
+            dlink =
+              file.original_dlink ||
+              (file.dlink && !file.dlink.includes('streaming') ? file.dlink : null);
+          }
           if (!dlink) {
             throw streamErr;
           }
@@ -685,7 +684,23 @@
 
     const files = await fetchTeraBoxFiles();
     const { videos, nonDirs } = classifyFiles(files);
-    const targetFile = videos[0] || nonDirs[0] || getDomFallbackFile();
+    let activeVideo = videos.find((v) => v.isActive);
+    if (!activeVideo && videos.length > 0) {
+      const titleEl = document.querySelector(
+        '.play-video-title, .title, .file-item-name, [class*="video-title"], .tip-title, h1, [class*="file-name"]'
+      );
+      const domTitle = (titleEl && titleEl.textContent && titleEl.textContent.trim()) || '';
+      if (domTitle) {
+        activeVideo = videos.find(
+          (v) =>
+            v.filename &&
+            (domTitle.includes(v.filename) ||
+              v.filename.includes(domTitle) ||
+              domTitle.toLowerCase().includes(v.filename.toLowerCase()))
+        );
+      }
+    }
+    const targetFile = activeVideo || videos[0] || nonDirs[0] || getDomFallbackFile();
 
     const baseSize = targetFile.size || 0;
     const est1080 = baseSize ? formatBytes(Math.round(baseSize * 0.95)) : '~400 MB';
@@ -777,27 +792,47 @@
       document.body.appendChild(bar);
     }
 
-    // Priority 1: If single video is detected (either directly or via fallback)
-    const singleVideo =
-      videos.length === 1
-        ? videos[0]
-        : videos.length === 0 &&
-            downloadables.length === 1 &&
-            (downloadables[0].isVideo ||
-              /\.(mp4|mkv|webm|mov|avi)$/i.test(downloadables[0].filename))
-          ? downloadables[0]
-          : null;
+    // Detect active playing video
+    let activeVideo = videos.find((v) => v.isActive);
+    if (!activeVideo && videos.length > 0) {
+      const titleEl = document.querySelector(
+        '.play-video-title, .title, .file-item-name, [class*="video-title"], .tip-title, h1, [class*="file-name"]'
+      );
+      const domTitle = (titleEl && titleEl.textContent && titleEl.textContent.trim()) || '';
+      if (domTitle) {
+        activeVideo = videos.find(
+          (v) =>
+            v.filename &&
+            (domTitle.includes(v.filename) ||
+              v.filename.includes(domTitle) ||
+              domTitle.toLowerCase().includes(v.filename.toLowerCase()))
+        );
+      }
+    }
+    if (!activeVideo && videos.length > 0 && document.querySelector('video')) {
+      activeVideo = videos[0];
+    }
 
-    if (singleVideo) {
+    // Priority 1: If active/target video is detected
+    const targetVideo =
+      activeVideo ||
+      (videos.length === 1 ? videos[0] : null) ||
+      (videos.length === 0 &&
+      downloadables.length === 1 &&
+      (downloadables[0].isVideo || /\.(mp4|mkv|webm|mov|avi)$/i.test(downloadables[0].filename))
+        ? downloadables[0]
+        : null);
+
+    if (targetVideo) {
       if (
-        bar.getAttribute('data-loaded-fsid') === String(singleVideo.fs_id) &&
+        bar.getAttribute('data-loaded-fsid') === String(targetVideo.fs_id) &&
         bar.querySelector('#mungil-tb-floating-quality')
       ) {
         return;
       }
-      bar.setAttribute('data-loaded-fsid', String(singleVideo.fs_id));
+      bar.setAttribute('data-loaded-fsid', String(targetVideo.fs_id));
 
-      const baseSize = singleVideo.size || 0;
+      const baseSize = targetVideo.size || 0;
       const est1080 = baseSize ? formatBytes(Math.round(baseSize * 0.95)) : '~400 MB';
       const est720 = baseSize ? formatBytes(Math.round(baseSize * 0.58)) : '~250 MB';
       const est480 = baseSize ? formatBytes(Math.round(baseSize * 0.35)) : '~140 MB';
@@ -805,12 +840,12 @@
 
       bar.innerHTML = `
         ${
-          singleVideo.formatted_size && singleVideo.formatted_size !== '0 B'
-            ? `<span class="mungil-terabox-floating-badge">${singleVideo.formatted_size}</span>`
+          targetVideo.formatted_size && targetVideo.formatted_size !== '0 B'
+            ? `<span class="mungil-terabox-floating-badge">${targetVideo.formatted_size}</span>`
             : ''
         }
         <select class="mungil-tb-quality-select" id="mungil-tb-floating-quality" title="Pilih Kualitas Video">
-          <option value="original" selected>Original (${singleVideo.formatted_size || 'Full'})</option>
+          <option value="original" selected>Original (${targetVideo.formatted_size || 'Full'})</option>
           <option value="1080p">1080p Full HD (${est1080})</option>
           <option value="720p">720p HD (${est720})</option>
           <option value="480p">480p SD (${est480})</option>
@@ -820,32 +855,45 @@
           ${SVG_DOWNLOAD}
           <span>Unduh Video</span>
         </button>
+        ${
+          videos.length > 1
+            ? `<button type="button" class="mungil-terabox-btn-secondary" id="mungil-tb-batch-btn" title="Unduh Semua (${videos.length} Video)">
+                ${SVG_FOLDER}
+                <span>Batch (${videos.length})</span>
+              </button>`
+            : ''
+        }
       `;
       const btn = bar.querySelector('#mungil-tb-single-btn');
       const select = bar.querySelector('#mungil-tb-floating-quality');
+      const btnBatch = bar.querySelector('#mungil-tb-batch-btn');
+
       if (select) {
         select.addEventListener('change', () => {
           const badge = bar.querySelector('.mungil-terabox-floating-badge');
           if (badge) {
             const map = {
-              original: singleVideo.formatted_size || 'Full',
+              original: targetVideo.formatted_size || 'Full',
               '1080p': est1080,
               '720p': est720,
               '480p': est480,
               '360p': est360
             };
-            badge.textContent = map[select.value] || singleVideo.formatted_size;
+            badge.textContent = map[select.value] || targetVideo.formatted_size;
           }
         });
       }
       if (btn) {
         btn.onclick = () => {
           const chosenQuality = (select && select.value) || 'original';
-          triggerDownloadFile(singleVideo, btn, chosenQuality);
+          triggerDownloadFile(targetVideo, btn, chosenQuality);
         };
       }
+      if (btnBatch) {
+        btnBatch.onclick = () => openBatchModal(videos);
+      }
     } else if (videos.length > 1) {
-      // Multiple videos detected: offer batch download specifically for videos
+      // Multiple videos detected without active video: offer batch download specifically for videos
       bar.innerHTML = `
         <span class="mungil-terabox-floating-badge">${videos.length} Video</span>
         <button type="button" class="mungil-terabox-btn" id="mungil-tb-batch-btn">
