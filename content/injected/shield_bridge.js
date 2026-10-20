@@ -22,6 +22,18 @@
   let isClickjackShieldActive = false;
   let isAdblockShieldActive = false;
 
+  // Synchronous cache from localStorage for instant 0ms activation
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem('__MUNGIL_SHIELD_CACHE__');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.clickjack) isClickjackShieldActive = true;
+        if (parsed.adblock) isAdblockShieldActive = true;
+      }
+    }
+  } catch (_) {}
+
   // Track recent genuine user clicks and clicked element
   let lastUserClickTimestamp = 0;
   let lastClickedElement = null;
@@ -150,6 +162,17 @@
         applyCosmeticAdRules();
       }
     }
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(
+          '__MUNGIL_SHIELD_CACHE__',
+          JSON.stringify({
+            clickjack: isClickjackShieldActive,
+            adblock: isAdblockShieldActive
+          })
+        );
+      }
+    } catch (_) {}
   }
 
   window.addEventListener('MUNGIL_SHIELD_CONFIG', (e) => {
@@ -246,6 +269,19 @@
       'rotator',
       'direct-link',
       'smartlink',
+      'bicolink',
+      'bewbin',
+      'honmia',
+      'hepifun',
+      'fundingchoicesmessages',
+      'googleads',
+      'doubleclick',
+      'googlesyndication',
+      'highperformancegate',
+      'admaven',
+      'vidoomy',
+      'outbrain',
+      'taboola',
       'go.php?',
       'click.php?',
       'out.php?',
@@ -552,10 +588,22 @@
     } catch (_) {}
   }
 
-  // MutationObserver for dynamically injected overlays and anti-adblock modals
+  // MutationObserver for dynamically injected overlays, modals, and ads
   const overlayObserver = new MutationObserver((mutations) => {
     if (!isShieldClickjackActive() && !isShieldAdblockActive()) return;
     suppressAntiAdblockModal();
+
+    if (
+      typeof window !== 'undefined' &&
+      window.location &&
+      window.location.hostname.includes('youtube.com')
+    ) {
+      runYouTubeAdSkipper();
+    }
+
+    if (typeof window !== 'undefined' && isSafelinkDomain()) {
+      runSafelinkDefuser();
+    }
 
     if (!isShieldClickjackActive()) return;
     for (const m of mutations) {
@@ -609,6 +657,20 @@
         iframe[src*="ophionbonish"],
         iframe[src*="frs2c"],
         iframe[src*="073m"],
+        /* Google Funding Choices & AdSense Overlays */
+        #fc-dialog,
+        .fc-dialog-container,
+        iframe[src*="fundingchoicesmessages"],
+        ins.adsbygoogle,
+        .adsbygoogle,
+        div[id^="google_ads_iframe"],
+        iframe[src*="googleads"],
+        #aswift_0_expand,
+        #aswift_1_expand,
+        div[class*="bottom-ads"],
+        div[class*="sticky-ads"],
+        div[id*="bottom-ads"],
+        div[id*="sticky-ads"],
         /* YouTube Video, Sidebar Companion Ads, Overlays & Promos */
         ytd-ad-slot-renderer,
         ytd-companion-slot-renderer,
@@ -647,14 +709,38 @@
   }
 
   // --------------------------------------------------------------------------
-  // 8. YouTube Video Ad Auto-Skipper & Anti-Adblock Defuser
+  // 8. Rich Click Simulation Helper (Full Event Dispatch for Modern SPAs)
+  // --------------------------------------------------------------------------
+  function simulateRichClick(el) {
+    if (!el) return;
+    const events = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+    for (const evtName of events) {
+      try {
+        const evt = new MouseEvent(evtName, {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          buttons: 1
+        });
+        el.dispatchEvent(evt);
+      } catch (_) {}
+    }
+    try {
+      if (typeof el.click === 'function') {
+        el.click();
+      }
+    } catch (_) {}
+  }
+
+  // --------------------------------------------------------------------------
+  // 9. YouTube Video Ad Auto-Skipper & Anti-Adblock Defuser (Flawless UX)
   // --------------------------------------------------------------------------
   let userOriginalPlaybackRate = 1;
   let userOriginalMuted = false;
   let isFastForwardingAd = false;
 
   function runYouTubeAdSkipper() {
-    if (!isShieldAdblockActive()) return;
+    if (!isShieldAdblockActive() && !isShieldClickjackActive()) return;
     if (
       typeof window === 'undefined' ||
       !window.location ||
@@ -683,7 +769,46 @@
         }
       }
 
-      // 2. Video Ad Detection
+      // 2. Unconditional Skip Button Hunter (Modern & Multilingual "Lewati" support)
+      const skipSelectors = [
+        '.ytp-ad-skip-button-modern',
+        '.ytp-skip-ad-button',
+        '.ytp-ad-skip-button',
+        'button.ytp-ad-skip-button-modern',
+        '.ytp-ad-skip-button-slot button',
+        '.ytp-ad-skip-button-container button',
+        '.ytp-ad-skip-button-text',
+        '.ytp-skip-ad-button__text',
+        '[class*="ytp-ad-skip-button"]',
+        '[class*="ytp-skip-ad-button"]',
+        'button[id*="skip-button"]',
+        '.ytp-ad-overlay-close-button',
+        '.ytp-ad-overlay-close-container button'
+      ];
+      const skipButtons = document.querySelectorAll(skipSelectors.join(', '));
+      for (const btn of skipButtons) {
+        simulateRichClick(btn);
+        if (btn.parentElement && btn.parentElement !== document.body) {
+          simulateRichClick(btn.parentElement);
+        }
+      }
+
+      // Multilingual text search for Indonesian "Lewati" or English "Skip"
+      const candidates = document.querySelectorAll('button, div[role="button"], .ytp-button');
+      for (const el of candidates) {
+        const txt = (el.textContent || '').trim().toLowerCase();
+        if (
+          txt.includes('lewati') ||
+          txt.includes('skip ad') ||
+          txt.includes('skip ads') ||
+          (txt.startsWith('skip') && txt.length <= 15)
+        ) {
+          simulateRichClick(el);
+          if (el.parentElement) simulateRichClick(el.parentElement);
+        }
+      }
+
+      // 3. Video Ad Detection & Fast-Forward
       const player = document.querySelector('#movie_player, .html5-video-player');
       const adShowing =
         (player &&
@@ -701,7 +826,7 @@
           userOriginalMuted = video.muted;
         }
 
-        // Mute video ad
+        // Mute video ad completely
         video.muted = true;
 
         // Accelerate to 16x speed
@@ -711,20 +836,11 @@
           } catch (_) {}
         }
 
-        // Jump straight to the end of the ad if duration is finite
+        // Jump straight to the end of the ad to trigger instant completion or skip
         if (isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration) {
           try {
-            video.currentTime = video.duration - 0.1 > 0 ? video.duration - 0.1 : video.duration;
-          } catch (_) {}
-        }
-
-        // Click skip buttons
-        const skipButtons = document.querySelectorAll(
-          '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, button.ytp-ad-skip-button-modern, .ytp-ad-overlay-close-button, [class*="ytp-ad-skip-button"]'
-        );
-        for (const btn of skipButtons) {
-          try {
-            btn.click();
+            video.currentTime = video.duration - 0.05 > 0 ? video.duration - 0.05 : video.duration;
+            video.dispatchEvent(new Event('timeupdate'));
           } catch (_) {}
         }
       } else if (isFastForwardingAd && video) {
@@ -738,13 +854,129 @@
     } catch (_) {}
   }
 
-  // Periodic YouTube ad skipper loop every 100ms
+  // --------------------------------------------------------------------------
+  // 10. Safelink & Bicolink Video Ad Defuser (Bicolink, Bewbin, Honmia, Semawur)
+  // --------------------------------------------------------------------------
+  function isSafelinkDomain() {
+    if (typeof window === 'undefined' || !window.location) return false;
+    const host = window.location.hostname.toLowerCase();
+    const href = window.location.href.toLowerCase();
+    return (
+      host.includes('bicolink') ||
+      host.includes('bewbin') ||
+      host.includes('honmia') ||
+      host.includes('semawur') ||
+      host.includes('safelink') ||
+      href.includes('saham-anjlok') ||
+      href.includes('token=') ||
+      document.querySelector('[id*="safelink"], [class*="safelink"]') !== null
+    );
+  }
+
+  function runSafelinkDefuser() {
+    if (!isShieldClickjackActive() && !isShieldAdblockActive()) return;
+    if (!isSafelinkDomain()) return;
+
+    try {
+      // 1. Defuse forced ad video (e.g. hepifun.mp4 or ad stream)
+      const videos = document.querySelectorAll('video');
+      for (const v of videos) {
+        try {
+          const src = (v.src || v.currentSrc || '').toLowerCase();
+          const isAdVideo =
+            src.includes('hepifun') ||
+            src.includes('ads') ||
+            src.includes('promo') ||
+            v.closest('.modal, [class*="modal"], [class*="popup"], [class*="overlay"]') !== null ||
+            isSafelinkDomain();
+
+          if (isAdVideo) {
+            v.muted = true;
+            if (v.playbackRate !== 16) {
+              try {
+                v.playbackRate = 16;
+              } catch (_) {}
+            }
+            if (isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration) {
+              v.currentTime = v.duration;
+            }
+            v.dispatchEvent(new Event('timeupdate'));
+            v.dispatchEvent(new Event('ended'));
+            if (typeof v.onended === 'function') {
+              v.onended();
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Auto-trigger unlock buttons ("Putar dengan suara", "Lanjutkan", "Get Link")
+      const candidates = document.querySelectorAll(
+        'button, a, div[role="button"], span[role="button"], .btn'
+      );
+      for (const btn of candidates) {
+        const txt = (btn.textContent || '').trim().toLowerCase();
+        if (
+          txt.includes('putar dengan suara') ||
+          txt.includes('putar video') ||
+          txt.includes('tonton video') ||
+          txt.includes('saya bukan robot') ||
+          txt.includes('verifikasi') ||
+          txt.includes('get link') ||
+          txt.includes('generate link') ||
+          txt.includes('buka tautan') ||
+          txt.includes('click here to continue') ||
+          txt.includes('lanjutkan') ||
+          (txt.includes('download') && txt.includes('link'))
+        ) {
+          if (btn.hasAttribute('disabled')) {
+            btn.removeAttribute('disabled');
+          }
+          if (btn.style.pointerEvents === 'none') {
+            btn.style.pointerEvents = 'auto';
+          }
+          simulateRichClick(btn);
+        }
+      }
+
+      // 3. Auto-click scroll-down arrow button
+      const arrowBtns = document.querySelectorAll(
+        'button[class*="arrow"], .arrow-down, [class*="scroll-down"]'
+      );
+      for (const ab of arrowBtns) {
+        simulateRichClick(ab);
+      }
+
+      // 4. Suppress Google Funding Choices & floating bottom ad banners
+      const fcDialogs = document.querySelectorAll(
+        '#fc-dialog, .fc-dialog-container, iframe[src*="fundingchoicesmessages"], tp-yt-paper-dialog'
+      );
+      for (const fc of fcDialogs) {
+        fc.style.setProperty('display', 'none', 'important');
+        if (typeof fc.remove === 'function') fc.remove();
+      }
+
+      const adBanners = document.querySelectorAll(
+        'ins.adsbygoogle, div[id^="google_ads_iframe"], .adsbygoogle, #aswift_0_expand, #aswift_1_expand, iframe[src*="googleads"], div[class*="bottom-ads"], div[class*="sticky-ads"]'
+      );
+      for (const b of adBanners) {
+        b.style.setProperty('display', 'none', 'important');
+        b.style.setProperty('pointer-events', 'none', 'important');
+      }
+    } catch (_) {}
+  }
+
+  // Periodic YouTube ad skipper loop every 50ms on YouTube
   if (
     typeof window !== 'undefined' &&
     window.location &&
     window.location.hostname.includes('youtube.com')
   ) {
-    setInterval(runYouTubeAdSkipper, 100);
+    setInterval(runYouTubeAdSkipper, 50);
+  }
+
+  // Periodic Safelink defuser loop every 100ms on Safelinks
+  if (typeof window !== 'undefined' && isSafelinkDomain()) {
+    setInterval(runSafelinkDefuser, 100);
   }
 
   // Periodic scan for residual overlays and modals every 1.5 seconds if active
@@ -757,6 +989,9 @@
         window.location.hostname.includes('youtube.com')
       ) {
         runYouTubeAdSkipper();
+      }
+      if (typeof window !== 'undefined' && isSafelinkDomain()) {
+        runSafelinkDefuser();
       }
     }
   }, 1500);

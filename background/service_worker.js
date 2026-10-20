@@ -1916,6 +1916,51 @@ const ADBLOCK_DYNAMIC_RULES = [
       urlFilter: '||frs2c.com^',
       resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image', 'other']
     }
+  },
+  {
+    id: 90014,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||fundingchoicesmessages.google.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image', 'other']
+    }
+  },
+  {
+    id: 90015,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||googleads.g.doubleclick.net^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image', 'other']
+    }
+  },
+  {
+    id: 90016,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||highperformancegate.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image', 'other']
+    }
+  },
+  {
+    id: 90017,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||admaven.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image', 'other']
+    }
+  },
+  {
+    id: 90018,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||vidoomy.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image', 'other']
+    }
   }
 ];
 

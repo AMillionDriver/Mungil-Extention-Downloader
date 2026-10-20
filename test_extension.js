@@ -6034,6 +6034,23 @@ async function runAllSuites() {
           'must implement runYouTubeAdSkipper auto-skipper loop'
         );
         assert.ok(
+          code.includes('simulateRichClick'),
+          'must implement simulateRichClick for trusted event dispatch'
+        );
+        assert.ok(
+          code.includes('.ytp-ad-skip-button-modern'),
+          'must target modern YouTube skip button classes'
+        );
+        assert.ok(code.includes('lewati'), 'must target Indonesian Lewati skip button text');
+        assert.ok(
+          code.includes('runSafelinkDefuser'),
+          'must implement runSafelinkDefuser for Bicolink, Bewbin & Safelinks'
+        );
+        assert.ok(
+          code.includes('putar dengan suara'),
+          'must auto-trigger Putar dengan suara safelink unlock buttons'
+        );
+        assert.ok(
           code.includes('ytd-companion-slot-renderer'),
           'must hide YouTube sidebar companion ad banners'
         );
@@ -6047,14 +6064,22 @@ async function runAllSuites() {
           'ADBLOCK_DYNAMIC_RULES must be an array'
         );
         assert.ok(
-          sw.ADBLOCK_DYNAMIC_RULES.length >= 13,
-          'must define at least 13 ad/popunder dynamic rules'
+          sw.ADBLOCK_DYNAMIC_RULES.length >= 18,
+          'must define at least 18 ad/popunder dynamic rules'
         );
 
         const blockedDomains = sw.ADBLOCK_DYNAMIC_RULES.map((r) => r.condition.urlFilter);
         assert.ok(blockedDomains.includes('||ophionbonish.cfd^'), 'must block ophionbonish.cfd');
         assert.ok(blockedDomains.includes('||073m.com^'), 'must block 073m.com');
         assert.ok(blockedDomains.includes('||frs2c.com^'), 'must block frs2c.com');
+        assert.ok(
+          blockedDomains.includes('||fundingchoicesmessages.google.com^'),
+          'must block fundingchoicesmessages.google.com'
+        );
+        assert.ok(
+          blockedDomains.includes('||googleads.g.doubleclick.net^'),
+          'must block googleads.g.doubleclick.net'
+        );
 
         for (const rule of sw.ADBLOCK_DYNAMIC_RULES) {
           assert.strictEqual(rule.action.type, 'block', 'every rule must declare block action');
