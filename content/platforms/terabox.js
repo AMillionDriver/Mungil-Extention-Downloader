@@ -213,6 +213,11 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       let text = await res.text();
 
+      // Strict validation: must be an actual HLS playlist, not an HTML error page or JSON
+      if (!text || !text.includes('#EXTM3U')) {
+        throw new Error('Server TeraBox tidak mengembalikan playlist M3U8 valid untuk stream ini');
+      }
+
       // If master playlist with multiple variant streams, resolve first sub-stream
       if (text.includes('#EXT-X-STREAM-INF')) {
         const lines = text.split('\n');
@@ -375,8 +380,23 @@
 
       // If the link is an HLS m3u8 streaming link, download and merge segments into a clean MP4!
       if (dlink.includes('streaming') || dlink.includes('m3u8')) {
-        await downloadHlsStream(dlink, safeFilename, btnEl);
-        return;
+        try {
+          await downloadHlsStream(dlink, safeFilename, btnEl);
+          return;
+        } catch (streamErr) {
+          console.warn(
+            `${LOG_PREFIX} HLS stream download failed, falling back to authentic fullsize original:`,
+            streamErr
+          );
+          if (btnEl) {
+            btnEl.innerHTML = `${SVG_SPINNER}<span>Mengambil file asli...</span>`;
+          }
+          // Fallback to real direct download CDN link from POST /share/download
+          dlink = await resolveDlinkForFile(file.fs_id, null);
+          if (!dlink) {
+            throw streamErr;
+          }
+        }
       }
 
       // Route to background service worker for reliable resume & custom referer
