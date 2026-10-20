@@ -813,3 +813,63 @@ body {
   border-color: #00aeec;
   box-shadow: 0 0 0 2px rgba(0, 174, 236, 0.25);
 }
+
+/* Security Shield Card */
+.shield-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+}
+
+.shield-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.shield-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shield-icon-box {
+  color: var(--accent-cyan);
+}
+
+.shield-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shield-status-pill {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  border: 1px solid var(--border-hairline);
+  transition: var(--transition-fast);
+}
+
+.shield-status-pill.active {
+  background: rgba(37, 244, 238, 0.12);
+  color: var(--accent-cyan);
+  border-color: rgba(37, 244, 238, 0.3);
+}
+
+.shield-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}

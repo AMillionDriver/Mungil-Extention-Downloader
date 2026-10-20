@@ -283,6 +283,63 @@
             </label>
           </div>
         </section>
+
+        <!-- Perisai Pengaman / Security Shield Section -->
+        <section class="preference-card shield-card" id="shield-card">
+          <div class="shield-card-header">
+            <div class="shield-header-left">
+              <div class="pref-icon shield-icon-box" aria-hidden="true">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M8 1.5l5.5 2.5v4.5c0 3.5-2.5 6-5.5 7-3-1-5.5-3.5-5.5-7V4l5.5-2.5z" />
+                  <path d="M6 8l1.5 1.5 3-3" />
+                </svg>
+              </div>
+              <div class="shield-title-group">
+                <span class="pref-title">Perisai Pengaman</span>
+                <span class="shield-status-pill" id="shield-overall-status">Mati</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 1: Anti-Clickjack & Popunder -->
+          <div class="preference-row shield-row">
+            <div class="pref-info">
+              <div class="pref-title-line">
+                <span class="pref-title">Anti-Clickjack &amp; Popunder</span>
+              </div>
+              <p class="pref-subtitle">
+                Cegah klik jebakan &amp; auto-buka tab liar saat klik play
+              </p>
+            </div>
+            <label class="toggle-switch" title="Blokir pembajakan klik dan tab popunder liar">
+              <input type="checkbox" id="toggle-shield-clickjack" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <!-- Feature 2: Pemblokir Iklan & Banner Mirror -->
+          <div class="preference-row shield-row">
+            <div class="pref-info">
+              <div class="pref-title-line">
+                <span class="pref-title">Blokir Iklan Mirror</span>
+              </div>
+              <p class="pref-subtitle">
+                Blokir network request ad network &amp; sembunyikan banner
+              </p>
+            </div>
+            <label class="toggle-switch" title="Blokir iklan adware dan banner mengambang">
+              <input type="checkbox" id="toggle-shield-adblock" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </section>
       </main>
 
       <!-- Footer: Compact Utility Metrics & Actions -->

@@ -5928,6 +5928,140 @@ async function runAllSuites() {
   );
 
   // --------------------------------------------------------------------------
+  // SUITE 25: Security Shield (Anti-Clickjack, Popunder Defuser & Adblock DNR)
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 25: Security Shield (Anti-Clickjack, Popunder Defuser & Adblock DNR)',
+    ({ test }) => {
+      const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+      test('Manifest registers shield_bridge.js in MAIN world at document_start', () => {
+        const shieldScript = manifest.content_scripts.find(
+          (s) => Array.isArray(s.js) && s.js.includes('content/injected/shield_bridge.js')
+        );
+        assert.ok(shieldScript, 'shield_bridge.js entry must exist in content_scripts');
+        assert.strictEqual(
+          shieldScript.world,
+          'MAIN',
+          'shield_bridge.js must run in MAIN world for stealth prototype trapping'
+        );
+        assert.strictEqual(
+          shieldScript.run_at,
+          'document_start',
+          'shield_bridge.js must run at document_start'
+        );
+        assert.ok(
+          shieldScript.matches.includes('*://*.jwplyr.com/*'),
+          'must match jwplyr.com streaming mirror'
+        );
+      });
+
+      test('Shield bridge script exists on disk, passes syntax check, and implements stealth [native code]', () => {
+        const shieldPath = path.join(PROJECT_ROOT, 'content/injected/shield_bridge.js');
+        assert.ok(
+          fs.existsSync(shieldPath),
+          'content/injected/shield_bridge.js must exist on disk'
+        );
+        const stat = fs.statSync(shieldPath);
+        assert.ok(stat.size > 200, 'shield_bridge.js must have non-trivial size');
+
+        const res = spawnSync(process.execPath, ['--check', shieldPath], { encoding: 'utf8' });
+        assert.strictEqual(res.status, 0, 'shield_bridge.js must pass node --check syntax check');
+
+        const code = fs.readFileSync(shieldPath, 'utf8');
+        assert.ok(
+          code.includes('function open() { [native code] }'),
+          'must implement stealth toString spoofing returning [native code]'
+        );
+        assert.ok(
+          code.includes('Node.prototype.appendChild'),
+          'must implement iframe function harvesting trap'
+        );
+        assert.ok(
+          code.includes('HTMLAnchorElement.prototype.click'),
+          'must guard against synthetic anchor click popunders'
+        );
+        assert.ok(
+          code.includes('pointer-events'),
+          'must neutralize transparent overlays with pointer-events: none'
+        );
+      });
+
+      test('service_worker.js defines dynamic DNR adblock rules and synchronization helper', () => {
+        const sw = require('./background/service_worker.js');
+        assert.ok(
+          Array.isArray(sw.ADBLOCK_DYNAMIC_RULES),
+          'ADBLOCK_DYNAMIC_RULES must be an array'
+        );
+        assert.ok(
+          sw.ADBLOCK_DYNAMIC_RULES.length >= 10,
+          'must define at least 10 ad/popunder dynamic rules'
+        );
+
+        for (const rule of sw.ADBLOCK_DYNAMIC_RULES) {
+          assert.strictEqual(rule.action.type, 'block', 'every rule must declare block action');
+          assert.ok(
+            rule.condition && rule.condition.urlFilter,
+            'every rule must declare urlFilter'
+          );
+          assert.ok(typeof rule.id === 'number', 'rule id must be integer');
+        }
+
+        assert.strictEqual(
+          typeof sw.syncShieldAdblockRules,
+          'function',
+          'syncShieldAdblockRules must be a function'
+        );
+      });
+
+      test('Popup UI contains Security Shield card, toggles, and opt-in default state (unchecked)', () => {
+        const popupHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        assert.ok(
+          popupHtml.includes('id="shield-card"'),
+          'must include #shield-card in popup.html'
+        );
+        assert.ok(
+          popupHtml.includes('id="toggle-shield-clickjack"'),
+          'must include #toggle-shield-clickjack in popup.html'
+        );
+        assert.ok(
+          popupHtml.includes('id="toggle-shield-adblock"'),
+          'must include #toggle-shield-adblock in popup.html'
+        );
+        assert.ok(
+          popupHtml.includes('id="shield-overall-status"'),
+          'must include #shield-overall-status in popup.html'
+        );
+
+        // Verify neither toggle is checked by default in HTML (opt-in requirement)
+        assert.ok(
+          !popupHtml.includes('id="toggle-shield-clickjack" checked'),
+          'toggle-shield-clickjack MUST NOT be checked by default (opt-in)'
+        );
+        assert.ok(
+          !popupHtml.includes('id="toggle-shield-adblock" checked'),
+          'toggle-shield-adblock MUST NOT be checked by default (opt-in)'
+        );
+
+        const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+        assert.ok(
+          popupJs.includes('updateShieldUI'),
+          'popup.js must implement updateShieldUI helper'
+        );
+        assert.ok(
+          popupJs.includes('shield_clickjack'),
+          'popup.js must synchronize shield_clickjack storage'
+        );
+        assert.ok(
+          popupJs.includes('shield_adblock'),
+          'popup.js must synchronize shield_adblock storage'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // TEST REPORT SUMMARY & EXIT CODE
   // --------------------------------------------------------------------------
   console.log(

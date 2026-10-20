@@ -48,6 +48,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleDataSaver = document.getElementById('toggle-data-saver');
   const prefDesc = document.getElementById('pref-desc');
   const prefBadge = document.getElementById('pref-badge');
+  const toggleShieldClickjack = document.getElementById('toggle-shield-clickjack');
+  const toggleShieldAdblock = document.getElementById('toggle-shield-adblock');
+  const shieldOverallStatus = document.getElementById('shield-overall-status');
   const activeTasksCard = document.getElementById('active-tasks-card');
   const activeTasksCount = document.getElementById('active-tasks-count');
   const activeTasksList = document.getElementById('active-tasks-list');
@@ -170,13 +173,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  // 5. Security Shield Preference Management
+  const updateShieldUI = (clickjackActive, adblockActive) => {
+    if (toggleShieldClickjack) toggleShieldClickjack.checked = clickjackActive;
+    if (toggleShieldAdblock) toggleShieldAdblock.checked = adblockActive;
+
+    if (shieldOverallStatus) {
+      if (clickjackActive && adblockActive) {
+        shieldOverallStatus.textContent = 'Aktif Penuh';
+        shieldOverallStatus.className = 'shield-status-pill active';
+      } else if (clickjackActive || adblockActive) {
+        shieldOverallStatus.textContent = '1 Aktif';
+        shieldOverallStatus.className = 'shield-status-pill active';
+      } else {
+        shieldOverallStatus.textContent = 'Mati';
+        shieldOverallStatus.className = 'shield-status-pill';
+      }
+    }
+  };
+
   try {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(['downloadCount', 'codecPreference'], (data) => {
-        updateCounter(data?.downloadCount);
-        const pref = data?.codecPreference || 'data_saver';
-        updatePrefUI(pref === 'data_saver');
-      });
+      chrome.storage.local.get(
+        ['downloadCount', 'codecPreference', 'shield_clickjack', 'shield_adblock'],
+        (data) => {
+          updateCounter(data?.downloadCount);
+          const pref = data?.codecPreference || 'data_saver';
+          updatePrefUI(pref === 'data_saver');
+          updateShieldUI(Boolean(data?.shield_clickjack), Boolean(data?.shield_adblock));
+        }
+      );
 
       if (chrome.storage.onChanged) {
         chrome.storage.onChanged.addListener((changes, area) => {
@@ -186,6 +212,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (changes.codecPreference) {
               updatePrefUI(changes.codecPreference.newValue === 'data_saver');
+            }
+            if (changes.shield_clickjack || changes.shield_adblock) {
+              chrome.storage.local.get(['shield_clickjack', 'shield_adblock'], (d) => {
+                updateShieldUI(Boolean(d?.shield_clickjack), Boolean(d?.shield_adblock));
+              });
             }
           }
         });
@@ -206,6 +237,44 @@ document.addEventListener('DOMContentLoaded', async () => {
               isDataSaver
                 ? 'Mode Hemat Kuota Aktif (HEVC/AV1: Hemat ~60%)'
                 : 'Mode Kompatibilitas Aktif (Standar H.264)',
+              'info',
+              2500
+            );
+          });
+        }
+      } catch (_) {}
+    });
+  }
+
+  if (toggleShieldClickjack) {
+    toggleShieldClickjack.addEventListener('change', () => {
+      const isEnabled = toggleShieldClickjack.checked;
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ shield_clickjack: isEnabled }, () => {
+            showStatus(
+              isEnabled
+                ? 'Perisai Anti-Clickjack Aktif (Mencegah Popunder)'
+                : 'Perisai Anti-Clickjack Dimatikan',
+              'info',
+              2500
+            );
+          });
+        }
+      } catch (_) {}
+    });
+  }
+
+  if (toggleShieldAdblock) {
+    toggleShieldAdblock.addEventListener('change', () => {
+      const isEnabled = toggleShieldAdblock.checked;
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ shield_adblock: isEnabled }, () => {
+            showStatus(
+              isEnabled
+                ? 'Pemblokir Iklan Mirror Aktif (DNR Enabled)'
+                : 'Pemblokir Iklan Mirror Dimatikan',
               'info',
               2500
             );

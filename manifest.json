@@ -71,6 +71,17 @@
       "js": ["content/platforms/youtube.js"],
       "css": ["content/styles/youtube.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.jwplyr.com/*",
+        "*://*.bilibili.tv/*",
+        "*://*.bstation.tv/*",
+        "*://*.youtube.com/*"
+      ],
+      "js": ["content/injected/shield_bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
@@ -94,6 +105,7 @@
     },
     {
       "resources": [
+        "content/injected/shield_bridge.js",
         "icons/icon16.png",
         "icons/icon48.png",
         "icons/icon128.png"
@@ -103,6 +115,7 @@
     {
       "resources": [
         "content/injected/youtube_bridge.js",
+        "content/injected/shield_bridge.js",
         "icons/icon16.png",
         "icons/icon48.png",
         "icons/icon128.png"

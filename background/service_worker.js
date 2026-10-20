@@ -1795,6 +1795,146 @@ if (typeof chrome !== 'undefined' && chrome.contextMenus) {
   });
 }
 
+// ===========================================================================
+// Mungil Security Shield: Dynamic Adblock Rules & DNR Synchronization
+// ===========================================================================
+
+const ADBLOCK_DYNAMIC_RULES = [
+  {
+    id: 90001,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||adsterra.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90002,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||popcash.net^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90003,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||propellerads.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90004,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||monetag.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90005,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||exoclick.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90006,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||clickadu.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90007,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||hilltopads.net^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90008,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||juicyads.com^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90009,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||yadro.ru^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  },
+  {
+    id: 90010,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||trafficspecialist.org^',
+      resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+    }
+  }
+];
+
+async function syncShieldAdblockRules(isEnabled) {
+  if (
+    typeof chrome === 'undefined' ||
+    !chrome.declarativeNetRequest ||
+    !chrome.declarativeNetRequest.updateDynamicRules
+  ) {
+    return;
+  }
+  const ruleIds = ADBLOCK_DYNAMIC_RULES.map((r) => r.id);
+  try {
+    if (isEnabled) {
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: ruleIds,
+        addRules: ADBLOCK_DYNAMIC_RULES
+      });
+    } else {
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: ruleIds
+      });
+    }
+  } catch (err) {
+    console.warn('[SW Shield] Failed to update dynamic DNR rules:', err);
+  }
+}
+
+// Listen to storage changes for shield_adblock
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.shield_adblock) {
+      syncShieldAdblockRules(Boolean(changes.shield_adblock.newValue));
+    }
+  });
+}
+
+// Initialize on startup/install
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+  chrome.storage.local.get(['shield_adblock'], (res) => {
+    if (res?.shield_adblock) {
+      syncShieldAdblockRules(true);
+    }
+  });
+}
+
 // Export for unit tests in Node environment
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -1816,6 +1956,8 @@ if (typeof module !== 'undefined' && module.exports) {
     sanitizeJwplyrFilename,
     sanitizeYoutubeTitle,
     sanitizeYoutubeAuthor,
-    formatYoutubeFilename
+    formatYoutubeFilename,
+    ADBLOCK_DYNAMIC_RULES,
+    syncShieldAdblockRules
   };
 }

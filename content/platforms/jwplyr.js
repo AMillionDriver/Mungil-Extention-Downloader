@@ -877,10 +877,55 @@
     }
   }
 
+  // Sync Mungil Shield configuration from storage to MAIN world
+  function syncShieldConfig() {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['shield_clickjack', 'shield_adblock'], (data) => {
+        const clickjack = Boolean(data?.shield_clickjack);
+        const adblock = Boolean(data?.shield_adblock);
+        if (typeof document !== 'undefined' && document && document.documentElement) {
+          try {
+            if (!document.documentElement.dataset) {
+              document.documentElement.dataset = {};
+            }
+            document.documentElement.dataset.shieldClickjack = clickjack ? 'true' : 'false';
+            document.documentElement.dataset.shieldAdblock = adblock ? 'true' : 'false';
+          } catch (_) {}
+        }
+        if (
+          typeof window !== 'undefined' &&
+          window &&
+          window.dispatchEvent &&
+          typeof CustomEvent !== 'undefined'
+        ) {
+          try {
+            window.dispatchEvent(
+              new CustomEvent('MUNGIL_SHIELD_CONFIG', {
+                detail: { clickjack, adblock }
+              })
+            );
+          } catch (_) {}
+        }
+      });
+    }
+  }
+
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && (changes.shield_clickjack || changes.shield_adblock)) {
+        syncShieldConfig();
+      }
+    });
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+      init();
+      syncShieldConfig();
+    });
   } else {
     init();
+    syncShieldConfig();
   }
 
   // =========================================================================
