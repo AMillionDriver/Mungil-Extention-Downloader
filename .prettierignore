@@ -5,3 +5,4 @@ scratch/
 *.min.js
 coverage/
 manifest.json
+popup/popup.html

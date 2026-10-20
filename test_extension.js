@@ -2909,6 +2909,18 @@ async function runAllSuites() {
         );
       });
 
+      test('popup/popup.html strictly conforms to HTML5 standards (uppercase DOCTYPE & no self-closing void elements)', () => {
+        assert.ok(
+          popupHtml.startsWith('<!DOCTYPE html>'),
+          'DOCTYPE must strictly be uppercase <!DOCTYPE html>'
+        );
+        const selfClosingVoidRegex = /<(meta|link|input|img|br|hr)[^>]*\/>/i;
+        assert.ok(
+          !selfClosingVoidRegex.test(popupHtml),
+          'HTML5 void elements (<meta>, <link>, <input>) must omit self-closing slashes'
+        );
+      });
+
       test('popup/popup.html contains essential element IDs required by R4 (btn-download-active, download-count, btn-open-downloads)', () => {
         const essentialIds = ['btn-download-active', 'download-count', 'btn-open-downloads'];
         for (const id of essentialIds) {
@@ -5184,6 +5196,12 @@ async function runAllSuites() {
             assert.strictEqual(res.status, 0, `Syntax check for ${f} failed: ${res.stderr}`);
           }
         }
+      });
+
+      test('youtube.css defines standard line-clamp property alongside -webkit-line-clamp', () => {
+        const css = fs.readFileSync(path.join(PROJECT_ROOT, 'content/styles/youtube.css'), 'utf8');
+        assert.ok(css.includes('-webkit-line-clamp: 2;'), 'Must define -webkit-line-clamp');
+        assert.ok(css.includes('line-clamp: 2;'), 'Must define standard line-clamp property');
       });
     }
   );
