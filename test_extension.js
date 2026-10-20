@@ -6011,6 +6011,15 @@ async function runAllSuites() {
           'must emulate canRunAds for anti-anti-adblock bypass'
         );
         assert.ok(code.includes('Swal'), 'must hook SweetAlert2 (Swal) to defuse modal traps');
+        assert.ok(
+          code.includes('runYouTubeAdSkipper'),
+          'must implement runYouTubeAdSkipper auto-skipper loop'
+        );
+        assert.ok(
+          code.includes('ytd-companion-slot-renderer'),
+          'must hide YouTube sidebar companion ad banners'
+        );
+        assert.ok(code.includes('playbackRate = 16'), 'must fast-forward video ads at 16x speed');
       });
 
       test('service_worker.js defines dynamic DNR adblock rules and synchronization helper', () => {
