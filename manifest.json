@@ -9,7 +9,8 @@
     "storage",
     "contextMenus",
     "nativeMessaging",
-    "notifications"
+    "notifications",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.tiktok.com/*",

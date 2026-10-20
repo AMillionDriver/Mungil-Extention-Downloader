@@ -631,12 +631,12 @@
       if (ep_id) {
         candidateUrls.push(
           `https://api.bilibili.tv/intl/gateway/web/playurl?platform=web&ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}${fnvalParam}`,
-          `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}${fnvalParam}`
+          `https://api.bilibili.tv/intl/gateway/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}${fnvalParam}`
         );
       } else if (aid || bvid) {
         candidateUrls.push(
           `https://api.bilibili.tv/intl/gateway/web/playurl?platform=web&aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}${fnvalParam}`,
-          `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}${fnvalParam}`
+          `https://api.bilibili.tv/intl/gateway/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}${fnvalParam}`
         );
       } else {
         return null;

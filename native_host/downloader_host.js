@@ -67,10 +67,23 @@ function resolvePythonBinary() {
 
 const pythonBinPath = resolvePythonBinary();
 
-// Active child process reference to eliminate orphan processes on disconnect
+// Active child process and temp cookie reference to eliminate orphan processes/files on disconnect
 let activeChildProcess = null;
+let activeTempCookiePath = null;
+
+function cleanupActiveTempCookie() {
+  if (activeTempCookiePath) {
+    try {
+      if (fs.existsSync(activeTempCookiePath)) {
+        fs.unlinkSync(activeTempCookiePath);
+      }
+    } catch (_) {}
+    activeTempCookiePath = null;
+  }
+}
 
 function killActiveChild() {
+  cleanupActiveTempCookie();
   if (activeChildProcess && !activeChildProcess.killed) {
     try {
       activeChildProcess.kill('SIGKILL');
@@ -238,6 +251,20 @@ function handleIncomingMessage(msg) {
       args.push('--ffmpeg-location', ffmpegBinPath);
     }
 
+    // Pass authenticated session cookies from extension if provided
+    cleanupActiveTempCookie();
+    if (msg.cookiesText && typeof msg.cookiesText === 'string' && msg.cookiesText.length > 30) {
+      try {
+        const tempPath = path.join(
+          os.tmpdir(),
+          `ytdlp_cookie_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.txt`
+        );
+        fs.writeFileSync(tempPath, msg.cookiesText, { encoding: 'utf-8' });
+        activeTempCookiePath = tempPath;
+        args.push('--cookies', tempPath);
+      } catch (_) {}
+    }
+
     args.push(url);
 
     let lastReportedPercent = -1;
@@ -337,6 +364,7 @@ function handleIncomingMessage(msg) {
 
     child.on('close', (code) => {
       activeChildProcess = null;
+      cleanupActiveTempCookie();
       if (code === 0) {
         let fileSizeFormatted = '';
         const resolvedName =

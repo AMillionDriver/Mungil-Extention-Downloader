@@ -1193,6 +1193,68 @@ function downloadViaNativeYtDlp(params = {}, tabId = null) {
   });
 }
 
+async function getNetscapeCookiesForUrl(targetUrl) {
+  if (typeof chrome === 'undefined' || !chrome.cookies || !chrome.cookies.getAll) {
+    return '';
+  }
+  try {
+    const domainsToQuery = [];
+    if (
+      targetUrl.includes('bilibili.tv') ||
+      targetUrl.includes('bilibili.com') ||
+      targetUrl.includes('bstation.tv')
+    ) {
+      domainsToQuery.push(
+        '.bilibili.tv',
+        'bilibili.tv',
+        '.bilibili.com',
+        'bilibili.com',
+        '.bstation.tv',
+        'bstation.tv'
+      );
+    } else if (targetUrl.includes('youtube.com') || targetUrl.includes('youtu.be')) {
+      domainsToQuery.push('.youtube.com', 'youtube.com', '.google.com');
+    }
+
+    if (domainsToQuery.length === 0) return '';
+
+    const seenCookies = new Map();
+    for (const d of domainsToQuery) {
+      try {
+        const list = await chrome.cookies.getAll({ domain: d });
+        if (Array.isArray(list)) {
+          for (const c of list) {
+            const key = `${c.domain}:${c.name}:${c.path}`;
+            if (!seenCookies.has(key)) {
+              seenCookies.set(key, c);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (seenCookies.size === 0) return '';
+
+    let netscape = '# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n\n';
+    const nowSec = Math.round(Date.now() / 1000);
+    const oneYearFromNow = nowSec + 86400 * 365;
+
+    for (const c of seenCookies.values()) {
+      const d = c.domain.startsWith('.') ? c.domain : `.${c.domain}`;
+      const sub = c.domain.startsWith('.') ? 'TRUE' : 'FALSE';
+      const p = c.path || '/';
+      const sec = c.secure ? 'TRUE' : 'FALSE';
+      const exp = c.expirationDate ? Math.round(c.expirationDate) : oneYearFromNow;
+      netscape += `${d}\t${sub}\t${p}\t${sec}\t${exp}\t${c.name}\t${c.value}\n`;
+    }
+
+    return netscape;
+  } catch (err) {
+    console.warn('[SW Cookie Exporter] Failed to extract cookies:', err);
+    return '';
+  }
+}
+
 async function executeNativeDownloadWorker(params = {}, _tabId = null) {
   const videoId = params.videoId || params.id;
 
@@ -1207,6 +1269,18 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
       const stored = await chrome.storage.local.get(['codecPreference']);
       isDataSaver = stored?.codecPreference === 'data_saver';
     }
+  } catch (_) {}
+
+  // Determine video URL and extract session cookies from Chrome if available
+  const videoUrl =
+    params.url ||
+    (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)
+      ? `https://www.youtube.com/watch?v=${videoId}`
+      : null);
+
+  let cookiesText = '';
+  try {
+    cookiesText = await getNetscapeCookiesForUrl(videoUrl || params.url || '');
   } catch (_) {}
 
   return new Promise((resolve, reject) => {
@@ -1375,9 +1449,18 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
         const errorCode = msg.errorCode || 'ERR_YTDLP_FAIL';
 
+        let displayError = msg.error || 'Download failed';
+        if (
+          displayError.includes('This video is only available for registered users') ||
+          displayError.includes('login required')
+        ) {
+          displayError =
+            'Episode ini memerlukan login akun Bstation. Silakan login ke akun Bstation kamu di browser lalu coba unduh lagi.';
+        }
+
         if (activeDownloads[videoId]) {
           activeDownloads[videoId].status = 'error';
-          activeDownloads[videoId].error = msg.error;
+          activeDownloads[videoId].error = displayError;
           activeDownloads[videoId].errorCode = errorCode;
         }
         updateActionBadge('ERR', '#ef4444');
@@ -1391,7 +1474,7 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           success: false,
           title: params.title,
           author: params.author,
-          error: msg.error,
+          error: displayError,
           errorCode: errorCode,
           videoId: videoId
         });
@@ -1401,13 +1484,13 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           videoId: videoId,
           title: params.title,
           author: params.author,
-          error: msg.error || 'Download failed',
+          error: displayError,
           errorCode: errorCode,
           dateStr: dateStr,
           timeStr: timeStr
         });
 
-        reject(new Error(msg.error || 'Native yt-dlp download failed'));
+        reject(new Error(displayError));
         try {
           port.disconnect();
         } catch (_) {}
@@ -1429,12 +1512,6 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
     });
 
     // Send the DOWNLOAD command to the native host
-    const videoUrl =
-      params.url ||
-      (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)
-        ? `https://www.youtube.com/watch?v=${videoId}`
-        : null);
-
     port.postMessage({
       action: 'DOWNLOAD',
       url: videoUrl,
@@ -1443,7 +1520,8 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
       author: params.author,
       filename: params.filename,
       quality: params.quality || (isDataSaver ? '720p' : '1080p'),
-      dataSaver: isDataSaver
+      dataSaver: isDataSaver,
+      cookiesText: cookiesText || undefined
     });
   });
 }

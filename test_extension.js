@@ -662,7 +662,7 @@ async function runAllSuites() {
       assert.ok(typeof manifest.description === 'string' && manifest.description.length > 10);
     });
 
-    test('Permissions are minimally scoped (downloads, declarativeNetRequest, storage, contextMenus, nativeMessaging, notifications)', () => {
+    test('Permissions are minimally scoped (downloads, declarativeNetRequest, storage, contextMenus, nativeMessaging, notifications, cookies)', () => {
       assert.ok(Array.isArray(manifest.permissions), 'permissions must be an array');
       assert.ok(manifest.permissions.includes('downloads'), 'must include "downloads"');
       assert.ok(
@@ -673,9 +673,10 @@ async function runAllSuites() {
       assert.ok(manifest.permissions.includes('contextMenus'), 'must include "contextMenus"');
       assert.ok(manifest.permissions.includes('nativeMessaging'), 'must include "nativeMessaging"');
       assert.ok(manifest.permissions.includes('notifications'), 'must include "notifications"');
+      assert.ok(manifest.permissions.includes('cookies'), 'must include "cookies"');
       assert.strictEqual(
         manifest.permissions.length,
-        6,
+        7,
         'permissions should only request minimal necessary APIs'
       );
     });
