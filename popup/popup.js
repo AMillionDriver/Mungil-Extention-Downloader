@@ -21,6 +21,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const bstationTitle = document.getElementById('bstation-title');
   const bstationEpBadge = document.getElementById('bstation-ep-badge');
   const bstationStatusChip = document.getElementById('bstation-status-chip');
+  const bsQualitySelect = document.getElementById('bs-quality-select');
+  const bsQualityEstBadge = document.getElementById('bs-quality-est-badge');
   const stateJwplyr = document.getElementById('state-jwplyr');
   const jwplyrTitle = document.getElementById('jwplyr-title');
   const jwplyrDesc = document.getElementById('jwplyr-desc');
@@ -421,9 +423,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (statusDot) statusDot.className = 'status-dot online';
     if (stateTiktok) stateTiktok.style.display = 'none';
     if (stateBstation) stateBstation.style.display = 'flex';
+    if (stateJwplyr) stateJwplyr.style.display = 'none';
+    if (stateYoutube) stateYoutube.style.display = 'none';
     if (stateEmpty) stateEmpty.style.display = 'none';
     if (btnDownloadActive) btnDownloadActive.style.display = 'inline-flex';
     if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Aktif';
+
+    // Quality preference & size estimation state for Bstation
+    let currentBsQuality = '720p';
+    let cachedBsSizes = {
+      '1080p': '~648 MB',
+      '720p': '~316 MB',
+      '480p': '~144 MB',
+      '360p': '~72 MB'
+    };
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['bstationSelectedQuality'], (data) => {
+        if (data && data.bstationSelectedQuality) {
+          currentBsQuality = data.bstationSelectedQuality;
+          if (bsQualitySelect) bsQualitySelect.value = currentBsQuality;
+          if (bsQualityEstBadge)
+            bsQualityEstBadge.textContent = cachedBsSizes[currentBsQuality] || '~316 MB';
+        }
+      });
+    }
+
+    if (bsQualitySelect) {
+      bsQualitySelect.addEventListener('change', () => {
+        currentBsQuality = bsQualitySelect.value;
+        if (bsQualityEstBadge) {
+          bsQualityEstBadge.textContent = cachedBsSizes[currentBsQuality] || '~316 MB';
+        }
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ bstationSelectedQuality: currentBsQuality });
+        }
+        if (bstationEpBadge && bstationEpBadge.textContent) {
+          const parts = bstationEpBadge.textContent.split('•');
+          if (parts.length > 0) {
+            bstationEpBadge.textContent = `${parts[0].trim()} • ${currentBsQuality}`;
+          }
+        }
+      });
+    }
 
     // Query active Bstation video metadata
     try {
@@ -445,10 +487,31 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (response && response.success) {
             if (bstationTitle) bstationTitle.textContent = response.title || 'Anime';
             if (bstationEpBadge)
-              bstationEpBadge.textContent = `${response.episode || 'E01'} • ${response.quality || '720p'}`;
+              bstationEpBadge.textContent = `${response.episode || 'E01'} • ${response.quality || currentBsQuality}`;
             if (bstationStatusChip) {
               bstationStatusChip.textContent = response.isVip ? 'VIP Ready' : 'Ready';
               bstationStatusChip.style.color = 'var(--accent-green)';
+            }
+
+            if (response.estimatedSizes && typeof response.estimatedSizes === 'object') {
+              cachedBsSizes = response.estimatedSizes;
+              if (bsQualityEstBadge) {
+                bsQualityEstBadge.textContent = cachedBsSizes[currentBsQuality] || '~316 MB';
+              }
+            }
+
+            if (response.videoId) {
+              chrome.runtime.sendMessage(
+                { action: 'CHECK_DOWNLOADED_STATUS', videoId: response.videoId },
+                (statusRes) => {
+                  if (chrome.runtime.lastError || !statusRes) return;
+                  if (statusRes.downloaded) {
+                    if (btnDownloadText)
+                      btnDownloadText.textContent = 'Sudah Diunduh (Download Lagi?)';
+                    if (btnDownloadActive) btnDownloadActive.classList.add('is-downloaded');
+                  }
+                }
+              );
             }
           }
         }
@@ -466,34 +529,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (btnDownloadText) btnDownloadText.textContent = 'Mengunduh...';
         showStatus('Mengunduh aliran video Bstation...', 'info', 0);
 
-        chrome.tabs.sendMessage(activeTab.id, { type: 'DOWNLOAD_ACTIVE_VIDEO' }, (res) => {
-          if (chrome.runtime.lastError) {
-            btnDownloadActive.disabled = false;
-            if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Aktif';
-            showStatus('Mohon refresh tab Bstation (F5).', 'error', 5000);
-            return;
-          }
-
-          if (res && res.success) {
-            if (btnDownloadText) btnDownloadText.textContent = 'Tersimpan!';
-            showStatus(`✓ Tersimpan: ${res.filename || 'video.mp4'}`, 'success', 3500);
-
-            setTimeout(() => {
+        chrome.tabs.sendMessage(
+          activeTab.id,
+          {
+            type: 'DOWNLOAD_ACTIVE_VIDEO',
+            quality: currentBsQuality
+          },
+          (res) => {
+            if (chrome.runtime.lastError) {
               btnDownloadActive.disabled = false;
               if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Aktif';
-            }, 2500);
-          } else {
-            btnDownloadActive.disabled = false;
-            if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
-            showStatus(res?.error || 'Gagal mengunduh video.', 'error', 4500);
+              showStatus('Mohon refresh tab Bstation (F5).', 'error', 5000);
+              return;
+            }
 
-            setTimeout(() => {
-              if (btnDownloadText && btnDownloadText.textContent === 'Coba Lagi') {
-                btnDownloadText.textContent = 'Unduh Video Aktif';
-              }
-            }, 4000);
+            if (res && res.success) {
+              if (btnDownloadText) btnDownloadText.textContent = 'Tersimpan!';
+              showStatus(`✓ Tersimpan: ${res.filename || 'video.mp4'}`, 'success', 3500);
+
+              setTimeout(() => {
+                btnDownloadActive.disabled = false;
+                if (btnDownloadText) btnDownloadText.textContent = 'Sudah Diunduh (Download Lagi?)';
+                btnDownloadActive.classList.add('is-downloaded');
+              }, 2500);
+            } else {
+              btnDownloadActive.disabled = false;
+              if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
+              showStatus(res?.error || 'Gagal mengunduh video.', 'error', 4500);
+
+              setTimeout(() => {
+                if (btnDownloadText && btnDownloadText.textContent === 'Coba Lagi') {
+                  btnDownloadText.textContent = 'Unduh Video Aktif';
+                }
+              }, 4000);
+            }
           }
-        });
+        );
       });
     }
   } else if (isJwplyr && activeTab && activeTab.id) {

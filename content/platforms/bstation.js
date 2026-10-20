@@ -473,12 +473,42 @@
   /**
    * Updates player button visual state machine: idle -> loading -> success / error -> idle.
    */
+  function checkDownloadedStatus(btn, episodeId) {
+    if (!btn || !episodeId) return;
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    try {
+      chrome.runtime.sendMessage(
+        { action: 'CHECK_DOWNLOADED_STATUS', videoId: episodeId },
+        (res) => {
+          if (chrome.runtime.lastError || !res) return;
+          if (btn.getAttribute('data-episode-id') !== String(episodeId)) return;
+          if (res.downloaded) {
+            setPlayerButtonState(btn, 'downloaded');
+          } else {
+            if (
+              btn.getAttribute('data-state') === 'downloaded' ||
+              btn.classList.contains('is-downloaded')
+            ) {
+              setPlayerButtonState(btn, 'idle');
+            }
+          }
+        }
+      );
+    } catch (_) {}
+  }
+
   function setPlayerButtonState(btn, state, customLabel) {
     if (!btn) return;
     const iconBox = btn.querySelector('.bs-dl-icon-box');
     const labelSpan = btn.querySelector('.bs-dl-btn-label');
 
-    btn.classList.remove('bs-dl-state-loading', 'bs-dl-state-success', 'bs-dl-state-error');
+    btn.classList.remove(
+      'bs-dl-state-loading',
+      'bs-dl-state-success',
+      'bs-dl-state-error',
+      'bs-dl-state-downloaded',
+      'is-downloaded'
+    );
     btn.setAttribute('data-state', state);
 
     if (btn._stateTimer) {
@@ -495,13 +525,21 @@
         break;
 
       case 'success':
-        btn.disabled = true;
+        btn.disabled = false;
         btn.classList.add('bs-dl-state-success');
         if (iconBox) iconBox.innerHTML = SVG_ICONS.success;
         if (labelSpan) labelSpan.textContent = customLabel || 'Tersimpan!';
         btn._stateTimer = setTimeout(() => {
-          setPlayerButtonState(btn, 'idle');
-        }, 2500);
+          setPlayerButtonState(btn, 'downloaded');
+        }, 3000);
+        break;
+
+      case 'downloaded':
+        btn.disabled = false;
+        btn.classList.add('bs-dl-state-downloaded', 'is-downloaded');
+        if (iconBox) iconBox.innerHTML = SVG_ICONS.download;
+        if (labelSpan) labelSpan.textContent = customLabel || 'Sudah Diunduh (Download Lagi?)';
+        btn.title = 'Kamu sudah mengunduh episode ini tadi. Klik untuk mengunduh lagi.';
         break;
 
       case 'error':
@@ -520,6 +558,7 @@
         btn.removeAttribute('data-state');
         if (iconBox) iconBox.innerHTML = SVG_ICONS.download;
         if (labelSpan) labelSpan.textContent = 'Unduh Video';
+        btn.title = 'Unduh episode aktif ini';
         break;
     }
   }
@@ -573,8 +612,120 @@
     setPlayerButtonState(btn, 'success', 'Tersimpan!');
   }
 
+  // =========================================================================
+  // 5.1 Bstation Quality Preference & Size Estimation Engine
+  // =========================================================================
+
+  const BSTATION_QUALITY_OPTIONS = [
+    { id: '1080p', label: '1080p', desc: 'Full HD' },
+    { id: '720p', label: '720p', desc: 'HD Jernih' },
+    { id: '480p', label: '480p', desc: 'Standar' },
+    { id: '360p', label: '360p', desc: 'Hemat Kuota' }
+  ];
+  let currentSelectedQuality = '720p';
+
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    try {
+      chrome.storage.local.get(['bstationSelectedQuality'], (data) => {
+        if (data?.bstationSelectedQuality) {
+          currentSelectedQuality = data.bstationSelectedQuality;
+          updateQualityButtonUI();
+        }
+      });
+    } catch (_) {}
+  }
+
+  function getVideoDurationSeconds() {
+    if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
+      const video = document.querySelector('video');
+      if (video && video.duration && !isNaN(video.duration) && video.duration > 0) {
+        return video.duration;
+      }
+    }
+    return 1440; // Default standard anime episode: ~24 minutes
+  }
+
+  function getEstimatedSizes(durationSec) {
+    const sec = durationSec || getVideoDurationSeconds();
+    const mb1080 = Math.max(1, Math.round(sec * 0.45));
+    const mb720 = Math.max(1, Math.round(sec * 0.22));
+    const mb480 = Math.max(1, Math.round(sec * 0.1));
+    const mb360 = Math.max(1, Math.round(sec * 0.05));
+
+    const fmt = (mb) => (mb >= 1024 ? `~${(mb / 1024).toFixed(1)} GB` : `~${mb} MB`);
+
+    return {
+      '1080p': fmt(mb1080),
+      '720p': fmt(mb720),
+      '480p': fmt(mb480),
+      '360p': fmt(mb360)
+    };
+  }
+
+  function saveQualityPreference(quality) {
+    currentSelectedQuality = quality;
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      try {
+        chrome.storage.local.set({ bstationSelectedQuality: quality });
+      } catch (_) {}
+    }
+    updateQualityButtonUI();
+  }
+
+  function updateQualityButtonUI() {
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    const labelEl = document.querySelector('#bs-dl-quality-btn .bs-dl-q-label-current');
+    if (labelEl) {
+      labelEl.textContent = currentSelectedQuality;
+    }
+    const menuEl =
+      typeof document.getElementById === 'function'
+        ? document.getElementById('bs-dl-quality-menu')
+        : null;
+    if (menuEl) {
+      renderQualityMenuItems(menuEl);
+    }
+  }
+
+  function renderQualityMenuItems(menuEl) {
+    if (!menuEl) return;
+    const sizes = getEstimatedSizes();
+    menuEl.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'bs-dl-menu-header';
+    header.innerHTML = `<span>Pilih Kualitas</span><span class="bs-dl-menu-sub">Estimasi Ukuran</span>`;
+    menuEl.appendChild(header);
+
+    for (const opt of BSTATION_QUALITY_OPTIONS) {
+      const item = document.createElement('div');
+      item.className = 'bs-dl-q-item';
+      const isActive = opt.id === currentSelectedQuality;
+      if (isActive) item.classList.add('is-active');
+
+      const checkmark = isActive ? '✓ ' : '';
+      const sizeStr = sizes[opt.id] || '';
+
+      item.innerHTML = `
+        <div class="bs-dl-q-item-info">
+          <span class="bs-dl-q-item-badge">${checkmark}${opt.label}</span>
+          <span class="bs-dl-q-item-desc">${opt.desc}</span>
+        </div>
+        <span class="bs-dl-q-item-size">${sizeStr}</span>
+      `;
+
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        saveQualityPreference(opt.id);
+        menuEl.style.display = 'none';
+      });
+
+      menuEl.appendChild(item);
+    }
+  }
+
   /**
-   * Injects 1-click download button into player controls or action bar.
+   * Injects 1-click download button and quality selector into player controls or action bar.
    */
   function injectPlayerButton(container) {
     if (!container || container.getAttribute('data-bs-dl-ready') === 'true') return null;
@@ -588,6 +739,9 @@
     const wrapper = document.createElement('div');
     wrapper.className = 'bs-dl-action-item';
 
+    const group = document.createElement('div');
+    group.className = 'bs-dl-btn-group';
+
     const btn = document.createElement('button');
     btn.className = 'bs-dl-btn';
     btn.type = 'button';
@@ -596,6 +750,44 @@
       <span class="bs-dl-btn-label">Unduh Video</span>
     `;
 
+    // Quality Selector Button
+    const qualityBtn = document.createElement('button');
+    qualityBtn.type = 'button';
+    qualityBtn.id = 'bs-dl-quality-btn';
+    qualityBtn.className = 'bs-dl-quality-btn';
+    qualityBtn.title = 'Pilih Kualitas Video Bstation';
+    qualityBtn.innerHTML = `
+      <span class="bs-dl-q-label-current">${currentSelectedQuality}</span>
+      <span class="bs-dl-q-chevron">▾</span>
+    `;
+
+    // Floating Quality Dropdown Menu
+    const qualityMenu = document.createElement('div');
+    qualityMenu.id = 'bs-dl-quality-menu';
+    qualityMenu.className = 'bs-dl-quality-menu';
+    qualityMenu.style.display = 'none';
+    renderQualityMenuItems(qualityMenu);
+
+    qualityBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const isVisible = qualityMenu.style.display === 'flex';
+      if (isVisible) {
+        qualityMenu.style.display = 'none';
+      } else {
+        renderQualityMenuItems(qualityMenu);
+        qualityMenu.style.display = 'flex';
+      }
+    });
+
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('click', (e) => {
+        if (!group.contains(e.target)) {
+          qualityMenu.style.display = 'none';
+        }
+      });
+    }
+
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       e.preventDefault();
@@ -603,10 +795,11 @@
 
       const videoInfo = getActiveVideoInfo();
       const canonicalUrl = getCanonicalBstationUrl(videoInfo);
+      const reqQuality = currentSelectedQuality || '720p';
       const filename = formatBstationFilename({
         title: videoInfo.animeTitle || 'Bstation Video',
         episode: videoInfo.episodeTitle || 'E01',
-        quality: '720p'
+        quality: reqQuality
       });
 
       setPlayerButtonState(btn, 'loading', 'Menyiapkan unduhan...');
@@ -621,7 +814,7 @@
             videoId: videoInfo.episodeId || String(Date.now()),
             title: `${videoInfo.animeTitle || 'Bstation Anime'} - ${videoInfo.episodeTitle || 'E01'}`,
             author: 'Bstation',
-            quality: '720p',
+            quality: reqQuality,
             filename: filename
           },
           async (response) => {
@@ -655,9 +848,18 @@
       }
     });
 
-    wrapper.appendChild(btn);
+    group.appendChild(btn);
+    group.appendChild(qualityBtn);
+    group.appendChild(qualityMenu);
+    wrapper.appendChild(group);
     container.appendChild(wrapper);
     container.setAttribute('data-bs-dl-ready', 'true');
+
+    const initialInfo = getActiveVideoInfo();
+    if (initialInfo.episodeId) {
+      btn.setAttribute('data-episode-id', initialInfo.episodeId);
+      checkDownloadedStatus(btn, initialInfo.episodeId);
+    }
 
     return btn;
   }
@@ -777,7 +979,11 @@
     }
 
     // 2. DOM Scrape Fallback for Title
-    if (!animeTitle && typeof document !== 'undefined') {
+    if (
+      !animeTitle &&
+      typeof document !== 'undefined' &&
+      typeof document.querySelector === 'function'
+    ) {
       const titleEl = document.querySelector(
         '.ogv-title, .bstar-video-title, h1[class*="title"], h1, .media-info-title'
       );
@@ -806,7 +1012,7 @@
     }
 
     // 4. Extract episodeId and episodeTitle from Active Episode Node in DOM
-    if (typeof document !== 'undefined') {
+    if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
       const activeEpNode = document.querySelector(
         '.bstar-episode-item--active, [class*="ep-item--active"], .active-ep, [class*="item--active"], .bstar-episode-list .active'
       );
@@ -832,7 +1038,11 @@
     }
 
     // Check if VIP badge appears on active episode or user profile
-    if (!isUserVip && typeof document !== 'undefined') {
+    if (
+      !isUserVip &&
+      typeof document !== 'undefined' &&
+      typeof document.querySelector === 'function'
+    ) {
       const vipHeader = document.querySelector(
         '.vip-icon, .bstar-header-vip, [class*="badge--vip"]'
       );
@@ -1541,6 +1751,16 @@
       playerControl.getAttribute('data-bs-dl-ready') !== 'true'
     ) {
       injectPlayerButton(playerControl);
+    } else {
+      const existingBtn = document.querySelector('.bs-dl-btn');
+      if (existingBtn) {
+        const currentInfo = getActiveVideoInfo();
+        const prevEpId = existingBtn.getAttribute('data-episode-id');
+        if (currentInfo.episodeId && currentInfo.episodeId !== prevEpId) {
+          existingBtn.setAttribute('data-episode-id', currentInfo.episodeId);
+          checkDownloadedStatus(existingBtn, currentInfo.episodeId);
+        }
+      }
     }
 
     // 2. Batch Button Injection beside "Semua episode"
@@ -1620,7 +1840,9 @@
           title: info.animeTitle,
           episode: info.episodeTitle,
           isVip: info.isUserVip,
-          quality: '720p'
+          quality: currentSelectedQuality || '720p',
+          videoId: info.episodeId,
+          estimatedSizes: getEstimatedSizes()
         });
         return false;
       }
@@ -1628,7 +1850,7 @@
       if (action === 'DOWNLOAD_ACTIVE_VIDEO') {
         const info = getActiveVideoInfo();
         const canonicalUrl = getCanonicalBstationUrl(info);
-        const reqQuality = message.quality || '720p';
+        const reqQuality = message.quality || currentSelectedQuality || '720p';
         const filename = formatBstationFilename({
           title: info.animeTitle || 'Bstation Video',
           episode: info.episodeTitle || 'E01',
@@ -1755,6 +1977,9 @@
       setPlayerButtonState,
       scanAndInject,
       getCanonicalBstationUrl,
+      getEstimatedSizes,
+      saveQualityPreference,
+      BSTATION_QUALITY_OPTIONS,
       SVG_ICONS
     };
   }

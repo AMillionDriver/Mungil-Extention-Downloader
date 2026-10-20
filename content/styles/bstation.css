@@ -189,6 +189,21 @@
   border-color: var(--bs-status-error) !important;
 }
 
+.bs-dl-state-downloaded,
+.bs-dl-btn.is-downloaded {
+  background: rgba(142, 149, 165, 0.18) !important;
+  color: var(--bs-gray-400) !important;
+  border-color: rgba(142, 149, 165, 0.35) !important;
+}
+
+.bs-dl-state-downloaded:hover:not(:disabled),
+.bs-dl-btn.is-downloaded:hover:not(:disabled) {
+  background: rgba(142, 149, 165, 0.3) !important;
+  color: var(--bs-gray-100) !important;
+  border-color: rgba(142, 149, 165, 0.55) !important;
+  box-shadow: none !important;
+}
+
 /* 2. "Semua Episode" Batch Download Trigger Button */
 .bs-batch-trigger-btn {
   display: inline-flex !important;
@@ -585,4 +600,140 @@
 .bs-btn-primary:disabled {
   opacity: 0.6 !important;
   cursor: not-allowed !important;
+}
+
+/* ==========================================================================
+   10. In-Page Button Group with Quality Selector
+   ========================================================================== */
+
+.bs-dl-btn-group {
+  display: inline-flex !important;
+  align-items: center !important;
+  position: relative !important;
+  z-index: 99 !important;
+  margin: 0 4px !important;
+}
+
+.bs-dl-btn-group .bs-dl-btn {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  border-right: none !important;
+  margin: 0 !important;
+}
+
+.bs-dl-quality-btn {
+  height: 32px !important;
+  padding: 0 10px !important;
+  border-top-right-radius: var(--bs-radius-full) !important;
+  border-bottom-right-radius: var(--bs-radius-full) !important;
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border: 1px solid rgba(0, 174, 236, 0.45) !important;
+  border-left: 1px solid rgba(0, 174, 236, 0.3) !important;
+  background: rgba(0, 174, 236, 0.12) !important;
+  color: var(--bs-cyan-500) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-family: var(--bs-font-sans) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.bs-dl-quality-btn:hover {
+  background: rgba(0, 174, 236, 0.25) !important;
+  color: var(--bs-white) !important;
+}
+
+.bs-dl-q-chevron {
+  font-size: 9px !important;
+  opacity: 0.8 !important;
+}
+
+/* Floating Quality Menu */
+.bs-dl-quality-menu {
+  position: absolute !important;
+  bottom: calc(100% + 8px) !important;
+  right: 0 !important;
+  width: 220px !important;
+  background: rgba(18, 20, 26, 0.95) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(0, 174, 236, 0.35) !important;
+  border-radius: var(--bs-radius-lg) !important;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.65),
+    0 0 1px rgba(255, 255, 255, 0.2) !important;
+  padding: 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  z-index: 99999 !important;
+}
+
+.bs-dl-menu-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 6px 8px 4px 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--bs-cyan-400) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  margin-bottom: 4px !important;
+}
+
+.bs-dl-menu-sub {
+  font-size: 10px !important;
+  color: var(--bs-gray-400) !important;
+  text-transform: none !important;
+  font-weight: normal !important;
+}
+
+.bs-dl-q-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 10px !important;
+  border-radius: var(--bs-radius-md) !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.bs-dl-q-item:hover {
+  background: rgba(0, 174, 236, 0.15) !important;
+}
+
+.bs-dl-q-item.is-active {
+  background: rgba(0, 174, 236, 0.25) !important;
+  border: 1px solid rgba(0, 174, 236, 0.4) !important;
+}
+
+.bs-dl-q-item-info {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+
+.bs-dl-q-item-badge {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--bs-white) !important;
+}
+
+.bs-dl-q-item-desc {
+  font-size: 11px !important;
+  color: var(--bs-gray-400) !important;
+}
+
+.bs-dl-q-item-size {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--bs-cyan-300) !important;
 }

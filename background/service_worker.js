@@ -1430,9 +1430,10 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
 
     // Send the DOWNLOAD command to the native host
     const videoUrl =
-      params.url && params.url.includes('youtube.com')
-        ? params.url
-        : `https://www.youtube.com/watch?v=${videoId}`;
+      params.url ||
+      (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)
+        ? `https://www.youtube.com/watch?v=${videoId}`
+        : null);
 
     port.postMessage({
       action: 'DOWNLOAD',
@@ -1440,6 +1441,7 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
       videoId: videoId,
       title: params.title,
       author: params.author,
+      filename: params.filename,
       quality: params.quality || (isDataSaver ? '720p' : '1080p'),
       dataSaver: isDataSaver
     });
