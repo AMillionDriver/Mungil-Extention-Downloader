@@ -37,6 +37,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tbTitle = document.getElementById('tb-title');
   const tbDesc = document.getElementById('tb-desc');
   const tbStatusChip = document.getElementById('tb-status-chip');
+  const tbQualityBox = document.getElementById('tb-quality-box');
+  const tbQualitySelect = document.getElementById('tb-quality-select');
+  const tbQualityEstBadge = document.getElementById('tb-quality-est-badge');
   const btnDownloadActive = document.getElementById('btn-download-active');
   const btnDownloadText = document.getElementById('btn-download-text');
   const btnOpenTikTok = document.getElementById('btn-open-tiktok');
@@ -925,6 +928,38 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let fileCount = 1;
     let isSingleVideo = true;
+    let currentTbQuality = 'original';
+    let cachedTbSizes = {
+      original: 'Full',
+      '1080p': '~400 MB',
+      '720p': '~250 MB',
+      '480p': '~140 MB',
+      '360p': '~80 MB'
+    };
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['tbSelectedQuality'], (data) => {
+        if (data && data.tbSelectedQuality) {
+          currentTbQuality = data.tbSelectedQuality;
+          if (tbQualitySelect) tbQualitySelect.value = currentTbQuality;
+          if (tbQualityEstBadge) {
+            tbQualityEstBadge.textContent = cachedTbSizes[currentTbQuality] || 'Full';
+          }
+        }
+      });
+    }
+
+    if (tbQualitySelect) {
+      tbQualitySelect.addEventListener('change', () => {
+        currentTbQuality = tbQualitySelect.value;
+        if (tbQualityEstBadge) {
+          tbQualityEstBadge.textContent = cachedTbSizes[currentTbQuality] || 'Full';
+        }
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ tbSelectedQuality: currentTbQuality });
+        }
+      });
+    }
 
     try {
       chrome.tabs.sendMessage(activeTab.id, { type: 'GET_TERABOX_FILE_INFO' }, (response) => {
@@ -949,12 +984,41 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (tbDesc)
               tbDesc.textContent = `${sizeStr ? sizeStr + ' • ' : ''}Video siap unduh langsung`;
             if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Langsung';
+
+            if (tbQualityBox) tbQualityBox.style.display = 'flex';
+            if (response.estimatedSizes && typeof response.estimatedSizes === 'object') {
+              cachedTbSizes = response.estimatedSizes;
+              if (tbQualitySelect) {
+                const opts = [
+                  {
+                    val: 'original',
+                    label: `Original (${cachedTbSizes.original || response.sizeFormatted || 'Full'})`
+                  },
+                  { val: '1080p', label: `1080p Full HD (${cachedTbSizes['1080p'] || '~400 MB'})` },
+                  { val: '720p', label: `720p HD (${cachedTbSizes['720p'] || '~250 MB'})` },
+                  { val: '480p', label: `480p SD (${cachedTbSizes['480p'] || '~140 MB'})` },
+                  { val: '360p', label: `360p Hemat (${cachedTbSizes['360p'] || '~80 MB'})` }
+                ];
+                tbQualitySelect.innerHTML = opts
+                  .map(
+                    (o) =>
+                      `<option value="${o.val}" ${o.val === currentTbQuality ? 'selected' : ''}>${o.label}</option>`
+                  )
+                  .join('');
+              }
+              if (tbQualityEstBadge) {
+                tbQualityEstBadge.textContent =
+                  cachedTbSizes[currentTbQuality] || response.sizeFormatted || 'Full';
+              }
+            }
           } else if (response.videoCount > 1) {
+            if (tbQualityBox) tbQualityBox.style.display = 'none';
             if (tbDesc)
               tbDesc.textContent = `${sizeStr ? sizeStr + ' • ' : ''}${response.videoCount} video terdeteksi`;
             if (btnDownloadText)
               btnDownloadText.textContent = `Buka Batch Downloader (${response.videoCount})`;
           } else {
+            if (tbQualityBox) tbQualityBox.style.display = 'none';
             const countStr = fileCount > 1 ? ` (${fileCount} file)` : '';
             if (tbDesc) tbDesc.textContent = `${sizeStr}${countStr} • Direct link siap unduh`;
             if (btnDownloadText) {
@@ -987,30 +1051,34 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (btnDownloadText) btnDownloadText.textContent = 'Mengunduh...';
           showStatus('Mengunduh video TeraBox langsung...', 'info', 0);
 
-          chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_DOWNLOAD' }, (res) => {
-            btnDownloadActive.disabled = false;
-            if (chrome.runtime.lastError) {
-              if (btnDownloadText)
-                btnDownloadText.textContent = isSingleVideo
-                  ? 'Unduh Video Langsung'
-                  : 'Download File TeraBox';
-              showStatus('Mohon refresh tab TeraBox (F5).', 'error', 4000);
-              return;
-            }
-            if (res && res.success) {
-              if (btnDownloadText) btnDownloadText.textContent = 'Tersimpan!';
-              showStatus('✓ Unduhan TeraBox dimulai!', 'success', 3500);
-              setTimeout(() => {
+          chrome.tabs.sendMessage(
+            activeTab.id,
+            { type: 'TRIGGER_DOWNLOAD', quality: currentTbQuality },
+            (res) => {
+              btnDownloadActive.disabled = false;
+              if (chrome.runtime.lastError) {
                 if (btnDownloadText)
                   btnDownloadText.textContent = isSingleVideo
                     ? 'Unduh Video Langsung'
                     : 'Download File TeraBox';
-              }, 3000);
-            } else {
-              if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
-              showStatus(res?.error || 'Gagal memulai unduhan TeraBox.', 'error', 4500);
+                showStatus('Mohon refresh tab TeraBox (F5).', 'error', 4000);
+                return;
+              }
+              if (res && res.success) {
+                if (btnDownloadText) btnDownloadText.textContent = 'Tersimpan!';
+                showStatus('✓ Unduhan TeraBox dimulai!', 'success', 3500);
+                setTimeout(() => {
+                  if (btnDownloadText)
+                    btnDownloadText.textContent = isSingleVideo
+                      ? 'Unduh Video Langsung'
+                      : 'Download File TeraBox';
+                }, 3000);
+              } else {
+                if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
+                showStatus(res?.error || 'Gagal memulai unduhan TeraBox.', 'error', 4500);
+              }
             }
-          });
+          );
         }
       });
     }

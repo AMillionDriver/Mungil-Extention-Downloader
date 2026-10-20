@@ -6386,6 +6386,77 @@ async function runAllSuites() {
         const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
         assert.ok(popupJs.includes('isSingleVideo'), 'popup.js must track isSingleVideo');
       });
+
+      test('TeraBox multi-resolution quality selector and size estimation integration', () => {
+        const popupHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        assert.ok(
+          popupHtml.includes('id="tb-quality-box"'),
+          'popup.html must declare #tb-quality-box'
+        );
+        assert.ok(
+          popupHtml.includes('id="tb-quality-select"'),
+          'popup.html must declare #tb-quality-select'
+        );
+        assert.ok(
+          popupHtml.includes('id="tb-quality-est-badge"'),
+          'popup.html must declare #tb-quality-est-badge'
+        );
+
+        const popupCss = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.css'), 'utf8');
+        assert.ok(popupCss.includes('.tb-quality-box'), 'popup.css must style .tb-quality-box');
+        assert.ok(
+          popupCss.includes('.tb-quality-select'),
+          'popup.css must style .tb-quality-select'
+        );
+        assert.ok(
+          popupCss.includes('.tb-quality-est-badge'),
+          'popup.css must style .tb-quality-est-badge'
+        );
+
+        const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+        assert.ok(
+          popupJs.includes('tbSelectedQuality'),
+          'popup.js must save/restore tbSelectedQuality in chrome.storage'
+        );
+        assert.ok(
+          popupJs.includes('TRIGGER_DOWNLOAD') && popupJs.includes('quality: currentTbQuality'),
+          'popup.js must pass quality in TRIGGER_DOWNLOAD message'
+        );
+
+        const teraboxJs = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/terabox.js'),
+          'utf8'
+        );
+        assert.ok(
+          teraboxJs.includes('mungil-tb-floating-quality'),
+          'terabox.js must inject quality dropdown into floating bar'
+        );
+        assert.ok(
+          teraboxJs.includes('mungil-tb-quality-select'),
+          'terabox.js must inject quality dropdown into player bar'
+        );
+        assert.ok(
+          teraboxJs.includes('estimatedSizes'),
+          'terabox.js must calculate estimatedSizes in GET_TERABOX_FILE_INFO'
+        );
+        assert.ok(
+          teraboxJs.includes('message.quality ||'),
+          'terabox.js must extract message.quality in TRIGGER_DOWNLOAD'
+        );
+
+        const bridgeJs = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/injected/terabox_bridge.js'),
+          'utf8'
+        );
+        assert.ok(
+          bridgeJs.includes('preferredType = null'),
+          'terabox_bridge.js must default preferredType to null for raw direct links'
+        );
+        assert.ok(
+          bridgeJs.includes('/share/streaming?') && bridgeJs.includes('preferredType'),
+          'terabox_bridge.js must route to streaming URL when preferredType is provided'
+        );
+      });
     }
   );
 

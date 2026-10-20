@@ -704,6 +704,22 @@
 
     const btn = bar.querySelector('#mungil-terabox-player-btn');
     const select = bar.querySelector('#mungil-tb-quality-select');
+    if (select) {
+      select.addEventListener('change', () => {
+        const badge = bar.querySelector('.mungil-tb-player-badge');
+        if (badge) {
+          const map = {
+            original: targetFile.formatted_size || 'Full',
+            '1080p': est1080,
+            '720p': est720,
+            '480p': est480,
+            '360p': est360
+          };
+          badge.textContent = map[select.value] || targetFile.formatted_size;
+        }
+      });
+    }
+
     if (btn) {
       btn.onclick = () => {
         const chosenQuality = (select && select.value) || 'original';
@@ -741,23 +757,72 @@
       document.body.appendChild(bar);
     }
 
-    // Priority 1: If exactly 1 video is detected (even if directory contains promo images or folders)
-    if (videos.length === 1) {
-      const singleVideo = videos[0];
+    // Priority 1: If single video is detected (either directly or via fallback)
+    const singleVideo =
+      videos.length === 1
+        ? videos[0]
+        : videos.length === 0 &&
+            downloadables.length === 1 &&
+            (downloadables[0].isVideo ||
+              /\.(mp4|mkv|webm|mov|avi)$/i.test(downloadables[0].filename))
+          ? downloadables[0]
+          : null;
+
+    if (singleVideo) {
+      if (
+        bar.getAttribute('data-loaded-fsid') === String(singleVideo.fs_id) &&
+        bar.querySelector('#mungil-tb-floating-quality')
+      ) {
+        return;
+      }
+      bar.setAttribute('data-loaded-fsid', String(singleVideo.fs_id));
+
+      const baseSize = singleVideo.size || 0;
+      const est1080 = baseSize ? formatBytes(Math.round(baseSize * 0.95)) : '~400 MB';
+      const est720 = baseSize ? formatBytes(Math.round(baseSize * 0.58)) : '~250 MB';
+      const est480 = baseSize ? formatBytes(Math.round(baseSize * 0.35)) : '~140 MB';
+      const est360 = baseSize ? formatBytes(Math.round(baseSize * 0.2)) : '~80 MB';
+
       bar.innerHTML = `
         ${
           singleVideo.formatted_size && singleVideo.formatted_size !== '0 B'
             ? `<span class="mungil-terabox-floating-badge">${singleVideo.formatted_size}</span>`
             : ''
         }
+        <select class="mungil-tb-quality-select" id="mungil-tb-floating-quality" title="Pilih Kualitas Video">
+          <option value="original" selected>Original (${singleVideo.formatted_size || 'Full'})</option>
+          <option value="1080p">1080p Full HD (${est1080})</option>
+          <option value="720p">720p HD (${est720})</option>
+          <option value="480p">480p SD (${est480})</option>
+          <option value="360p">360p Hemat (${est360})</option>
+        </select>
         <button type="button" class="mungil-terabox-btn" id="mungil-tb-single-btn">
           ${SVG_DOWNLOAD}
           <span>Unduh Video</span>
         </button>
       `;
       const btn = bar.querySelector('#mungil-tb-single-btn');
+      const select = bar.querySelector('#mungil-tb-floating-quality');
+      if (select) {
+        select.addEventListener('change', () => {
+          const badge = bar.querySelector('.mungil-terabox-floating-badge');
+          if (badge) {
+            const map = {
+              original: singleVideo.formatted_size || 'Full',
+              '1080p': est1080,
+              '720p': est720,
+              '480p': est480,
+              '360p': est360
+            };
+            badge.textContent = map[select.value] || singleVideo.formatted_size;
+          }
+        });
+      }
       if (btn) {
-        btn.onclick = () => triggerDownloadFile(singleVideo, btn);
+        btn.onclick = () => {
+          const chosenQuality = (select && select.value) || 'original';
+          triggerDownloadFile(singleVideo, btn, chosenQuality);
+        };
       }
     } else if (videos.length > 1) {
       // Multiple videos detected: offer batch download specifically for videos
@@ -852,6 +917,14 @@
           // If there is exactly 1 video on the page, prioritize it as the active video
           if (videos.length === 1) {
             const v = videos[0];
+            const baseSize = v.size || 0;
+            const estimatedSizes = {
+              original: v.formatted_size || 'Full',
+              '1080p': baseSize ? formatBytes(Math.round(baseSize * 0.95)) : '~400 MB',
+              '720p': baseSize ? formatBytes(Math.round(baseSize * 0.58)) : '~250 MB',
+              '480p': baseSize ? formatBytes(Math.round(baseSize * 0.35)) : '~140 MB',
+              '360p': baseSize ? formatBytes(Math.round(baseSize * 0.2)) : '~80 MB'
+            };
             sendResponse({
               success: true,
               platform: 'terabox',
@@ -866,12 +939,22 @@
               imageCount: images.length,
               totalCount: nonDirs.length,
               isVideo: true,
+              estimatedSizes,
               files: [v]
             });
             return;
           }
 
           if (videos.length > 1) {
+            const v = videos[0];
+            const baseSize = v.size || 0;
+            const estimatedSizes = {
+              original: v.formatted_size || 'Full',
+              '1080p': baseSize ? formatBytes(Math.round(baseSize * 0.95)) : '~400 MB',
+              '720p': baseSize ? formatBytes(Math.round(baseSize * 0.58)) : '~250 MB',
+              '480p': baseSize ? formatBytes(Math.round(baseSize * 0.35)) : '~140 MB',
+              '360p': baseSize ? formatBytes(Math.round(baseSize * 0.2)) : '~80 MB'
+            };
             sendResponse({
               success: true,
               platform: 'terabox',
@@ -886,6 +969,7 @@
               imageCount: images.length,
               totalCount: nonDirs.length,
               isVideo: true,
+              estimatedSizes,
               files: videos
             });
             return;
@@ -928,7 +1012,7 @@
           const { videos, nonDirs } = classifyFiles(files);
           const first = videos[0] || nonDirs[0] || getDomFallbackFile();
           if (first) {
-            triggerDownloadFile(first);
+            triggerDownloadFile(first, null, message.quality || 'original');
             sendResponse({ success: true });
           } else {
             sendResponse({ success: false, error: 'Tidak ada file untuk diunduh' });

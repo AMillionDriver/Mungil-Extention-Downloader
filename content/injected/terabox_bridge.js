@@ -410,10 +410,10 @@
   // --------------------------------------------------------------------------
   // Direct Download Link API Resolver
   // --------------------------------------------------------------------------
-  async function resolveDlink(fsId, preferredType = 'M3U8_AUTO_720') {
+  async function resolveDlink(fsId, preferredType = null) {
     syncYunData();
     const cached = fileCache.get(fsId);
-    if (cached && cached.dlink) {
+    if (!preferredType && cached && cached.dlink && !cached.dlink.includes('streaming')) {
       return cached.dlink;
     }
 
@@ -423,6 +423,22 @@
     const timestamp = activeShareInfo.timestamp;
     const token =
       (typeof window !== 'undefined' && window.jsToken) || activeShareInfo.bdstoken || '';
+
+    // If an alternative HLS stream resolution (e.g. M3U8_AUTO_1080, M3U8_AUTO_720, M3U8_AUTO_480, M3U8_AUTO_360) is requested
+    if (preferredType && shareid && uk && sign && timestamp) {
+      const origin =
+        (typeof window !== 'undefined' && window.location.origin) || 'https://www.terabox.app';
+      const streamUrl = `${origin}/share/streaming?app_id=250528&web=1&channel=dubox&clienttype=0&jsToken=${encodeURIComponent(
+        token
+      )}&dp-logid=${Date.now()}&shareid=${encodeURIComponent(shareid)}&uk=${encodeURIComponent(
+        uk
+      )}&sign=${encodeURIComponent(sign)}&timestamp=${encodeURIComponent(
+        timestamp
+      )}&primaryid=${encodeURIComponent(shareid)}&fid=${encodeURIComponent(fsId)}&type=${encodeURIComponent(
+        preferredType
+      )}`;
+      return streamUrl;
+    }
 
     // Strategy 1: Native TeraBox POST /share/download with fid_list
     if (shareid && uk && sign && timestamp) {

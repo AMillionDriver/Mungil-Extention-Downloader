@@ -818,6 +818,62 @@ body {
   box-shadow: 0 0 0 2px rgba(0, 174, 236, 0.25);
 }
 
+/* TeraBox Quality Selection Box in Popup */
+.tb-quality-box {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.tb-quality-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tb-quality-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tb-quality-est-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: #0660f6;
+  background: rgba(6, 96, 246, 0.12);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.tb-quality-select {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+  transition: var(--transition-fast);
+}
+
+.tb-quality-select:hover {
+  border-color: var(--border-subtle);
+  background: var(--bg-surface-hover);
+}
+
+.tb-quality-select:focus {
+  border-color: #0660f6;
+  box-shadow: 0 0 0 2px rgba(6, 96, 246, 0.2);
+}
+
 /* Security Shield Card */
 .shield-card {
   display: flex;
