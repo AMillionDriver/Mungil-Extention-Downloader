@@ -1,6 +1,6 @@
 /**
  * Adversarial Stress & Security Test Suite for Bstation (Bilibili.tv) Downloader
- * 
+ *
  * Verifies:
  * 1. Deep NTFS Boundary Value Analysis: colons, slashes, double quotes, question marks,
  *    asterisks, control characters, Japanese/Chinese/Korean titles, emojis, trailing dots/spaces,
@@ -67,9 +67,11 @@ class MockClassList {
   add(...classes) {
     for (const c of classes) {
       if (c && typeof c === 'string') {
-        c.trim().split(/\s+/).forEach((cls) => {
-          if (cls) this._set.add(cls);
-        });
+        c.trim()
+          .split(/\s+/)
+          .forEach((cls) => {
+            if (cls) this._set.add(cls);
+          });
       }
     }
     this._sync();
@@ -77,9 +79,11 @@ class MockClassList {
   remove(...classes) {
     for (const c of classes) {
       if (c && typeof c === 'string') {
-        c.trim().split(/\s+/).forEach((cls) => {
-          this._set.delete(cls);
-        });
+        c.trim()
+          .split(/\s+/)
+          .forEach((cls) => {
+            this._set.delete(cls);
+          });
       }
     }
     this._sync();
@@ -131,9 +135,12 @@ class MockElement {
     this.attributes.set(name, String(val));
     if (name === 'class') {
       this.classList._set.clear();
-      String(val).trim().split(/\s+/).forEach((c) => {
-        if (c) this.classList._set.add(c);
-      });
+      String(val)
+        .trim()
+        .split(/\s+/)
+        .forEach((c) => {
+          if (c) this.classList._set.add(c);
+        });
     }
   }
 
@@ -196,7 +203,7 @@ class MockElement {
 
     if (rest.startsWith('#')) {
       const targetId = rest.slice(1);
-      return (this.attributes.get('id') === targetId) || (this.id === targetId);
+      return this.attributes.get('id') === targetId || this.id === targetId;
     }
 
     if (rest.startsWith('.')) {
@@ -287,7 +294,9 @@ class MockElement {
     try {
       Object.defineProperty(event, 'target', { value: this, configurable: true });
     } catch (_) {
-      try { event.target = this; } catch (__) {}
+      try {
+        event.target = this;
+      } catch (__) {}
     }
     let curr = this;
     while (curr) {
@@ -305,7 +314,9 @@ class MockElement {
       type: 'click',
       target: this,
       preventDefault: () => {},
-      stopPropagation: () => { this._stopped = true; }
+      stopPropagation: () => {
+        this._stopped = true;
+      }
     });
   }
 }
@@ -348,11 +359,18 @@ async function runAdversarialSuites() {
     const dirty = 'Re:Zero / S02? "Hero"* <Arc|5> : Chapter::Final';
     const cleanTitle = bstation.sanitizeBstationTitle(dirty);
     const swTitle = sw.sanitizeBstationTitle(dirty);
-    assert.strictEqual(cleanTitle, swTitle, 'Content script and SW sanitizers must produce identical title');
+    assert.strictEqual(
+      cleanTitle,
+      swTitle,
+      'Content script and SW sanitizers must produce identical title'
+    );
 
     // Win32 illegal characters strictly forbidden in NTFS filenames
     const forbidden = /[/\\:*?"<>|\x00-\x1f\x7f-\x9f]/;
-    assert.ok(!forbidden.test(cleanTitle), `Sanitized title contains illegal NTFS character: ${cleanTitle}`);
+    assert.ok(
+      !forbidden.test(cleanTitle),
+      `Sanitized title contains illegal NTFS character: ${cleanTitle}`
+    );
 
     const fn = bstation.formatBstationFilename({ title: dirty, episode: 1, quality: '1080p' });
     assert.ok(!forbidden.test(fn), `Formatted filename contains illegal NTFS character: ${fn}`);
@@ -363,9 +381,9 @@ async function runAdversarialSuites() {
 
   test('NTFS control characters: 0x00 to 0x1F and 0x7F to 0x9F elimination', () => {
     let dirty = '';
-    for (let i = 0; i <= 0x1F; i++) dirty += String.fromCharCode(i);
+    for (let i = 0; i <= 0x1f; i++) dirty += String.fromCharCode(i);
     dirty += 'Jujutsu Kaisen';
-    for (let i = 0x7F; i <= 0x9F; i++) dirty += String.fromCharCode(i);
+    for (let i = 0x7f; i <= 0x9f; i++) dirty += String.fromCharCode(i);
 
     const clean = bstation.sanitizeBstationTitle(dirty);
     assert.strictEqual(clean, 'Jujutsu Kaisen');
@@ -381,7 +399,10 @@ async function runAdversarialSuites() {
       { raw: '進撃の巨人 The Final Season', expected: '進撃の巨人 The Final Season' },
       { raw: '【推しの子】', expected: '【推しの子】' },
       { raw: 'SPY×FAMILY Season 2', expected: 'SPY×FAMILY Season 2' },
-      { raw: 'Re:ゼロから始める異世界生活 3rd season', expected: 'Re - ゼロから始める異世界生活 3rd season' },
+      {
+        raw: 'Re:ゼロから始める異世界生活 3rd season',
+        expected: 'Re - ゼロから始める異世界生活 3rd season'
+      },
       { raw: '간 떨어지는 동거', expected: '간 떨어지는 동거' }
     ];
 
@@ -405,7 +426,30 @@ async function runAdversarialSuites() {
   });
 
   test('Windows reserved device names: CON, PRN, AUX, NUL, COM1-9, LPT1-9', () => {
-    const reserved = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
+    const reserved = [
+      'CON',
+      'PRN',
+      'AUX',
+      'NUL',
+      'COM1',
+      'COM2',
+      'COM3',
+      'COM4',
+      'COM5',
+      'COM6',
+      'COM7',
+      'COM8',
+      'COM9',
+      'LPT1',
+      'LPT2',
+      'LPT3',
+      'LPT4',
+      'LPT5',
+      'LPT6',
+      'LPT7',
+      'LPT8',
+      'LPT9'
+    ];
 
     reserved.forEach((name) => {
       const fn = bstation.formatBstationFilename(name, 1, '720p');
@@ -437,7 +481,10 @@ async function runAdversarialSuites() {
     assert.ok(!clean.endsWith('-'), 'Truncated title must not end with hyphen');
 
     const fn = bstation.formatBstationFilename(longTitle, 999, '1080p');
-    assert.ok(fn.length < 255, `Filename length ${fn.length} exceeds NTFS MAX_PATH component limit (255)`);
+    assert.ok(
+      fn.length < 255,
+      `Filename length ${fn.length} exceeds NTFS MAX_PATH component limit (255)`
+    );
     generatedFilenames.push(fn);
   });
 
@@ -453,11 +500,26 @@ async function runAdversarialSuites() {
   });
 
   test('Quality normalization boundary: lowercase, remove special characters, default to 720p', () => {
-    assert.strictEqual(bstation.formatBstationFilename('Naruto', 1, '1080P'), '[Naruto] - E01 [1080p].mp4');
-    assert.strictEqual(bstation.formatBstationFilename('Naruto', 1, '1080p+'), '[Naruto] - E01 [1080p+].mp4');
-    assert.strictEqual(bstation.formatBstationFilename('Naruto', 1, '4K UHD'), '[Naruto] - E01 [4kuhd].mp4');
-    assert.strictEqual(bstation.formatBstationFilename('Naruto', 1, null), '[Naruto] - E01 [720p].mp4');
-    assert.strictEqual(bstation.formatBstationFilename('Naruto', 1, '???'), '[Naruto] - E01 [720p].mp4');
+    assert.strictEqual(
+      bstation.formatBstationFilename('Naruto', 1, '1080P'),
+      '[Naruto] - E01 [1080p].mp4'
+    );
+    assert.strictEqual(
+      bstation.formatBstationFilename('Naruto', 1, '1080p+'),
+      '[Naruto] - E01 [1080p+].mp4'
+    );
+    assert.strictEqual(
+      bstation.formatBstationFilename('Naruto', 1, '4K UHD'),
+      '[Naruto] - E01 [4kuhd].mp4'
+    );
+    assert.strictEqual(
+      bstation.formatBstationFilename('Naruto', 1, null),
+      '[Naruto] - E01 [720p].mp4'
+    );
+    assert.strictEqual(
+      bstation.formatBstationFilename('Naruto', 1, '???'),
+      '[Naruto] - E01 [720p].mp4'
+    );
   });
 
   test('Episode format normalization boundary: integers, strings, missing numbers', () => {
@@ -486,7 +548,9 @@ async function runAdversarialSuites() {
         fs.unlinkSync(filePath);
       }
     } finally {
-      try { fs.rmdirSync(tempDir); } catch (_) {}
+      try {
+        fs.rmdirSync(tempDir);
+      } catch (_) {}
     }
   });
 
@@ -519,7 +583,10 @@ async function runAdversarialSuites() {
     // Ep 1-3 are free
     for (let i = 0; i < 3; i++) {
       const card = cards[i];
-      assert.ok(!card.classList.contains('bs-episode-card--vip-locked'), `Free episode ${i + 1} must not be locked`);
+      assert.ok(
+        !card.classList.contains('bs-episode-card--vip-locked'),
+        `Free episode ${i + 1} must not be locked`
+      );
       const cb = card.querySelector('.bs-episode-checkbox');
       assert.strictEqual(cb.disabled, false, `Free episode ${i + 1} checkbox must be enabled`);
       const badge = card.querySelector('.bs-episode-badge');
@@ -530,7 +597,10 @@ async function runAdversarialSuites() {
     // Ep 4-12 are VIP
     for (let i = 3; i < 12; i++) {
       const card = cards[i];
-      assert.ok(card.classList.contains('bs-episode-card--vip-locked'), `VIP episode ${i + 1} must be locked for non-VIP user`);
+      assert.ok(
+        card.classList.contains('bs-episode-card--vip-locked'),
+        `VIP episode ${i + 1} must be locked for non-VIP user`
+      );
       const cb = card.querySelector('.bs-episode-checkbox');
       assert.strictEqual(cb.disabled, true, `VIP episode ${i + 1} checkbox must be disabled`);
       assert.strictEqual(cb.checked, false, `VIP episode ${i + 1} checkbox must not be checked`);
@@ -571,7 +641,11 @@ async function runAdversarialSuites() {
     pillAll.click();
 
     const checkedBoxes = overlay.querySelectorAll('.bs-episode-checkbox:checked');
-    assert.strictEqual(checkedBoxes.length, 3, 'Pilih Semua must only select the 3 free episodes for non-VIP');
+    assert.strictEqual(
+      checkedBoxes.length,
+      3,
+      'Pilih Semua must only select the 3 free episodes for non-VIP'
+    );
 
     const countLabel = overlay.querySelector('#bs-selected-count');
     assert.strictEqual(countLabel.textContent, '3 episode dipilih');
@@ -601,7 +675,10 @@ async function runAdversarialSuites() {
     startBtn.click();
 
     const statusText = overlay.querySelector('#bs-queue-status-text');
-    assert.ok(statusText.textContent.includes('Mengunduh') || statusText.textContent.includes('Selesai'), 'Queue must initiate without throwing uncaught exceptions');
+    assert.ok(
+      statusText.textContent.includes('Mengunduh') || statusText.textContent.includes('Selesai'),
+      'Queue must initiate without throwing uncaught exceptions'
+    );
   });
 
   test('VIP user mode: enables all episodes and displays VIP Member status', () => {
@@ -622,9 +699,16 @@ async function runAdversarialSuites() {
     const cards = grid.querySelectorAll('.bs-episode-card');
 
     cards.forEach((card, idx) => {
-      assert.ok(!card.classList.contains('bs-episode-card--vip-locked'), `Episode ${idx + 1} must not be locked for VIP user`);
+      assert.ok(
+        !card.classList.contains('bs-episode-card--vip-locked'),
+        `Episode ${idx + 1} must not be locked for VIP user`
+      );
       const cb = card.querySelector('.bs-episode-checkbox');
-      assert.strictEqual(cb.disabled, false, `Episode ${idx + 1} checkbox must be enabled for VIP user`);
+      assert.strictEqual(
+        cb.disabled,
+        false,
+        `Episode ${idx + 1} checkbox must be enabled for VIP user`
+      );
     });
 
     const pillAll = overlay.querySelector('#bs-pill-all');
@@ -673,95 +757,98 @@ async function runAdversarialSuites() {
     }
   });
 
-  await testAsync('HTTP 403 In-Page recovers via Background Fallback when SW succeeds', async () => {
-    const originalFetch = global.fetch;
-    const originalChrome = global.chrome;
+  await testAsync(
+    'HTTP 403 In-Page recovers via Background Fallback when SW succeeds',
+    async () => {
+      const originalFetch = global.fetch;
+      const originalChrome = global.chrome;
 
-    global.fetch = async () => ({
-      ok: false,
-      status: 403,
-      statusText: 'Forbidden'
-    });
+      global.fetch = async () => ({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden'
+      });
 
-    global.chrome = {
-      runtime: {
-        sendMessage: (msg, cb) => {
-          if (msg.type === 'DOWNLOAD_VIDEO') {
-            cb({ success: true, downloadId: 9988 });
-          } else {
-            cb({ success: true });
+      global.chrome = {
+        runtime: {
+          sendMessage: (msg, cb) => {
+            if (msg.type === 'DOWNLOAD_VIDEO') {
+              cb({ success: true, downloadId: 9988 });
+            } else {
+              cb({ success: true });
+            }
           }
         }
+      };
+
+      try {
+        const res = await bstation.downloadStreamInPage({
+          url: 'https://bilivideo.com/stream.mp4',
+          filename: '[Anime] - E01 [720p].mp4'
+        });
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.source, 'background_fallback');
+        assert.strictEqual(res.details.downloadId, 9988);
+      } finally {
+        global.fetch = originalFetch;
+        global.chrome = originalChrome;
       }
-    };
+    }
+  );
 
-    try {
-      const res = await bstation.downloadStreamInPage({
-        url: 'https://bilivideo.com/stream.mp4',
-        filename: '[Anime] - E01 [720p].mp4'
+  await testAsync(
+    'Corrupt Stream: HTTP 200 with text/html content-type (WAF/Cloudflare error block page)',
+    async () => {
+      const originalFetch = global.fetch;
+      global.fetch = async () => ({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html; charset=UTF-8' : null)
+        },
+        blob: async () => ({ size: 4096, type: 'text/html' })
       });
-      assert.strictEqual(res.success, true);
-      assert.strictEqual(res.source, 'background_fallback');
-      assert.strictEqual(res.details.downloadId, 9988);
-    } finally {
-      global.fetch = originalFetch;
-      global.chrome = originalChrome;
-    }
-  });
 
-  await testAsync('Corrupt Stream: HTTP 200 with text/html content-type (WAF/Cloudflare error block page)', async () => {
-    const originalFetch = global.fetch;
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: {
-        get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html; charset=UTF-8' : null)
-      },
-      blob: async () => ({ size: 4096, type: 'text/html' })
-    });
+      const originalChrome = global.chrome;
+      global.chrome = undefined;
 
-    const originalChrome = global.chrome;
-    global.chrome = undefined;
-
-    try {
-      await assert.rejects(
-        async () => {
+      try {
+        await assert.rejects(async () => {
           await bstation.downloadStreamInPage({ url: 'https://bilivideo.com/stream.mp4' });
-        },
-        /Received HTML error page instead of video stream/
-      );
-    } finally {
-      global.fetch = originalFetch;
-      global.chrome = originalChrome;
+        }, /Received HTML error page instead of video stream/);
+      } finally {
+        global.fetch = originalFetch;
+        global.chrome = originalChrome;
+      }
     }
-  });
+  );
 
-  await testAsync('Corrupt Stream: HTTP 200 with application/json (Bstation API error payload disguised as 200)', async () => {
-    const originalFetch = global.fetch;
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: {
-        get: (h) => (h.toLowerCase() === 'content-type' ? 'application/json' : null)
-      },
-      blob: async () => ({ size: 128, type: 'application/json' })
-    });
+  await testAsync(
+    'Corrupt Stream: HTTP 200 with application/json (Bstation API error payload disguised as 200)',
+    async () => {
+      const originalFetch = global.fetch;
+      global.fetch = async () => ({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (h) => (h.toLowerCase() === 'content-type' ? 'application/json' : null)
+        },
+        blob: async () => ({ size: 128, type: 'application/json' })
+      });
 
-    const originalChrome = global.chrome;
-    global.chrome = undefined;
+      const originalChrome = global.chrome;
+      global.chrome = undefined;
 
-    try {
-      await assert.rejects(
-        async () => {
+      try {
+        await assert.rejects(async () => {
           await bstation.downloadStreamInPage({ url: 'https://bilivideo.com/stream.mp4' });
-        },
-        /Received JSON error response instead of video stream/
-      );
-    } finally {
-      global.fetch = originalFetch;
-      global.chrome = originalChrome;
+        }, /Received JSON error response instead of video stream/);
+      } finally {
+        global.fetch = originalFetch;
+        global.chrome = originalChrome;
+      }
     }
-  });
+  );
 
   await testAsync('Corrupt Stream: 0-byte empty video stream', async () => {
     const originalFetch = global.fetch;
@@ -778,99 +865,111 @@ async function runAdversarialSuites() {
     global.chrome = undefined;
 
     try {
-      await assert.rejects(
-        async () => {
-          await bstation.downloadStreamInPage({ url: 'https://bilivideo.com/stream.mp4' });
-        },
-        /Received empty video stream \(0 bytes\)/
-      );
+      await assert.rejects(async () => {
+        await bstation.downloadStreamInPage({ url: 'https://bilivideo.com/stream.mp4' });
+      }, /Received empty video stream \(0 bytes\)/);
     } finally {
       global.fetch = originalFetch;
       global.chrome = originalChrome;
     }
   });
 
-  await testAsync('DirectParallelQueue stress test: Concurrency strictly capped at 2 under mixed failures and successes', async () => {
-    const queue = new bstation.DirectParallelQueue({ concurrency: 2 });
-    let maxObservedActive = 0;
-    const taskOutcomes = [];
+  await testAsync(
+    'DirectParallelQueue stress test: Concurrency strictly capped at 2 under mixed failures and successes',
+    async () => {
+      const queue = new bstation.DirectParallelQueue({ concurrency: 2 });
+      let maxObservedActive = 0;
+      const taskOutcomes = [];
 
-    for (let i = 1; i <= 8; i++) {
-      const isFailing = i % 2 === 0;
-      queue.add({
-        id: `ep_${i}`,
-        epIndex: i,
-        resolveStream: async () => {
-          if (queue.activeWorkers > maxObservedActive) {
-            maxObservedActive = queue.activeWorkers;
+      for (let i = 1; i <= 8; i++) {
+        const isFailing = i % 2 === 0;
+        queue.add({
+          id: `ep_${i}`,
+          epIndex: i,
+          resolveStream: async () => {
+            if (queue.activeWorkers > maxObservedActive) {
+              maxObservedActive = queue.activeWorkers;
+            }
+            assert.ok(
+              queue.activeWorkers <= 2,
+              `Active workers ${queue.activeWorkers} exceeded concurrency 2!`
+            );
+            await new Promise((r) => setTimeout(r, 15));
+            if (isFailing) {
+              throw new Error(`HTTP 403 Forbidden for Episode ${i}`);
+            }
+            return { url: `https://bilivideo.com/stream_${i}.mp4` };
+          },
+          downloadStream: async () => {
+            await new Promise((r) => setTimeout(r, 15));
+            taskOutcomes.push(i);
           }
-          assert.ok(queue.activeWorkers <= 2, `Active workers ${queue.activeWorkers} exceeded concurrency 2!`);
-          await new Promise(r => setTimeout(r, 15));
-          if (isFailing) {
-            throw new Error(`HTTP 403 Forbidden for Episode ${i}`);
-          }
-          return { url: `https://bilivideo.com/stream_${i}.mp4` };
-        },
-        downloadStream: async () => {
-          await new Promise(r => setTimeout(r, 15));
-          taskOutcomes.push(i);
-        }
+        });
+      }
+
+      await new Promise((resolve) => {
+        queue.onAllComplete = (res) => {
+          resolve(res);
+        };
+        queue.start();
       });
-    }
 
-    await new Promise((resolve) => {
-      queue.onAllComplete = (res) => {
-        resolve(res);
-      };
+      assert.ok(
+        maxObservedActive <= 2,
+        `Concurrency violation: max active workers was ${maxObservedActive}`
+      );
+      assert.strictEqual(queue.completedCount, 4, 'Expected exactly 4 successful downloads');
+      assert.strictEqual(queue.failedCount, 4, 'Expected exactly 4 failed downloads');
+      assert.deepStrictEqual(taskOutcomes, [1, 3, 5, 7]);
+    }
+  );
+
+  await testAsync(
+    'DirectParallelQueue cancellation: halting workers drains cleanly without executing queued items',
+    async () => {
+      const queue = new bstation.DirectParallelQueue({ concurrency: 2 });
+      let executedCount = 0;
+
+      for (let i = 1; i <= 10; i++) {
+        queue.add({
+          id: `ep_${i}`,
+          epIndex: i,
+          resolveStream: async () => {
+            executedCount++;
+            await new Promise((r) => setTimeout(r, 30));
+            return { url: 'https://bilivideo.com/stream.mp4' };
+          },
+          downloadStream: async () => {}
+        });
+      }
+
       queue.start();
-    });
+      await new Promise((r) => setTimeout(r, 10)); // let first 2 start
+      queue.cancel();
 
-    assert.ok(maxObservedActive <= 2, `Concurrency violation: max active workers was ${maxObservedActive}`);
-    assert.strictEqual(queue.completedCount, 4, 'Expected exactly 4 successful downloads');
-    assert.strictEqual(queue.failedCount, 4, 'Expected exactly 4 failed downloads');
-    assert.deepStrictEqual(taskOutcomes, [1, 3, 5, 7]);
-  });
-
-  await testAsync('DirectParallelQueue cancellation: halting workers drains cleanly without executing queued items', async () => {
-    const queue = new bstation.DirectParallelQueue({ concurrency: 2 });
-    let executedCount = 0;
-
-    for (let i = 1; i <= 10; i++) {
-      queue.add({
-        id: `ep_${i}`,
-        epIndex: i,
-        resolveStream: async () => {
-          executedCount++;
-          await new Promise(r => setTimeout(r, 30));
-          return { url: 'https://bilivideo.com/stream.mp4' };
-        },
-        downloadStream: async () => {}
-      });
+      await new Promise((r) => setTimeout(r, 100)); // wait for in-flight tasks to finish
+      assert.ok(
+        executedCount <= 2,
+        `Expected at most 2 executed tasks after cancel, got ${executedCount}`
+      );
+      assert.strictEqual(queue.cancelled, true);
     }
+  );
 
-    queue.start();
-    await new Promise(r => setTimeout(r, 10)); // let first 2 start
-    queue.cancel();
+  await testAsync(
+    'Bridge request timeout handling: rejects at timeoutMs and detaches event listener',
+    async () => {
+      setupMockEnvironment({});
 
-    await new Promise(r => setTimeout(r, 100)); // wait for in-flight tasks to finish
-    assert.ok(executedCount <= 2, `Expected at most 2 executed tasks after cancel, got ${executedCount}`);
-    assert.strictEqual(queue.cancelled, true);
-  });
-
-  await testAsync('Bridge request timeout handling: rejects at timeoutMs and detaches event listener', async () => {
-    setupMockEnvironment({});
-
-    const start = Date.now();
-    await assert.rejects(
-      async () => {
+      const start = Date.now();
+      await assert.rejects(async () => {
         // Request with short 50ms timeout
         await bstation.requestBridgeStream({ ep_id: '999999' }, 50);
-      },
-      /Timeout waiting for Bstation stream bridge/
-    );
-    const elapsed = Date.now() - start;
-    assert.ok(elapsed >= 40, `Timeout fired too quickly: ${elapsed}ms`);
-  });
+      }, /Timeout waiting for Bstation stream bridge/);
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed >= 40, `Timeout fired too quickly: ${elapsed}ms`);
+    }
+  );
 
   test('Button State Machine error transitions: transitions to error state and auto-recovers', async () => {
     const btn = new MockElement('BUTTON');
@@ -909,7 +1008,11 @@ async function runAdversarialSuites() {
       assert.ok(!fn.includes('/'), `Filename contains illegal forward slash: ${fn}`);
       assert.ok(!fn.includes('\\'), `Filename contains illegal backslash: ${fn}`);
       assert.ok(!fn.startsWith('.'), `Filename must not start with dot: ${fn}`);
-      assert.strictEqual(path.basename(fn), fn, `Filename must be strictly a flat basename without directory paths: ${fn}`);
+      assert.strictEqual(
+        path.basename(fn),
+        fn,
+        `Filename must be strictly a flat basename without directory paths: ${fn}`
+      );
     });
   });
 
@@ -932,17 +1035,17 @@ async function runAdversarialSuites() {
     }
   });
 
-  await testAsync('downloadStreamInPage input boundary: null, empty, or missing URL throws cleanly', async () => {
-    const inputs = [null, undefined, {}, { url: '' }, { url: '   ' }];
-    for (const input of inputs) {
-      await assert.rejects(
-        async () => {
+  await testAsync(
+    'downloadStreamInPage input boundary: null, empty, or missing URL throws cleanly',
+    async () => {
+      const inputs = [null, undefined, {}, { url: '' }, { url: '   ' }];
+      for (const input of inputs) {
+        await assert.rejects(async () => {
           await bstation.downloadStreamInPage(input);
-        },
-        /(Invalid or missing (video download )?stream URL|Failed to parse URL)/
-      );
+        }, /(Invalid or missing (video download )?stream URL|Failed to parse URL)/);
+      }
     }
-  });
+  );
 
   test('DirectParallelQueue empty list boundary: zero tasks does not throw and leaves queue idle', () => {
     const queue = new bstation.DirectParallelQueue({ concurrency: 2 });
@@ -955,34 +1058,41 @@ async function runAdversarialSuites() {
     assert.strictEqual(queue.failedCount, 0);
   });
 
-  await testAsync('DirectParallelQueue non-Error throws: recovers from string, Error, and object errors', async () => {
-    const queue = new bstation.DirectParallelQueue({ concurrency: 2 });
-    const thrownValues = ['Direct string error', new Error('Standard Error'), { message: 'Custom object error' }];
+  await testAsync(
+    'DirectParallelQueue non-Error throws: recovers from string, Error, and object errors',
+    async () => {
+      const queue = new bstation.DirectParallelQueue({ concurrency: 2 });
+      const thrownValues = [
+        'Direct string error',
+        new Error('Standard Error'),
+        { message: 'Custom object error' }
+      ];
 
-    thrownValues.forEach((val, idx) => {
-      queue.add({
-        id: `task_${idx}`,
-        epIndex: idx + 1,
-        resolveStream: async () => {
-          throw val;
-        },
-        downloadStream: async () => {}
+      thrownValues.forEach((val, idx) => {
+        queue.add({
+          id: `task_${idx}`,
+          epIndex: idx + 1,
+          resolveStream: async () => {
+            throw val;
+          },
+          downloadStream: async () => {}
+        });
       });
-    });
 
-    const res = await new Promise((resolve) => {
-      queue.onAllComplete = resolve;
-      queue.start();
-    });
+      const res = await new Promise((resolve) => {
+        queue.onAllComplete = resolve;
+        queue.start();
+      });
 
-    assert.strictEqual(res.total, thrownValues.length);
-    assert.strictEqual(res.failed, thrownValues.length);
-    assert.strictEqual(res.completed, 0);
-    queue.items.forEach((item) => {
-      assert.strictEqual(item.status, 'failed');
-      assert.ok(typeof item.error === 'string' && item.error.length > 0);
-    });
-  });
+      assert.strictEqual(res.total, thrownValues.length);
+      assert.strictEqual(res.failed, thrownValues.length);
+      assert.strictEqual(res.completed, 0);
+      queue.items.forEach((item) => {
+        assert.strictEqual(item.status, 'failed');
+        assert.ok(typeof item.error === 'string' && item.error.length > 0);
+      });
+    }
+  );
 
   test('Corrupt and missing SSR hydration resilience: no crashes on null/empty/corrupted state', () => {
     const corruptStates = [
@@ -1032,12 +1142,14 @@ async function runAdversarialSuites() {
   });
 
   console.log('\n======================================================================');
-  console.log(` ADVERSARIAL TEST RESULTS: ${passedTests} passed, ${failedTests} failed (Total: ${totalTests})`);
+  console.log(
+    ` ADVERSARIAL TEST RESULTS: ${passedTests} passed, ${failedTests} failed (Total: ${totalTests})`
+  );
   console.log('======================================================================\n');
 
   if (failedTests > 0) {
     console.error('FAILURES:');
-    failures.forEach(f => console.error(` - ${f.name}: ${f.error.message}`));
+    failures.forEach((f) => console.error(` - ${f.name}: ${f.error.message}`));
     process.exit(1);
   }
 }

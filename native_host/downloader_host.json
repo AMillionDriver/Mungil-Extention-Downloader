@@ -1,0 +1,7 @@
+{
+  "name": "com.direct.downloader.host",
+  "description": "Direct Downloader yt-dlp Native Host",
+  "path": "c:\\Users\\flami\\.gemini\\antigravity\\scratch\\tiktok-direct-downloader-extension\\native_host\\downloader_host.bat",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://igcpmnbdlbbpnloalceckaomifgbnkga/"]
+}

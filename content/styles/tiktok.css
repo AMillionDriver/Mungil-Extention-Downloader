@@ -40,17 +40,18 @@
   box-sizing: border-box !important;
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              background 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition:
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* Hover state */
 .tt-dl-btn:hover:not(:disabled) {
   transform: scale(1.08) !important;
   background: rgba(255, 255, 255, 0.22) !important;
-  color: #25F4EE !important;
+  color: #25f4ee !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
 }
 
@@ -82,7 +83,14 @@
 
 /* Count / Label below button matching native font */
 .tt-dl-label {
-  font-family: TikTokFont, PingFangSC, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-family:
+    TikTokFont,
+    PingFangSC,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 16px !important;
@@ -95,8 +103,12 @@
 
 /* Spinner Animation */
 @keyframes tt-dl-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .tt-dl-spinner {
@@ -106,17 +118,17 @@
 /* State Specific Visual Tweaks */
 .tt-dl-state-loading {
   background: rgba(37, 244, 238, 0.18) !important;
-  color: #25F4EE !important;
+  color: #25f4ee !important;
 }
 
 .tt-dl-state-success {
   background: rgba(34, 197, 94, 0.22) !important;
-  color: #22C55E !important;
+  color: #22c55e !important;
   box-shadow: 0 0 16px rgba(34, 197, 94, 0.4) !important;
 }
 
 .tt-dl-state-error {
   background: rgba(254, 44, 85, 0.22) !important;
-  color: #FE2C55 !important;
+  color: #fe2c55 !important;
   box-shadow: 0 0 16px rgba(254, 44, 85, 0.4) !important;
 }

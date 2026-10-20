@@ -1,7 +1,7 @@
 /**
  * TikTok Direct Downloader - MAIN World Bridge Script
  * Runs at document_start in the MAIN world to access page JavaScript scope.
- * 
+ *
  * Features:
  * 1. Hydration extraction: window.__UNIVERSAL_DATA_FOR_REHYDRATION__ & window.SIGI_STATE
  * 2. Network interception: window.fetch hook caching dynamic itemStructs from /api/recommend/item_list, feed, detail
@@ -13,10 +13,62 @@
 (function () {
   'use strict';
 
-  // In-memory cache for resolved video structures: Map<videoId, normalizedItem>
-  const videoCache = new Map();
-  // Author handle secondary index: Map<cleanAuthorLowerCase, normalizedItem[]>
-  const authorCache = new Map();
+  /**
+   * High-performance, zero-overhead bounded LRU Cache conforming to Map API.
+   * Auto-evicts oldest entries when exceeding maxSize to protect against unbounded heap growth.
+   */
+  class BoundedLRUCache {
+    constructor(maxSize = 50) {
+      this.maxSize = Math.max(1, maxSize);
+      this.map = new Map();
+    }
+    get(key) {
+      if (!this.map.has(key)) return undefined;
+      const val = this.map.get(key);
+      this.map.delete(key);
+      this.map.set(key, val);
+      return val;
+    }
+    set(key, val) {
+      if (this.map.has(key)) {
+        this.map.delete(key);
+      } else if (this.map.size >= this.maxSize) {
+        const oldestKey = this.map.keys().next().value;
+        this.map.delete(oldestKey);
+      }
+      this.map.set(key, val);
+      return this;
+    }
+    has(key) {
+      return this.map.has(key);
+    }
+    delete(key) {
+      return this.map.delete(key);
+    }
+    clear() {
+      this.map.clear();
+    }
+    get size() {
+      return this.map.size;
+    }
+    values() {
+      return this.map.values();
+    }
+    keys() {
+      return this.map.keys();
+    }
+    entries() {
+      return this.map.entries();
+    }
+    [Symbol.iterator]() {
+      return this.map[Symbol.iterator]();
+    }
+  }
+
+  // In-memory cache for resolved video structures: BoundedLRUCache<videoId, normalizedItem> (max 50)
+  const videoCache = new BoundedLRUCache(50);
+  // Author handle secondary index: BoundedLRUCache<cleanAuthorLowerCase, normalizedItem[]> (max 50)
+  const authorCache = new BoundedLRUCache(50);
 
   /**
    * Caches normalized item into both primary (videoId) and secondary (author) indexes.
@@ -37,6 +89,10 @@
         const list = authorCache.get(cleanAuthor);
         if (!list.some((existing) => existing.videoId === normalized.videoId)) {
           list.push(normalized);
+          // Bound list size per author to max 5 to prevent unbounded array growth
+          if (list.length > 5) {
+            list.shift();
+          }
         }
       }
     }
@@ -50,7 +106,7 @@
    * @param {object} item
    * @returns {object|null}
    */
-  function normalizeItemStruct(item) {
+  function normalizeItemStruct(item, preferredCodec = 'data_saver') {
     if (!item || typeof item !== 'object') return null;
 
     // Handle nested itemStruct wrapper
@@ -64,21 +120,59 @@
     // Extract raw playAddr (string or object with UrlList)
     if (typeof video.playAddr === 'string') {
       bestPlayUrl = video.playAddr;
-    } else if (video.playAddr && Array.isArray(video.playAddr.UrlList) && video.playAddr.UrlList.length > 0) {
+    } else if (
+      video.playAddr &&
+      Array.isArray(video.playAddr.UrlList) &&
+      video.playAddr.UrlList.length > 0
+    ) {
       bestPlayUrl = video.playAddr.UrlList[0];
-    } else if (video.play_addr && Array.isArray(video.play_addr.url_list) && video.play_addr.url_list.length > 0) {
+    } else if (
+      video.play_addr &&
+      Array.isArray(video.play_addr.url_list) &&
+      video.play_addr.url_list.length > 0
+    ) {
       bestPlayUrl = video.play_addr.url_list[0];
     }
 
-    // Check bitrateInfo array for highest bitrate unwatermarked stream
+    // Check bitrateInfo array for highest bitrate unwatermarked stream with codec prioritization
+    let resolvedCodec = 'h264';
     if (Array.isArray(video.bitrateInfo) && video.bitrateInfo.length > 0) {
-      const sorted = [...video.bitrateInfo].sort((a, b) => (b.Bitrate || 0) - (a.Bitrate || 0));
+      const isDataSaver = preferredCodec !== 'compatibility';
+      const scoreCodec = (entry) => {
+        const c = String(entry.CodecType || entry.codec_type || '').toLowerCase();
+        const g = String(entry.GearName || '').toLowerCase();
+        if (isDataSaver) {
+          // Data-Saver: Prioritize ByteVC1 (HEVC) or AV1 for ~50-65% bandwidth savings at identical perceptual quality
+          if (c.includes('bytevc1') || c.includes('hevc') || g.includes('bytevc1')) return 3;
+          if (c.includes('av1') || c.includes('av01') || g.includes('av1')) return 2;
+          return 1;
+        } else {
+          // Compatibility mode: Prioritize standard H.264
+          if (c.includes('h264') || c.includes('avc') || g.includes('h264')) return 3;
+          return 1;
+        }
+      };
+
+      const sorted = [...video.bitrateInfo].sort((a, b) => {
+        const scoreDiff = scoreCodec(b) - scoreCodec(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.Bitrate || 0) - (a.Bitrate || 0);
+      });
+
       for (const entry of sorted) {
-        if (entry.PlayAddr && Array.isArray(entry.PlayAddr.UrlList) && entry.PlayAddr.UrlList.length > 0) {
+        if (
+          entry.PlayAddr &&
+          Array.isArray(entry.PlayAddr.UrlList) &&
+          entry.PlayAddr.UrlList.length > 0
+        ) {
           bestPlayUrl = entry.PlayAddr.UrlList[0];
+          resolvedCodec =
+            entry.CodecType || entry.codec_type || (scoreCodec(entry) >= 2 ? 'bytevc1' : 'h264');
           break;
         } else if (typeof entry.PlayAddr === 'string' && entry.PlayAddr) {
           bestPlayUrl = entry.PlayAddr;
+          resolvedCodec =
+            entry.CodecType || entry.codec_type || (scoreCodec(entry) >= 2 ? 'bytevc1' : 'h264');
           break;
         }
       }
@@ -87,7 +181,11 @@
     // Check if item is a photo/slideshow post
     let isPhotoPost = false;
     let photoImages = [];
-    if (item.imagePostInfo && Array.isArray(item.imagePostInfo.images) && item.imagePostInfo.images.length > 0) {
+    if (
+      item.imagePostInfo &&
+      Array.isArray(item.imagePostInfo.images) &&
+      item.imagePostInfo.images.length > 0
+    ) {
       isPhotoPost = true;
       photoImages = item.imagePostInfo.images
         .map((img) => {
@@ -101,14 +199,23 @@
     let downloadUrl = '';
     if (typeof video.downloadAddr === 'string') {
       downloadUrl = video.downloadAddr;
-    } else if (video.downloadAddr && Array.isArray(video.downloadAddr.UrlList) && video.downloadAddr.UrlList.length > 0) {
+    } else if (
+      video.downloadAddr &&
+      Array.isArray(video.downloadAddr.UrlList) &&
+      video.downloadAddr.UrlList.length > 0
+    ) {
       downloadUrl = video.downloadAddr.UrlList[0];
-    } else if (video.download_addr && Array.isArray(video.download_addr.url_list) && video.download_addr.url_list.length > 0) {
+    } else if (
+      video.download_addr &&
+      Array.isArray(video.download_addr.url_list) &&
+      video.download_addr.url_list.length > 0
+    ) {
       downloadUrl = video.download_addr.url_list[0];
     }
 
     if (!downloadUrl) downloadUrl = bestPlayUrl;
-    const resolvedPlayUrl = bestPlayUrl || downloadUrl || (photoImages.length > 0 ? photoImages[0] : '');
+    const resolvedPlayUrl =
+      bestPlayUrl || downloadUrl || (photoImages.length > 0 ? photoImages[0] : '');
 
     if (!resolvedPlayUrl) return null;
 
@@ -121,7 +228,8 @@
     if (typeof authorObj === 'string') {
       author = authorObj;
     } else if (typeof authorObj === 'object') {
-      author = authorObj.uniqueId || authorObj.unique_id || authorObj.id || item.authorName || 'unknown';
+      author =
+        authorObj.uniqueId || authorObj.unique_id || authorObj.id || item.authorName || 'unknown';
       nickname = authorObj.nickname || '';
     }
 
@@ -141,7 +249,8 @@
       images: photoImages,
       bitrate,
       quality,
-      duration
+      duration,
+      codec: resolvedCodec
     };
   }
 
@@ -169,7 +278,9 @@
     if (!raw || !raw.__DEFAULT_SCOPE__) return null;
     const scope = raw.__DEFAULT_SCOPE__;
 
-    const cleanAuthor = targetAuthor ? String(targetAuthor).toLowerCase().replace(/^@+/, '').trim() : '';
+    const cleanAuthor = targetAuthor
+      ? String(targetAuthor).toLowerCase().replace(/^@+/, '').trim()
+      : '';
 
     // 1. Check webapp.video-detail / webapp.item-detail
     const detailScope = scope['webapp.video-detail'] || scope['webapp.item-detail'];
@@ -183,7 +294,10 @@
         if (idMatches || authorMatches) {
           return { data: normalized, tier: 'universal_data' };
         }
-        const isSingleVideoPage = typeof window !== 'undefined' && window.location && window.location.pathname.includes('/video/');
+        const isSingleVideoPage =
+          typeof window !== 'undefined' &&
+          window.location &&
+          window.location.pathname.includes('/video/');
         if (isSingleVideoPage && !targetId && !cleanAuthor) {
           return { data: normalized, tier: 'universal_data' };
         }
@@ -248,7 +362,9 @@
 
     if (!sigi || !sigi.ItemModule) return null;
     const itemModule = sigi.ItemModule;
-    const cleanAuthor = targetAuthor ? String(targetAuthor).toLowerCase().replace(/^@+/, '').trim() : '';
+    const cleanAuthor = targetAuthor
+      ? String(targetAuthor).toLowerCase().replace(/^@+/, '').trim()
+      : '';
 
     if (targetId && itemModule[targetId]) {
       const normalized = normalizeItemStruct(itemModule[targetId]);
@@ -291,13 +407,19 @@
       if (v) candidates.push(v);
       const feedV = domElement.querySelector('[data-e2e="feed-video"]');
       if (feedV) candidates.push(feedV);
-      const playerC = domElement.querySelector('[class*="DivVideoWrapper"], [class*="DivPlayerContainer"], [class*="DivItemContainer"]');
+      const playerC = domElement.querySelector(
+        '[class*="DivVideoWrapper"], [class*="DivPlayerContainer"], [class*="DivItemContainer"]'
+      );
       if (playerC) candidates.push(playerC);
-      const actionC = domElement.querySelector('[class*="DivActionItemContainer"], [class*="ActionBar"]');
+      const actionC = domElement.querySelector(
+        '[class*="DivActionItemContainer"], [class*="ActionBar"]'
+      );
       if (actionC) candidates.push(actionC);
     }
     if (typeof domElement.closest === 'function') {
-      const outerCard = domElement.closest('[data-e2e="recommend-list-item-container"], [data-e2e="browse-video"], article, div[class*="DivItemContainer"]');
+      const outerCard = domElement.closest(
+        '[data-e2e="recommend-list-item-container"], [data-e2e="browse-video"], article, div[class*="DivItemContainer"]'
+      );
       if (outerCard && !candidates.includes(outerCard)) candidates.unshift(outerCard);
     }
 
@@ -315,7 +437,16 @@
             while (fiber && fiberDepth < 20) {
               const props = fiber.memoizedProps || fiber.pendingProps;
               if (props && typeof props === 'object') {
-                const candidate = props.item || props.itemStruct || props.videoInfo || props.aweme || props.post || props.videoData || props.currentVideo || props.feedItem || (props.data && (props.data.item || props.data.itemStruct));
+                const candidate =
+                  props.item ||
+                  props.itemStruct ||
+                  props.videoInfo ||
+                  props.aweme ||
+                  props.post ||
+                  props.videoData ||
+                  props.currentVideo ||
+                  props.feedItem ||
+                  (props.data && (props.data.item || props.data.itemStruct));
                 if (candidate && typeof candidate === 'object') {
                   const normalized = normalizeItemStruct(candidate);
                   if (normalized && (normalized.playUrl || normalized.downloadUrl)) {
@@ -341,7 +472,12 @@
               while (stateNode && stateDepth < 10) {
                 const stateVal = stateNode.memoizedState;
                 if (stateVal && typeof stateVal === 'object') {
-                  const candidate = stateVal.item || stateVal.itemStruct || stateVal.videoInfo || stateVal.aweme || stateVal;
+                  const candidate =
+                    stateVal.item ||
+                    stateVal.itemStruct ||
+                    stateVal.videoInfo ||
+                    stateVal.aweme ||
+                    stateVal;
                   if (candidate && typeof candidate === 'object') {
                     const normalized = normalizeItemStruct(candidate);
                     if (normalized && (normalized.playUrl || normalized.downloadUrl)) {
@@ -367,7 +503,13 @@
           if (key.startsWith('__reactProps$')) {
             const props = node[key];
             if (props && typeof props === 'object') {
-              const candidate = props.item || props.itemStruct || props.videoInfo || props.aweme || props.post || (props.data && (props.data.item || props.data.itemStruct));
+              const candidate =
+                props.item ||
+                props.itemStruct ||
+                props.videoInfo ||
+                props.aweme ||
+                props.post ||
+                (props.data && (props.data.item || props.data.itemStruct));
               if (candidate && typeof candidate === 'object') {
                 const normalized = normalizeItemStruct(candidate);
                 if (normalized && (normalized.playUrl || normalized.downloadUrl)) {
@@ -399,7 +541,12 @@
    * Intercepts window.XMLHttpRequest to capture feed data loaded via XHR.
    */
   function hookXHR() {
-    if (typeof window === 'undefined' || typeof window.XMLHttpRequest !== 'function' || !window.XMLHttpRequest.prototype) return;
+    if (
+      typeof window === 'undefined' ||
+      typeof window.XMLHttpRequest !== 'function' ||
+      !window.XMLHttpRequest.prototype
+    )
+      return;
     const originalOpen = window.XMLHttpRequest.prototype.open;
     const originalSend = window.XMLHttpRequest.prototype.send;
     if (typeof originalOpen !== 'function' || typeof originalSend !== 'function') return;
@@ -452,7 +599,8 @@
     window.fetch = async function (...args) {
       const response = await originalFetch.apply(this, args);
       try {
-        const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+        const url =
+          typeof args[0] === 'string' ? args[0] : args[0] && args[0].url ? args[0].url : '';
         if (
           url.includes('item_list') ||
           url.includes('item/detail') ||
@@ -494,16 +642,39 @@
 
     document.addEventListener('TT_BRIDGE_REQUEST', (event) => {
       const detail = event.detail || {};
-      const { requestId, videoId, url, author, nickname, description, duration, targetSelector } = detail;
+      const {
+        requestId,
+        videoId,
+        url,
+        author,
+        nickname,
+        description,
+        duration,
+        targetSelector,
+        codecPreference: _codecPreference
+      } = detail;
       if (!requestId) return;
 
-      const cleanAuthor = author && author !== 'unknown' ? String(author).toLowerCase().replace(/^@+/, '').trim() : '';
-      const cleanNick = nickname ? String(nickname).toLowerCase().replace(/[^a-z0-9]/g, '') : '';
-      const cleanDesc = description ? String(description).toLowerCase().replace(/[#@\s]+/g, ' ').trim() : '';
+      const cleanAuthor =
+        author && author !== 'unknown'
+          ? String(author).toLowerCase().replace(/^@+/, '').trim()
+          : '';
+      const cleanNick = nickname
+        ? String(nickname)
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '')
+        : '';
+      const cleanDesc = description
+        ? String(description)
+            .toLowerCase()
+            .replace(/[#@\s]+/g, ' ')
+            .trim()
+        : '';
       const numDuration = Number(duration) || 0;
 
       // Disregard generated synthetic timestamps (e.g. 13-digit Date.now()) as real TikTok IDs
-      const isValidVideoId = videoId && String(videoId).length >= 15 && /^\d+$/.test(String(videoId));
+      const isValidVideoId =
+        videoId && String(videoId).length >= 15 && /^\d+$/.test(String(videoId));
 
       let result = null;
       let tier = 'none';
@@ -538,7 +709,10 @@
       if (!result && cleanDesc && cleanDesc.length >= 4) {
         const descWords = cleanDesc.split(/\s+/).filter((w) => w.length >= 3);
         for (const item of videoCache.values()) {
-          const itemDesc = (item.description || '').toLowerCase().replace(/[#@\s]+/g, ' ').trim();
+          const itemDesc = (item.description || '')
+            .toLowerCase()
+            .replace(/[#@\s]+/g, ' ')
+            .trim();
           if (!itemDesc) continue;
           if (itemDesc.includes(cleanDesc) || cleanDesc.includes(itemDesc)) {
             result = item;
@@ -585,7 +759,10 @@
       if (!result && cleanNick && cleanNick.length >= 3) {
         for (const item of videoCache.values()) {
           const itemNick = (item.nickname || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          if (itemNick && (itemNick === cleanNick || itemNick.includes(cleanNick) || cleanNick.includes(itemNick))) {
+          if (
+            itemNick &&
+            (itemNick === cleanNick || itemNick.includes(cleanNick) || cleanNick.includes(itemNick))
+          ) {
             result = item;
             tier = 'nickname_cache';
             break;
@@ -632,7 +809,10 @@
       }
 
       // 9. If strictly only a single video is loaded in entire page cache AND we are on a single video page
-      const isSingleVideoPage = typeof window !== 'undefined' && window.location && window.location.pathname.includes('/video/');
+      const isSingleVideoPage =
+        typeof window !== 'undefined' &&
+        window.location &&
+        window.location.pathname.includes('/video/');
       if (!result && videoCache.size === 1 && isSingleVideoPage) {
         result = videoCache.values().next().value;
         tier = 'single_video_cache';

@@ -1,3 +1,40 @@
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Native Host Binaries & Heavy Assets (Provisioned dynamically by install_host.bat)
+native_host/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+
+# Local Environment & Agent Configs
 .agents/
+scratch/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test Outputs & Coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Operating System & IDE Artifacts
 .DS_Store
 Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sublime-workspace
+
+# Build / Packaged Extension Archives
+*.zip
+*.crx
+*.pem

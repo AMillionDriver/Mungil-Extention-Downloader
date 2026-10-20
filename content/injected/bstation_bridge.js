@@ -17,10 +17,62 @@
 (function () {
   'use strict';
 
-  // Primary stream cache by ep_id (Map<string, object>)
-  const epCache = new Map();
-  // Secondary stream cache by aid or bvid (Map<string, object>)
-  const videoCache = new Map();
+  /**
+   * High-performance, zero-overhead bounded LRU Cache conforming to Map API.
+   * Auto-evicts oldest entries when exceeding maxSize to protect against unbounded heap growth.
+   */
+  class BoundedLRUCache {
+    constructor(maxSize = 50) {
+      this.maxSize = Math.max(1, maxSize);
+      this.map = new Map();
+    }
+    get(key) {
+      if (!this.map.has(key)) return undefined;
+      const val = this.map.get(key);
+      this.map.delete(key);
+      this.map.set(key, val);
+      return val;
+    }
+    set(key, val) {
+      if (this.map.has(key)) {
+        this.map.delete(key);
+      } else if (this.map.size >= this.maxSize) {
+        const oldestKey = this.map.keys().next().value;
+        this.map.delete(oldestKey);
+      }
+      this.map.set(key, val);
+      return this;
+    }
+    has(key) {
+      return this.map.has(key);
+    }
+    delete(key) {
+      return this.map.delete(key);
+    }
+    clear() {
+      this.map.clear();
+    }
+    get size() {
+      return this.map.size;
+    }
+    values() {
+      return this.map.values();
+    }
+    keys() {
+      return this.map.keys();
+    }
+    entries() {
+      return this.map.entries();
+    }
+    [Symbol.iterator]() {
+      return this.map[Symbol.iterator]();
+    }
+  }
+
+  // Primary stream cache by ep_id: BoundedLRUCache<string, object> (max 50)
+  const epCache = new BoundedLRUCache(50);
+  // Secondary stream cache by aid or bvid: BoundedLRUCache<string, object> (max 50)
+  const videoCache = new BoundedLRUCache(50);
   // Last active intercepted stream
   let activeStream = null;
 
@@ -31,7 +83,9 @@
     const setupHook = (propName) => {
       try {
         Object.defineProperty(window, propName, {
-          get() { return _state; },
+          get() {
+            return _state;
+          },
           set(val) {
             _state = val;
             try {
@@ -54,12 +108,18 @@
   function mapQnToLabel(qn) {
     const num = Number(qn);
     switch (num) {
-      case 112: return '1080p+';
-      case 80:  return '1080p';
-      case 64:  return '720p';
-      case 32:  return '480p';
-      case 16:  return '360p';
-      default:  return num > 0 ? `${num}p` : '720p';
+      case 112:
+        return '1080p+';
+      case 80:
+        return '1080p';
+      case 64:
+        return '720p';
+      case 32:
+        return '480p';
+      case 16:
+        return '360p';
+      default:
+        return num > 0 ? `${num}p` : '720p';
     }
   }
 
@@ -88,7 +148,8 @@
     let format = playurl.format || root.format || 'HD 720P';
     const timelength = playurl.timelength || root.timelength || 0;
     const acceptQuality = playurl.accept_quality || root.accept_quality || [80, 64, 32, 16];
-    const acceptDescription = playurl.accept_description || root.accept_description || ['1080P', '720P', '480P', '360P'];
+    const acceptDescription = playurl.accept_description ||
+      root.accept_description || ['1080P', '720P', '480P', '360P'];
 
     // 1. Check progressive durl array (single multiplexed MP4 stream)
     if (Array.isArray(playurl.durl) && playurl.durl.length > 0) {
@@ -120,20 +181,52 @@
     }
 
     // 3. Check DASH streams (data.dash)
+    let resolvedCodec = 'h264';
+    const preferredCodec = (extraMeta && extraMeta.codecPreference) || 'data_saver';
+    const isDataSaver = preferredCodec !== 'compatibility';
+
     const dash = root.dash || playurl.dash;
     if (dash && typeof dash === 'object') {
       if (Array.isArray(dash.video) && dash.video.length > 0) {
-        for (const v of dash.video) {
-          if (!v) continue;
+        // Score video codec:
+        // In data_saver: codecid 12 (HEVC) or 13 (AV1) > 7 (AVC) -> ~50-65% bandwidth reduction!
+        // In compatibility: codecid 7 (AVC) > 12 > 13
+        const scoreCodec = (v) => {
+          const cid = Number(v.codecid || v.codec_id || 0);
+          if (isDataSaver) {
+            if (cid === 12) return 3; // HEVC / H.265
+            if (cid === 13) return 2; // AV1
+            return 1; // AVC / H.264
+          } else {
+            if (cid === 7) return 3; // AVC / H.264
+            if (cid === 12) return 2;
+            return 1;
+          }
+        };
+
+        const sortedVideos = [...dash.video]
+          .filter((v) => v && (v.baseUrl || v.base_url || v.url))
+          .sort((a, b) => {
+            const qDiff = (b.id || 0) - (a.id || 0);
+            if (qDiff !== 0) return qDiff;
+            const cDiff = scoreCodec(b) - scoreCodec(a);
+            if (cDiff !== 0) return cDiff;
+            return (b.bandwidth || 0) - (a.bandwidth || 0);
+          });
+
+        if (sortedVideos.length > 0) {
+          const v = sortedVideos[0];
           const vUrl = v.baseUrl || v.base_url || v.url;
           if (vUrl) {
-            if (!bestPlayUrl) bestPlayUrl = vUrl;
+            bestPlayUrl = vUrl;
             const bkp = v.backupUrl || v.backup_url;
             if (Array.isArray(bkp)) {
+              backupUrls.length = 0;
               backupUrls.push(...bkp.filter(Boolean));
             }
             if (v.id) quality = v.id;
-            break;
+            const cid = Number(v.codecid || v.codec_id || 0);
+            resolvedCodec = cid === 12 ? 'hevc' : cid === 13 ? 'av1' : 'h264';
           }
         }
       }
@@ -161,9 +254,9 @@
 
     if (!bestPlayUrl) return null;
 
-    const epId = extraMeta.ep_id ? String(extraMeta.ep_id) : (root.ep_id ? String(root.ep_id) : '');
-    const aid = extraMeta.aid ? String(extraMeta.aid) : (root.aid ? String(root.aid) : '');
-    const bvid = extraMeta.bvid ? String(extraMeta.bvid) : (root.bvid ? String(root.bvid) : '');
+    const epId = extraMeta.ep_id ? String(extraMeta.ep_id) : root.ep_id ? String(root.ep_id) : '';
+    const aid = extraMeta.aid ? String(extraMeta.aid) : root.aid ? String(root.aid) : '';
+    const bvid = extraMeta.bvid ? String(extraMeta.bvid) : root.bvid ? String(root.bvid) : '';
     const title = extraMeta.title || root.title || '';
     const isVip = !!(extraMeta.is_vip || root.is_vip || quality > 64);
     const qualityLabel = mapQnToLabel(quality);
@@ -184,7 +277,8 @@
       duration: timelength,
       accept_quality: acceptQuality,
       accept_description: acceptDescription,
-      is_vip: isVip
+      is_vip: isVip,
+      codec: resolvedCodec
     };
   }
 
@@ -212,7 +306,11 @@
     if (typeof window === 'undefined') return null;
 
     let state = window.__INITIAL_STATE__ || window.__initialState;
-    if (!state && typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+    if (
+      !state &&
+      typeof document !== 'undefined' &&
+      typeof document.getElementById === 'function'
+    ) {
       const script = document.getElementById('__INITIAL_STATE__');
       if (script && script.textContent) {
         try {
@@ -224,10 +322,21 @@
     if (!state || typeof state !== 'object') return null;
 
     const mediaInfo = state.mediaInfo || state.season || (state.ogv && state.ogv.season) || {};
-    const seriesTitle = mediaInfo.title || mediaInfo.season_title || (state.ogv && state.ogv.season && (state.ogv.season.title || state.ogv.season.season_title)) || '';
+    const seriesTitle =
+      mediaInfo.title ||
+      mediaInfo.season_title ||
+      (state.ogv &&
+        state.ogv.season &&
+        (state.ogv.season.title || state.ogv.season.season_title)) ||
+      '';
     const user = state.user || state.userInfo || {};
     const vipInfo = user.vip_info || user.vip || {};
-    const isVip = !!(vipInfo.is_vip || vipInfo.status === 1 || vipInfo.vip_type > 0 || (user.vip && user.vip.status === 1));
+    const isVip = !!(
+      vipInfo.is_vip ||
+      vipInfo.status === 1 ||
+      vipInfo.vip_type > 0 ||
+      (user.vip && user.vip.status === 1)
+    );
 
     const epInfo = state.epInfo || state.activeEp || (state.ogv && { ep_id: state.ogv.epId }) || {};
     let rawList = state.epList || state.episodes;
@@ -236,21 +345,21 @@
     }
     if (!rawList && state.sections && Array.isArray(state.sections)) {
       rawList = [];
-      state.sections.forEach(sec => {
+      state.sections.forEach((sec) => {
         const list = sec.episodes || sec.epList || sec.episodeList || sec.list || sec.items;
         if (Array.isArray(list)) rawList.push(...list);
       });
     }
     if (!rawList && state.ogv && Array.isArray(state.ogv.sectionsList)) {
       rawList = [];
-      state.ogv.sectionsList.forEach(sec => {
+      state.ogv.sectionsList.forEach((sec) => {
         const list = sec.episodes || sec.epList || sec.episodeList || sec.list || sec.items;
         if (Array.isArray(list)) rawList.push(...list);
       });
     }
     if (!rawList && mediaInfo.sections && Array.isArray(mediaInfo.sections)) {
       rawList = [];
-      mediaInfo.sections.forEach(sec => {
+      mediaInfo.sections.forEach((sec) => {
         const list = sec.episodes || sec.epList || sec.episodeList || sec.list || sec.items;
         if (Array.isArray(list)) rawList.push(...list);
       });
@@ -295,7 +404,9 @@
       targetEp = normalizedEpisodes.find((e) => String(e.ep_id || e.id) === String(targetEpId));
     }
     if (!targetEp) {
-      targetEp = epInfo.ep_id ? normalizedEpisodes.find(e => String(e.ep_id) === String(epInfo.ep_id)) : (normalizedEpisodes[0] || null);
+      targetEp = epInfo.ep_id
+        ? normalizedEpisodes.find((e) => String(e.ep_id) === String(epInfo.ep_id))
+        : normalizedEpisodes[0] || null;
     }
 
     return {
@@ -311,7 +422,12 @@
    * so content scripts running in the ISOLATED world can access the true episode count without IPC lag.
    */
   function syncSeriesInfoToDOM() {
-    if (typeof document === 'undefined' || typeof document.getElementById !== 'function' || typeof document.createElement !== 'function') return;
+    if (
+      typeof document === 'undefined' ||
+      typeof document.getElementById !== 'function' ||
+      typeof document.createElement !== 'function'
+    )
+      return;
     try {
       const info = extractFromInitialState(null);
       if (info && Array.isArray(info.episodes) && info.episodes.length > 0) {
@@ -339,7 +455,11 @@
     if (typeof window === 'undefined') return null;
 
     let playinfo = window.__playinfo__;
-    if (!playinfo && typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+    if (
+      !playinfo &&
+      typeof document !== 'undefined' &&
+      typeof document.getElementById === 'function'
+    ) {
       const script = document.getElementById('__playinfo__');
       if (script && script.textContent) {
         try {
@@ -361,7 +481,12 @@
    * Intercepts window.XMLHttpRequest for Bstation gateway playurl APIs.
    */
   function hookXHR() {
-    if (typeof window === 'undefined' || typeof window.XMLHttpRequest !== 'function' || !window.XMLHttpRequest.prototype) return;
+    if (
+      typeof window === 'undefined' ||
+      typeof window.XMLHttpRequest !== 'function' ||
+      !window.XMLHttpRequest.prototype
+    )
+      return;
     const originalOpen = window.XMLHttpRequest.prototype.open;
     const originalSend = window.XMLHttpRequest.prototype.send;
     if (typeof originalOpen !== 'function' || typeof originalSend !== 'function') return;
@@ -411,7 +536,8 @@
     window.fetch = async function (...args) {
       const response = await originalFetch.apply(this, args);
       try {
-        const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+        const url =
+          typeof args[0] === 'string' ? args[0] : args[0] && args[0].url ? args[0].url : '';
         if (url.includes('/playurl')) {
           response
             .clone()
@@ -443,7 +569,7 @@
   /**
    * Resolves a stream from available caches and page state.
    */
-  function resolveStream(epId, aid, bvid, qn) {
+  function resolveStream(epId, aid, bvid, _qn) {
     if (epId && epCache.has(String(epId))) {
       return { data: epCache.get(String(epId)), tier: 'ep_cache' };
     }
@@ -474,7 +600,7 @@
    * Actively fetches the stream playurl on demand from Bstation's official API
    * using the user's authentic session cookies/credentials.
    */
-  async function fetchPlayurlOnDemand({ ep_id, aid, bvid, qn = 64 }) {
+  async function fetchPlayurlOnDemand({ ep_id, aid, bvid, qn = 64, codecPreference = 'standard' }) {
     if (typeof fetch !== 'function') return null;
 
     // Validate ep_id: Bstation OGV playurl strictly requires genuine numeric ep_id
@@ -501,10 +627,11 @@
 
     const tryFetch = async (targetQn) => {
       let apiUrl = '';
+      const fnvalParam = '&fnval=4048'; // Requests DASH with AV1 (1024) and HEVC (2048) support
       if (ep_id) {
-        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}`;
+        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ogv/playurl?ep_id=${encodeURIComponent(ep_id)}&qn=${targetQn}${fnvalParam}`;
       } else if (aid || bvid) {
-        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}`;
+        apiUrl = `https://api.bilibili.tv/intl/gateway/web/v2/ugc/playurl?aid=${encodeURIComponent(aid || '')}&bvid=${encodeURIComponent(bvid || '')}&qn=${targetQn}${fnvalParam}`;
       } else {
         return null;
       }
@@ -513,7 +640,7 @@
         const res = await fetch(apiUrl, { credentials: 'include' });
         if (!res.ok) return null;
         const json = await res.json();
-        const normalized = normalizePlayurlResponse(json, { ep_id, aid, bvid });
+        const normalized = normalizePlayurlResponse(json, { ep_id, aid, bvid, codecPreference });
         if (normalized) {
           cacheStreamItem(normalized);
           return normalized;
@@ -540,13 +667,17 @@
 
     document.addEventListener('BS_BRIDGE_REQUEST', async (event) => {
       const detail = event.detail || {};
-      const { requestId, ep_id, aid, bvid, qn, action } = detail;
+      const { requestId, ep_id, aid, bvid, qn, action, codecPreference } = detail;
       if (!requestId) return;
 
       // 1. Handle series and episode list query
       if (action === 'GET_SERIES_INFO') {
         const seriesInfo = extractFromInitialState(ep_id);
-        const hasData = !!(seriesInfo && (Array.isArray(seriesInfo.episodes) && seriesInfo.episodes.length > 0 || seriesInfo.seriesTitle));
+        const hasData = !!(
+          seriesInfo &&
+          ((Array.isArray(seriesInfo.episodes) && seriesInfo.episodes.length > 0) ||
+            seriesInfo.seriesTitle)
+        );
         document.dispatchEvent(
           new CustomEvent('BS_BRIDGE_RESPONSE', {
             detail: {
@@ -578,7 +709,13 @@
         }
         if (targetEpId || aid || bvid) {
           try {
-            matched = await fetchPlayurlOnDemand({ ep_id: targetEpId, aid, bvid, qn });
+            matched = await fetchPlayurlOnDemand({
+              ep_id: targetEpId,
+              aid,
+              bvid,
+              qn,
+              codecPreference
+            });
             if (matched) {
               tier = 'on_demand_fetch';
             }
@@ -586,7 +723,11 @@
         }
       }
 
-      if (typeof document !== 'undefined' && typeof document.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+      if (
+        typeof document !== 'undefined' &&
+        typeof document.dispatchEvent === 'function' &&
+        typeof CustomEvent !== 'undefined'
+      ) {
         document.dispatchEvent(
           new CustomEvent('BS_BRIDGE_RESPONSE', {
             detail: {

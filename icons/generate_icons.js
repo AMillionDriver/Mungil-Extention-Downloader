@@ -111,7 +111,7 @@ function drawIconPixel(x, y, width, height) {
   const isRim = dist >= 0.41 && dist <= 0.47;
 
   // Arrow shaft: centered vertical rectangle
-  const isArrowShaft = (nx >= 0.44 && nx <= 0.56 && ny >= 0.22 && ny <= 0.50);
+  const isArrowShaft = nx >= 0.44 && nx <= 0.56 && ny >= 0.22 && ny <= 0.5;
 
   // Arrow head: downward triangle
   // Tip at (0.5, 0.66), base at ny = 0.48, width spans from 0.30 to 0.70
@@ -124,9 +124,9 @@ function drawIconPixel(x, y, width, height) {
   }
 
   // Tray / bracket at bottom: horizontal bar and two small vertical ears
-  const isTrayBottom = (ny >= 0.73 && ny <= 0.81 && nx >= 0.26 && nx <= 0.74);
-  const isTrayLeft = (ny >= 0.63 && ny <= 0.81 && nx >= 0.26 && nx <= 0.34);
-  const isTrayRight = (ny >= 0.63 && ny <= 0.81 && nx >= 0.66 && nx <= 0.74);
+  const isTrayBottom = ny >= 0.73 && ny <= 0.81 && nx >= 0.26 && nx <= 0.74;
+  const isTrayLeft = ny >= 0.63 && ny <= 0.81 && nx >= 0.26 && nx <= 0.34;
+  const isTrayRight = ny >= 0.63 && ny <= 0.81 && nx >= 0.66 && nx <= 0.74;
   const isTray = isTrayBottom || isTrayLeft || isTrayRight;
 
   const isGlyph = isArrowShaft || isArrowHead || isTray;

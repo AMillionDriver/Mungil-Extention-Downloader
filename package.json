@@ -1,0 +1,49 @@
+{
+  "name": "mungil-extension-downloader",
+  "version": "1.2.0",
+  "description": "Direct high-speed multi-platform video downloader extension (TikTok, Bstation, JWPlyr, YouTube) with zero 403 Forbidden errors and native FFmpeg/yt-dlp integration.",
+  "main": "background/service_worker.js",
+  "scripts": {
+    "test": "node test_extension.js",
+    "test:adversarial": "node test_adversarial_bstation.js",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,html,css,md}": [
+      "prettier --write"
+    ]
+  },
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "video-downloader",
+    "tiktok",
+    "bstation",
+    "bilibili",
+    "jwplyr",
+    "youtube",
+    "yt-dlp",
+    "ffmpeg",
+    "h264"
+  ],
+  "author": "AMillionDriver",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "eslint": "^9.20.0",
+    "eslint-plugin-no-unsanitized": "^4.1.2",
+    "eslint-plugin-security": "^3.0.1",
+    "globals": "^15.15.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.4.3",
+    "prettier": "^3.5.1"
+  }
+}

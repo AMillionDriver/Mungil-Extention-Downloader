@@ -11,50 +11,51 @@
    ========================================================================== */
 :root {
   /* Cyber Cyan Palette (Bstation Signature) */
-  --bs-cyan-50:  #E6F7FD;
-  --bs-cyan-100: #BAE8FA;
-  --bs-cyan-200: #8CD7F7;
-  --bs-cyan-300: #5EC6F4;
-  --bs-cyan-400: #26BDF0;
-  --bs-cyan-500: #00AEEC; /* Primary Cyber Cyan Brand */
-  --bs-cyan-600: #0098D0;
-  --bs-cyan-700: #007BB0;
-  --bs-cyan-800: #005E8A;
+  --bs-cyan-50: #e6f7fd;
+  --bs-cyan-100: #bae8fa;
+  --bs-cyan-200: #8cd7f7;
+  --bs-cyan-300: #5ec6f4;
+  --bs-cyan-400: #26bdf0;
+  --bs-cyan-500: #00aeec; /* Primary Cyber Cyan Brand */
+  --bs-cyan-600: #0098d0;
+  --bs-cyan-700: #007bb0;
+  --bs-cyan-800: #005e8a;
   --bs-cyan-900: #004364;
 
   /* VIP Accent Palette */
-  --bs-pink-400: #FF85AD;
-  --bs-pink-500: #FB7299; /* Bilibili VIP Signature Pink */
-  --bs-pink-600: #E05880;
-  --bs-gold-400: #FAD06C;
-  --bs-gold-500: #F3B034; /* VIP Crown Gold */
+  --bs-pink-400: #ff85ad;
+  --bs-pink-500: #fb7299; /* Bilibili VIP Signature Pink */
+  --bs-pink-600: #e05880;
+  --bs-gold-400: #fad06c;
+  --bs-gold-500: #f3b034; /* VIP Crown Gold */
 
   /* Neutral & Dark Surface Palette */
-  --bs-dark-950: #090A0D;
-  --bs-dark-900: #0D0E12; /* Deep Modal Backdrop */
-  --bs-dark-850: #12141A;
+  --bs-dark-950: #090a0d;
+  --bs-dark-900: #0d0e12; /* Deep Modal Backdrop */
+  --bs-dark-850: #12141a;
   --bs-dark-800: #171922; /* Primary Card Surface */
-  --bs-dark-750: #1E212D; /* Elevated Surface */
+  --bs-dark-750: #1e212d; /* Elevated Surface */
   --bs-dark-700: #252937; /* Borders & Dividers */
-  --bs-dark-600: #343A4D;
-  --bs-gray-400: #8E95A5; /* Muted Labels */
-  --bs-gray-300: #B8BECB; /* Secondary Text */
-  --bs-gray-100: #EAECEF; /* Primary Text */
-  --bs-white:    #FFFFFF;
+  --bs-dark-600: #343a4d;
+  --bs-gray-400: #8e95a5; /* Muted Labels */
+  --bs-gray-300: #b8becb; /* Secondary Text */
+  --bs-gray-100: #eaecef; /* Primary Text */
+  --bs-white: #ffffff;
 
   /* Status Primitives */
-  --bs-green-500: #22C55E;
-  --bs-red-500:   #FF4D4F;
-  --bs-yellow-500:#EAB308;
+  --bs-green-500: #22c55e;
+  --bs-red-500: #ff4d4f;
+  --bs-yellow-500: #eab308;
 
   /* Geometry & Typography Scales */
-  --bs-radius-sm:   4px;
-  --bs-radius-md:   8px;
-  --bs-radius-lg:   12px;
-  --bs-radius-xl:   16px;
+  --bs-radius-sm: 4px;
+  --bs-radius-md: 8px;
+  --bs-radius-lg: 12px;
+  --bs-radius-xl: 16px;
   --bs-radius-full: 9999px;
 
-  --bs-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bs-font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --bs-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -62,34 +63,34 @@
    Layer 2: Semantic Tokens
    ========================================================================== */
 :root {
-  --bs-bg-overlay:          rgba(9, 10, 13, 0.78);
-  --bs-bg-modal:            var(--bs-dark-900);
-  --bs-bg-surface:          var(--bs-dark-800);
+  --bs-bg-overlay: rgba(9, 10, 13, 0.78);
+  --bs-bg-modal: var(--bs-dark-900);
+  --bs-bg-surface: var(--bs-dark-800);
   --bs-bg-surface-elevated: var(--bs-dark-750);
-  --bs-bg-surface-hover:    rgba(0, 174, 236, 0.08);
+  --bs-bg-surface-hover: rgba(0, 174, 236, 0.08);
   --bs-bg-surface-selected: rgba(0, 174, 236, 0.16);
-  --bs-bg-disabled:         rgba(255, 255, 255, 0.03);
+  --bs-bg-disabled: rgba(255, 255, 255, 0.03);
 
-  --bs-border-subtle:       rgba(255, 255, 255, 0.08);
-  --bs-border-focus:        var(--bs-cyan-500);
-  --bs-border-active:       rgba(0, 174, 236, 0.55);
+  --bs-border-subtle: rgba(255, 255, 255, 0.08);
+  --bs-border-focus: var(--bs-cyan-500);
+  --bs-border-active: rgba(0, 174, 236, 0.55);
 
-  --bs-text-primary:        var(--bs-white);
-  --bs-text-secondary:      var(--bs-gray-300);
-  --bs-text-muted:          var(--bs-gray-400);
-  --bs-text-disabled:       rgba(255, 255, 255, 0.35);
+  --bs-text-primary: var(--bs-white);
+  --bs-text-secondary: var(--bs-gray-300);
+  --bs-text-muted: var(--bs-gray-400);
+  --bs-text-disabled: rgba(255, 255, 255, 0.35);
 
-  --bs-accent-brand:        var(--bs-cyan-500);
-  --bs-accent-brand-hover:  var(--bs-cyan-400);
-  --bs-accent-vip:          var(--bs-pink-500);
-  --bs-accent-vip-gold:     var(--bs-gold-500);
+  --bs-accent-brand: var(--bs-cyan-500);
+  --bs-accent-brand-hover: var(--bs-cyan-400);
+  --bs-accent-vip: var(--bs-pink-500);
+  --bs-accent-vip-gold: var(--bs-gold-500);
 
-  --bs-status-success:      var(--bs-green-500);
-  --bs-status-error:        var(--bs-red-500);
+  --bs-status-success: var(--bs-green-500);
+  --bs-status-error: var(--bs-red-500);
 
-  --bs-shadow-modal:        0 24px 60px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.15);
-  --bs-shadow-glow-cyan:    0 0 16px rgba(0, 174, 236, 0.45);
-  --bs-shadow-glow-pink:    0 0 14px rgba(251, 114, 153, 0.40);
+  --bs-shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.15);
+  --bs-shadow-glow-cyan: 0 0 16px rgba(0, 174, 236, 0.45);
+  --bs-shadow-glow-pink: 0 0 14px rgba(251, 114, 153, 0.4);
 }
 
 /* ==========================================================================
@@ -158,8 +159,12 @@
 
 /* Spinner Animation */
 @keyframes bs-dl-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .bs-dl-spinner {

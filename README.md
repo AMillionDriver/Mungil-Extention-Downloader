@@ -1,217 +1,135 @@
-# TikTok Direct Downloader — Chrome Extension (Manifest V3)
+# Mungil Extension Downloader — Chrome Extension (Manifest V3)
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Zero Dependencies](https://img.shields.io/badge/Dependencies-0_npm_packages-brightgreen.svg)](https://nodejs.org)
-[![Vanilla JavaScript](https://img.shields.io/badge/Code-Vanilla_ES6%2B-yellow.svg)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
-[![Tests Passing](https://img.shields.io/badge/Tests-67%2F67_Passing-success.svg)](test_extension.js)
+[![Tests Passing](https://img.shields.io/badge/Tests-182%2F182_Passing-brightgreen.svg)](test_extension.js)
+[![ESLint](https://img.shields.io/badge/ESLint-Strict_Zero_Warnings-4B32C3.svg)](eslint.config.mjs)
+[![Prettier](https://img.shields.io/badge/Code_Style-Prettier-F7B93E.svg)](.prettierrc)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows_|_Chromium-informational.svg)](native_host/)
 
-A lightweight, zero-build Google Chrome Extension built with pure Vanilla JavaScript (ES6+), HTML5, and CSS3 that enables direct, in-page 1-click downloading of TikTok videos in original MP4 quality without third-party downloader websites, watermarking servers, or ads.
-
----
-
-## 🇮🇩 Panduan Ringkas (Bahasa Indonesia)
-
-### Cara Cepat Pasang di Google Chrome
-1. Buka browser Google Chrome dan buka alamat `chrome://extensions/`.
-2. Aktifkan toggle **Mode Pengembang (Developer mode)** di pojok kanan atas.
-3. Klik tombol **Muat yang belum dibongkar (Load unpacked)** di pojok kiri atas.
-4. Pilih folder proyek ini:
-   ```text
-   C:\Users\flami\.gemini\antigravity\scratch\tiktok-direct-downloader-extension
-   ```
-5. Ekstensi **TikTok Direct Downloader** akan langsung aktif dan siap digunakan!
-
-### Cara Menggunakan
-1. Buka **[tiktok.com](https://www.tiktok.com/)** di Google Chrome.
-2. Putar video mana pun di FYP, profil kreator, atau modal dialog.
-3. Temukan tombol bundar **Download** yang bertengger rapi tepat **di atas tombol Share** (di bawah tombol Bookmark).
-4. Klik tombol tersebut:
-   - Tombol berubah menampilkan animasi berputar (`Fetching...` ➔ `Downloading...`).
-   - File video asli berformat **`.mp4`** (misal: `tiktok_@creator_1234567890.mp4`) langsung tersimpan di folder Downloads komputer Anda!
+Ekstensi browser Google Chrome modern berbasis **Manifest V3** untuk mengunduh video dan anime secara langsung, cepat, dan tanpa batas (_zero 403 Forbidden errors_) dari **YouTube (Watch & Shorts)**, **TikTok**, **Bstation (Bilibili TV)**, dan **JWPlyr** dengan format standar universal **H.264 (AVC) + AAC MP4** yang dapat langsung diputar di seluruh pemutar media bawaan sistem operasi (Windows Media Player, QuickTime, Android, iPhone, TV) tanpa aplikasi pihak ketiga.
 
 ---
 
-## Key Features
+## 🌟 Fitur Utama (Key Features)
 
-- **Direct In-Page 1-Click Downloading**: Injects a clean, native-styled circular action button directly into TikTok's action bar between the Bookmark and Share buttons.
-- **Anti-403 In-Page Fetch & Blob Pipeline**: Bypasses ByteDance CDN anti-hotlink restrictions by executing stream fetching directly within the active tab context (`https://www.tiktok.com/`) with authentic session credentials, eliminating corrupt `.htm` files and "File wasn't available on site" errors.
-- **Multi-Tier Stream Extraction Engine**:
-  - **Tier 1 (MAIN World Bridge)**: Injected at `document_start` to read `window.__UNIVERSAL_DATA_FOR_REHYDRATION__` and `window.SIGI_STATE`, plus a network hook on `window.fetch` to intercept highest-bitrate unwatermarked playback URLs.
-  - **Tier 2 (HTML5 Video & DOM Resolution)**: Fallback parser extracting direct stream references while strictly excluding creator profile avatar images.
-- **Strict Single-Button Guard**: Intelligent DOM reconciliation guarantees that exactly **one** download button is mounted per video card, preventing duplicate or stacked buttons upon infinite scrolling.
-- **Windows NTFS Safe Naming**: Sanitizes author usernames and video IDs against all illegal Win32 characters (`\ / : * ? " < > |`), ASCII control characters, and reserved system names to enforce:
-  ```text
-  tiktok_@[author]_[id].mp4
-  ```
-- **Interactive 4-State Visual Lifecycle**:
-  - **Idle**: High-contrast SVG download icon matching TikTok's native dark aesthetic.
-  - **Loading**: Smooth spinning animation with button disabled to prevent duplicate download requests.
-  - **Success**: Vibrant green checkmark icon for 2.5 seconds upon successful download initiation.
-  - **Error**: High-visibility warning alert icon for 3.0 seconds if stream resolution fails, gracefully resetting to idle.
-- **Extension Toolbar Popup**: Sleek popup interface providing one-click downloads for the active tab, real-time download counters, and direct shortcuts to the Downloads folder.
-- **Zero-Build Architecture**: 100% pure standard web technologies. No Webpack, Vite, Rollup, or npm dependencies. Fully inspectable and auditable.
+### 1. 📺 YouTube Direct & Native Downloader (Watch & Shorts)
+
+- **Pemilih Kualitas Fleksibel**: Pilih resolusi **1080p (Full HD)**, **720p (HD)**, **480p (Standar)**, atau **360p (Hemat Kuota)** langsung dari baris aksi video atau popup ekstensi.
+- **Estimasi Ukuran File Real-Time**: Menampilkan perkiraan ukuran file secara dinamis (`~120 MB`, `~60 MB`, dll.) berdasarkan durasi video aktif.
+- **Format Universal H.264 (AVC) + AAC**: Menghindari masalah layar hitam _"AV1 format not supported"_ pada Windows Media Player. Hasil unduhan dijamin langsung berputar lancar dengan audio jernih.
+- **Integrasi Native Host (yt-dlp + FFmpeg)**: Mengunduh dan menggabungkan (_lossless stream remux_) video dan audio dalam hitungan detik tanpa membebani CPU/GPU pengguna.
+- **Deteksi Duplikat & Tombol Abu-Abu**: Video yang telah selesai diunduh akan ditandai dengan tombol abu-abu _"✓ Sudah Diunduh"_. Jika diklik kembali, muncul dialog konfirmasi _"Kamu udah download ini tadi, mau download lagi?"_.
+- **Active SPA Navigation Watcher**: Deteksi otomatis perpindahan video rekomendasi/sidebar di YouTube Polymer SPA dalam 350ms, seketika mereset tombol ke mode siap unduh.
+
+### 2. 🎵 TikTok Direct Downloader
+
+- **1-Click Download Button**: Tombol melayang disuntikkan rapi tepat di atas tombol Share pada FYP, modal, dan profil kreator.
+- **Zero Re-encoding**: Mengambil file asli MP4 beresolusi penuh langsung dari CDN ByteDance tanpa watermark.
+- **Mode Hemat Kuota**: Prioritisasi otomatis codec ByteVC1 (HEVC) untuk menghemat bandwidth 50-60%.
+
+### 3. 🎬 Bstation (Bilibili TV) Anime & Video Downloader
+
+- **In-Player Control Button**: Tombol unduh menyatu dengan bar kontrol player video.
+- **Batch Episode Downloader**: Dialog unduh banyak episode anime sekaligus secara paralel (_Concurrency: 2_) dengan filter episode VIP otomatis.
+- **Sesi Otentik**: Menggunakan kredensial sesi pengguna asli untuk mengakses kualitas tertinggi yang tersedia.
+
+### 4. 📁 JWPlyr Folder & Video Downloader
+
+- **Folder View Batch Downloader**: Unduh seluruh isi folder video (`/f/...`) dalam 1 klik dengan antrean paralel.
+- **Single Player Floating Action**: Tombol unduh instan pada pemutar video (`/d/...` atau `/e/...`).
 
 ---
 
-## Technical Architecture
+## 🏛️ Arsitektur Keamanan & Mutu Kode (4-Layer Framework)
 
-```mermaid
-flowchart TD
-    subgraph BrowserTab["TikTok Web Page (https://www.tiktok.com/)"]
-        subgraph MainWorld["MAIN World (tiktok_bridge.js)"]
-            A["window.__UNIVERSAL_DATA_FOR_REHYDRATION__"]
-            B["window.SIGI_STATE"]
-            C["window.fetch Interceptor (/api/recommend/item_list)"]
-            D["Multi-Key Cache (videoId + author handle)"]
-            A --> D
-            B --> D
-            C --> D
-        end
+Proyek ini dirancang menggunakan standar _enterprise-grade engineering_ dengan pengawasan otomatis pada 3 titik eksekusi (**Editor**, **Husky Pre-commit**, dan **GitHub Actions CI**):
 
-        subgraph IsolatedWorld["ISOLATED World (tiktok.js)"]
-            E["250ms Debounced MutationObserver"] --> F["Single Button Injection (Above Share Container)"]
-            F --> G["User Clicks Download"]
-            G --> H["CustomEvent IPC (TT_BRIDGE_REQUEST)"]
-            H <-->|TT_BRIDGE_RESPONSE| D
-            H --> I["In-Page Stream Fetch (credentials: include)"]
-            I --> J["In-Memory Blob -> URL.createObjectURL"]
-            J --> K["Native Anchor Download (a.download)"]
-        end
-    end
+1. **Lapis 1 — Strict Code Hygiene (ESLint v9 Flat Config)**:
+   - Menjamin penanganan _asynchronous_ yang aman, scoping leksikal blok, dan penamaan variabel terstandarisasi.
+2. **Lapis 2 — Application Security (SAST)**:
+   - Mengintegrasikan `eslint-plugin-security` untuk memitigasi ReDoS, prototype pollution, dan eksekusi non-literal.
+   - `eslint-plugin-no-unsanitized` untuk mencegah celah keamanan DOM XSS.
+   - **Windows NTFS Sanitization**: Semua nama file dibersihkan dari karakter terlarang Win32 (`\ / : * ? " < > |`) dan _control characters_ (`0x00-0x1F`).
+3. **Lapis 3 — Memory Leak & DOM Hygiene**:
+   - Pembersihan listener berkala, pelepasan memori `URL.revokeObjectURL`, dan pencegahan _orphan elements_.
+4. **Lapis 4 — CI/CD & Automated Gates**:
+   - Menegakkan kebijakan **`--max-warnings 0`** pada ESLint dan Prettier di GitHub Actions serta Git Hook lokal.
 
-    subgraph BackgroundWorker["Background Service Worker (service_worker.js)"]
-        L["IPC Dispatcher (RECORD_DOWNLOAD)"]
-        M["Windows NTFS Filename Sanitization"]
-        N["chrome.storage.local Telemetry & History"]
-        K -.->|RECORD_DOWNLOAD| L
-        L --> M --> N
-    end
+---
+
+## 🚀 Panduan Instalasi Cepat (Quick Start)
+
+### 1. Pasang Ekstensi di Google Chrome
+
+1. Buka browser Google Chrome dan kunjungi alamat `chrome://extensions/`.
+2. Aktifkan **"Mode Pengembang (Developer mode)"** di pojok kanan atas.
+3. Klik tombol **"Muat yang belum dibongkar (Load unpacked)"**.
+4. Arahkan dan pilih folder repositori ini.
+5. Ekstensi **Mungil Downloader** akan langsung aktif di toolbar Chrome.
+
+### 2. Pasang Native Messaging Host (Khusus YouTube 1080p/720p)
+
+Agar fitur download YouTube dengan FFmpeg dan yt-dlp berjalan maksimal di Windows:
+
+1. Buka folder `native_host/` di File Explorer.
+2. Klik kanan file **`install_host.bat`** lalu pilih **"Run as administrator"** (atau klik dua kali).
+3. Script otomatis mendaftarkan manifest Native Host ke Windows Registry dan menyiapkan binary FFmpeg mandiri.
+4. Reload tab Chrome Anda (`F5`), dan fitur download YouTube siap digunakan!
+
+---
+
+## 🛠️ Perintah Pengembangan (Development Commands)
+
+```bash
+# Menjalankan seluruh 24 suite test (182 test cases)
+npm test
+
+# Menjalankan test ketahanan adversarial Bstation
+npm run test:adversarial
+
+# Memeriksa kepatuhan linter dengan zero-warning policy
+npm run lint
+
+# Memeriksa kepatuhan format kode Prettier
+npm run format:check
+
+# Merapikan seluruh file secara otomatis dengan Prettier
+npm run format
 ```
 
-### Why In-Page Blob Fetching Solves HTTP 403 Forbidden
-Previous architectures that dispatched raw ByteDance CDN URLs to `chrome.downloads.download()` or attempted background `fetch()` in the service worker suffered from:
-1. `chrome.downloads.download()` bypasses `declarativeNetRequest` header rewriting rules in Chromium.
-2. In the `fetch()` API specification, `Referer` and `Origin` are *forbidden request headers* that browser security strips when called from extension service workers.
-3. Without TikTok session cookies and an authentic `Referer: https://www.tiktok.com/`, ByteDance CDNs return **HTTP 403 Forbidden** (an HTML error document), which Chrome automatically renamed to `.htm`.
-
-**The Solution:** Executing `fetch(streamUrl, { credentials: 'include' })` inside the Content Script leverages the active tab's origin and authentication cookies. The CDN serves the raw binary video (`200 OK`), which is converted into an in-memory `Blob` and downloaded natively via an Object URL.
-
 ---
 
-## Button States & UI Design
-
-The download button matches native TikTok action items (circular 48x48px container, semi-transparent background, and blurred backdrop filter):
-
-| State | Visual Appearance | Label / Tooltip | Duration | Action |
-|:---:|:---:|:---:|:---:|:---|
-| **Idle** | Translucent white circle, download tray SVG | `Download` | Persistent | Ready for 1-click user download |
-| **Loading** | Cyan accent ring, spinning SVG loader | `Extracting...` / `Downloading...` | Dynamic | Disables button, fetches stream & creates blob |
-| **Success** | Green accent ring, SVG checkmark | `Saved!` | 2.5 seconds | Reverts cleanly back to Idle |
-| **Error** | Red accent ring, SVG alert badge | `Failed` | 3.0 seconds | Reverts cleanly back to Idle for re-attempt |
-
----
-
-## Project Structure
+## 📂 Struktur Repositori
 
 ```text
-tiktok-direct-downloader-extension/
-├── manifest.json                  # Manifest V3 specification (permissions, host rules, scripts)
+Mungil-Extention-Downloader/
+├── .github/workflows/ci.yml       # GitHub Actions CI pipeline
+├── .husky/pre-commit              # Git pre-commit hook (lint-staged + test)
+├── .prettierrc                    # Konfigurasi formatting Prettier
+├── .gitignore                     # Git ignore komprehensif
+├── eslint.config.mjs              # ESLint v9 flat config (Security & Quality)
+├── package.json                   # Dependensi dev, metadata, scripts
+├── CONTRIBUTING.md                # Panduan kontribusi dan PR checklist
+├── README.md                      # Dokumentasi utama proyek
+├── manifest.json                  # Manifest V3 deklarasi ekstensi
 ├── background/
-│   └── service_worker.js          # Ephemeral SW: telemetry persistence, NTFS sanitization, fallback
+│   └── service_worker.js          # MV3 Service worker, DNR rules, queue limiter
 ├── content/
-│   ├── platforms/
-│   │   └── tiktok.js              # Content script: observer, single injection above Share, in-page fetch
-│   ├── styles/
-│   │   └── tiktok.css             # Native TikTok action bar styles, animations, & state transitions
-│   └── injected/
-│       └── tiktok_bridge.js       # MAIN-world bridge: universal data extraction & fetch hook
-├── popup/
-│   ├── popup.html                 # Extension toolbar popup layout
-│   ├── popup.css                  # TikTok-dark themed popup styles
-│   └── popup.js                   # Active tab triggers, lifetime telemetry, & folder links
-├── icons/
-│   ├── generate_icons.js          # Pure Node.js script generating RFC-compliant PNG icons
-│   ├── icon16.png                 # 16x16 toolbar icon
-│   ├── icon48.png                 # 48x48 extension management icon
-│   └── icon128.png                # 128x128 Chrome Web Store icon
-├── test_extension.js              # Automated E2E test runner (67 test cases across 7 suites)
-├── PROJECT.md                     # Interface contracts and architectural specifications
-└── README.md                      # Comprehensive user guide and technical documentation
+│   ├── platforms/                 # Content scripts (TikTok, Bstation, JWPlyr, YouTube)
+│   ├── injected/                  # Bridge scripts MAIN world
+│   └── styles/                    # Stylesheet antarmuka in-page
+├── native_host/
+│   ├── downloader_host.js         # Node.js native host IPC listener
+│   ├── downloader_host.json       # Host registry declaration
+│   ├── install_host.bat           # Installer otomatis Native Host Windows
+│   └── uninstall_host.bat         # Uninstaller Native Host
+├── popup/                         # Antarmuka popup toolbar Chrome
+└── test_extension.js              # Test suite (24 suites, 182 test cases)
 ```
 
 ---
 
-## Installation Guide (Chrome Developer Mode)
+## 📄 Lisensi
 
-1. Clone or download this repository to your local drive.
-2. Open **Google Chrome** and navigate to `chrome://extensions/`.
-3. In the upper-right corner, toggle **Developer mode** to **ON**.
-4. In the upper-left toolbar, click **Load unpacked**.
-5. Select the project root folder:
-   ```text
-   C:\Users\flami\.gemini\antigravity\scratch\tiktok-direct-downloader-extension
-   ```
-6. The extension **TikTok Direct Downloader** will now appear in your extensions list.
-7. Click the Chrome Extensions puzzle icon in the top toolbar and pin the icon for quick access.
-
----
-
-## How to Use
-
-### Method 1: In-Page Single Action Button
-1. Visit **[tiktok.com](https://www.tiktok.com/)**.
-2. Browse through the **For You Page (FYP)**, user profiles, or click any video to open detail mode.
-3. Click the circular **Download** button located directly above the **Share** button.
-4. The video file will immediately download to your default Downloads folder.
-
-### Method 2: Extension Toolbar Popup
-1. While viewing any TikTok video tab, click the extension icon in Chrome's top toolbar.
-2. Click **⬇ Unduh Video di Tab Ini**.
-3. The extension identifies the active video and starts downloading immediately.
-
----
-
-## Troubleshooting & FAQ
-
-### Q1: Why did Chrome previously save files as `.htm` with "File wasn't available on site"?
-**Answer:** This occurred when direct requests to ByteDance CDNs were blocked by anti-hotlinking protections (HTTP 403 Forbidden). Chrome detected the HTML error page response and renamed the download to `.htm`. This has been completely resolved via our **In-Page Fetch & Blob Pipeline**, which downloads the video within the authenticated page context.
-
-### Q2: Are the console errors in DevTools (`sf16-website-login... 404`, `NotAllowedError: play()`) caused by the extension?
-**Answer:** No. Those are internal TikTok telemetry scripts and standard browser autoplay policy restrictions built into TikTok's web client. The extension executes cleanly with zero runtime exceptions.
-
-### Q3: How do I apply updates after editing code?
-**Answer:** Go to `chrome://extensions/`, find **TikTok Direct Downloader**, and click the **Reload (circular arrow 🔄)** button. Then refresh your TikTok tab with `F5`.
-
----
-
-## Automated Verification & Test Suite
-
-The project includes an automated test harness with **zero external npm dependencies**:
-
-```powershell
-node test_extension.js
-```
-
-### Test Coverage (67/67 Tests Passing):
-- **Suite 1: Manifest V3 Conformance & Schema Validation** (9 tests)
-- **Suite 2: File Structure & PNG Asset Integrity** (2 tests)
-- **Suite 3: JavaScript Syntax Verification via `node --check`** (6 tests)
-- **Suite 4: Windows NTFS Filename Sanitization & Boundary Value Analysis** (9 tests)
-- **Suite 5: In-Page UI Injection, Infinite Scrolling, & Deduplication** (11 tests)
-- **Suite 6: Button State Transitions State Machine Simulation** (5 tests)
-- **Suite 7: Service Worker IPC, Telemetry, & In-Page Blob Download** (25 tests)
-
-To verify JavaScript syntax on individual source files:
-```powershell
-node --check background/service_worker.js
-node --check content/platforms/tiktok.js
-node --check content/injected/tiktok_bridge.js
-node --check popup/popup.js
-```
-
----
-
-## License
-
-This project is licensed under the **MIT License**. Built for personal productivity, research, and content creation workflows.
+Proyek ini dilisensikan di bawah lisensi [MIT](LICENSE).

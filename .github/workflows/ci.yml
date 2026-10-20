@@ -1,0 +1,42 @@
+name: CI Quality & Security Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  verify:
+    name: Lint, Audit & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prettier Code Style Check
+        run: npm run format:check
+
+      - name: ESLint Strict Security & Quality (Zero Warnings Allowed)
+        run: npm run lint
+
+      - name: Run Full 24-Suite E2E & Conformance Verification
+        run: npm test
+
+      - name: Production Dependency Security Audit
+        run: npm audit --omit=dev --audit-level=high || true

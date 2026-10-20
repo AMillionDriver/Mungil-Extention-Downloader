@@ -106,6 +106,74 @@ const BSTATION_CDN_RULES = [
   }
 ];
 
+// Dynamic declarativeNetRequest rules for JWPlyr (overfetch.video, jwplyr.com) CDNs
+const JWPLYR_CDN_RULES = [
+  {
+    id: 21,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://jwplyr.com/' },
+        { header: 'Origin', operation: 'set', value: 'https://jwplyr.com' }
+      ]
+    },
+    condition: {
+      urlFilter: '*overfetch.video*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  },
+  {
+    id: 22,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://jwplyr.com/' },
+        { header: 'Origin', operation: 'set', value: 'https://jwplyr.com' }
+      ]
+    },
+    condition: {
+      urlFilter: '*jwplyr.com*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  }
+];
+
+// Dynamic declarativeNetRequest rules for YouTube (googlevideo.com) CDNs
+const YOUTUBE_CDN_RULES = [
+  {
+    id: 31,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://www.youtube.com/' },
+        { header: 'Origin', operation: 'set', value: 'https://www.youtube.com' }
+      ]
+    },
+    condition: {
+      urlFilter: '*googlevideo.com*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  },
+  {
+    id: 32,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://www.youtube.com/' },
+        { header: 'Origin', operation: 'set', value: 'https://www.youtube.com' }
+      ]
+    },
+    condition: {
+      urlFilter: '*youtube.com*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  }
+];
+
 /**
  * Sanitizes author username for Windows NTFS compatibility.
  * Strips leading '@', removes forbidden Win32 characters (\ / : * ? " < > |),
@@ -248,7 +316,12 @@ function formatBstationFilename(titleOrParams, epArg, qArg) {
 
   if (titleOrParams && typeof titleOrParams === 'object' && !Array.isArray(titleOrParams)) {
     title = titleOrParams.title;
-    episode = titleOrParams.episode !== undefined ? titleOrParams.episode : (titleOrParams.epIndex !== undefined ? titleOrParams.epIndex : 'E01');
+    episode =
+      titleOrParams.episode !== undefined
+        ? titleOrParams.episode
+        : titleOrParams.epIndex !== undefined
+          ? titleOrParams.epIndex
+          : 'E01';
     quality = titleOrParams.quality || '720p';
   } else {
     title = titleOrParams;
@@ -265,6 +338,124 @@ function formatBstationFilename(titleOrParams, epArg, qArg) {
 }
 
 /**
+ * Sanitizes JWPlyr video title for Windows NTFS compatibility.
+ * Replaces illegal colons, slashes, quotes, and control codes.
+ * Ensures clean single .mp4 extension.
+ *
+ * @param {string} title
+ * @param {string|number} [id]
+ * @returns {string} Sanitized filename
+ */
+function sanitizeJwplyrFilename(title, id) {
+  let str = title !== null && title !== undefined ? String(title).trim() : '';
+  if (!str) {
+    return `jwplyr_${id || Date.now()}.mp4`;
+  }
+
+  // Normalize colons and slashes to dashes/spaces
+  str = str.replace(/[:：]/g, ' - ');
+  str = str.replace(/[/\\|]/g, '-');
+
+  // Strip remaining Win32 forbidden characters (* ? " < >) and control codes
+  str = str.replace(/[*?"<>|\x00-\x1f\x7f-\x9f]/g, '');
+
+  // Collapse consecutive whitespace and dashes
+  str = str.replace(/\s+/g, ' ');
+  str = str.replace(/-{2,}/g, '-');
+  str = str.replace(/\s*-\s*/g, ' - ');
+
+  // Trim leading/trailing dots, spaces, underscores, and hyphens
+  str = str.replace(/^[.\s_-]+|[.\s_-]+$/g, '');
+
+  // Truncate to safe length (120 chars)
+  str = str.slice(0, 120).trim();
+  str = str.replace(/[.\s_-]+$/, '');
+
+  if (!str) {
+    str = `jwplyr_${id || Date.now()}`;
+  }
+
+  if (!str.toLowerCase().endsWith('.mp4')) {
+    str += '.mp4';
+  }
+
+  return str;
+}
+
+/**
+ * Sanitizes YouTube video title for Windows NTFS compatibility.
+ * Replaces illegal colons (e.g. "Tutorial: Coding" -> "Tutorial - Coding"), slashes, quotes, and control codes.
+ *
+ * @param {string} title
+ * @returns {string} Sanitized title
+ */
+function sanitizeYoutubeTitle(title) {
+  if (title === null || title === undefined) return 'YouTube_Video';
+  let str = String(title).trim();
+  if (!str) return 'YouTube_Video';
+
+  // Normalize colons and slashes to dashes/spaces
+  str = str.replace(/[:：]/g, ' - ');
+  str = str.replace(/[/\\|]/g, '-');
+
+  // Strip remaining Win32 forbidden characters (* ? " < >) and control codes (0x00-0x1F, 0x7F-0x9F)
+  str = str.replace(/[*?"<>|\x00-\x1f\x7f-\x9f]/g, '');
+
+  // Collapse consecutive whitespace and dashes
+  str = str.replace(/\s+/g, ' ');
+  str = str.replace(/-{2,}/g, '-');
+  str = str.replace(/\s*-\s*/g, ' - ');
+
+  // Trim leading/trailing dots, spaces, underscores, and hyphens
+  str = str.replace(/^[.\s_-]+|[.\s_-]+$/g, '');
+
+  // Truncate to maximum safe length (120 chars)
+  str = str.slice(0, 120).trim();
+  str = str.replace(/[.\s_-]+$/, '');
+
+  return str || 'YouTube_Video';
+}
+
+/**
+ * Sanitizes YouTube channel / author name for Windows NTFS compatibility.
+ *
+ * @param {string} author
+ * @returns {string} Sanitized channel name
+ */
+function sanitizeYoutubeAuthor(author) {
+  if (author === null || author === undefined) return 'Creator';
+  let str = String(author).trim();
+  if (!str) return 'Creator';
+
+  str = str.replace(/^[@.\s]+/, '');
+  str = str.replace(/[/\\:*?"<>|\x00-\x1f\x7f-\x9f]/g, '_');
+  str = str.replace(/\s+/g, '_');
+  str = str.replace(/[.\s_]+$/, '');
+  str = str.slice(0, 64);
+
+  return str || 'Creator';
+}
+
+/**
+ * Formats YouTube video filename: [YouTube] {Title} - {Author} ({VideoId}).mp4
+ *
+ * @param {object} params
+ * @param {string} params.title
+ * @param {string} [params.author]
+ * @param {string|number} [params.videoId]
+ * @returns {string} Windows NTFS safe filename
+ */
+function formatYoutubeFilename(params = {}) {
+  const p = params && typeof params === 'object' ? params : {};
+  const safeTitle = sanitizeYoutubeTitle(p.title);
+  const safeAuthor = sanitizeYoutubeAuthor(p.author);
+  const videoId = p.videoId || p.id;
+  const safeId = sanitizeVideoId(videoId);
+
+  return `[YouTube] ${safeTitle} - ${safeAuthor} (${safeId}).mp4`;
+}
+
+/**
  * Fetches video stream from URL with authentic Referer & Origin headers,
  * returning a Blob object.
  *
@@ -274,25 +465,45 @@ function formatBstationFilename(titleOrParams, epArg, qArg) {
  */
 async function fetchVideoBlob(url, options = {}) {
   const cleanUrl = typeof url === 'string' ? url.trim() : '';
-  const isBstation = cleanUrl.includes('bilivideo.com') ||
-                     cleanUrl.includes('biliapi.net') ||
-                     cleanUrl.includes('bilibili.tv') ||
-                     cleanUrl.includes('bstation.tv') ||
-                     cleanUrl.includes('akamaized.net') ||
-                     (options && options.platform === 'bstation');
+  const isYoutube =
+    cleanUrl.includes('googlevideo.com') ||
+    cleanUrl.includes('youtube.com') ||
+    (options && options.platform === 'youtube');
+  const isJwplyr =
+    cleanUrl.includes('overfetch.video') ||
+    cleanUrl.includes('jwplyr.com') ||
+    (options && options.platform === 'jwplyr');
+  const isBstation =
+    cleanUrl.includes('bilivideo.com') ||
+    cleanUrl.includes('biliapi.net') ||
+    cleanUrl.includes('bilibili.tv') ||
+    cleanUrl.includes('bstation.tv') ||
+    cleanUrl.includes('akamaized.net') ||
+    (options && options.platform === 'bstation');
 
-  const referer = (options && options.referer)
-    ? options.referer
-    : (isBstation ? 'https://www.bilibili.tv/' : 'https://www.tiktok.com/');
-  const origin = (options && options.origin)
-    ? options.origin
-    : (isBstation ? 'https://www.bilibili.tv' : 'https://www.tiktok.com');
+  const defaultReferer = isYoutube
+    ? 'https://www.youtube.com/'
+    : isJwplyr
+      ? 'https://jwplyr.com/'
+      : isBstation
+        ? 'https://www.bilibili.tv/'
+        : 'https://www.tiktok.com/';
+  const defaultOrigin = isYoutube
+    ? 'https://www.youtube.com'
+    : isJwplyr
+      ? 'https://jwplyr.com'
+      : isBstation
+        ? 'https://www.bilibili.tv'
+        : 'https://www.tiktok.com';
+
+  const referer = options && options.referer ? options.referer : defaultReferer;
+  const origin = options && options.origin ? options.origin : defaultOrigin;
 
   const response = await fetch(cleanUrl, {
     method: 'GET',
     headers: {
-      'Referer': referer,
-      'Origin': origin
+      Referer: referer,
+      Origin: origin
     },
     referrer: referer,
     referrerPolicy: 'origin-when-cross-origin'
@@ -305,6 +516,9 @@ async function fetchVideoBlob(url, options = {}) {
   // Guard against HTML, XML, or JSON error pages returned with HTTP 200 (which cause .htm/.xml file downloads)
   if (response.headers && typeof response.headers.get === 'function') {
     const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/plain')) {
+      throw new Error('Received plain text error response instead of video stream');
+    }
     if (contentType.includes('text/html') || contentType.includes('application/xhtml+xml')) {
       throw new Error('Received HTML error page instead of video stream');
     }
@@ -317,13 +531,21 @@ async function fetchVideoBlob(url, options = {}) {
   }
 
   const blob = await response.blob();
-  if (blob && blob.type && (blob.type.includes('text/html') || blob.type.includes('application/xhtml+xml'))) {
+  if (
+    blob &&
+    blob.type &&
+    (blob.type.includes('text/html') || blob.type.includes('application/xhtml+xml'))
+  ) {
     throw new Error('Received HTML error page instead of video stream');
   }
   if (blob && blob.type && blob.type.includes('application/json')) {
     throw new Error('Received JSON error response instead of video stream');
   }
-  if (blob && blob.type && (blob.type.includes('text/xml') || blob.type.includes('application/xml'))) {
+  if (
+    blob &&
+    blob.type &&
+    (blob.type.includes('text/xml') || blob.type.includes('application/xml'))
+  ) {
     throw new Error('Received XML error response instead of video stream');
   }
   if (!blob || (typeof blob.size === 'number' && blob.size === 0)) {
@@ -334,24 +556,48 @@ async function fetchVideoBlob(url, options = {}) {
 }
 
 /**
- * Converts a Blob to a Base64 Data URL.
- * Required in environments like Chrome Manifest V3 Service Workers
- * where URL.createObjectURL is unavailable.
+ * Converts a Blob to a Base64 Data URL using streaming C++ APIs
+ * (FileReader / Buffer) to prevent V8 JS heap thrashing.
  *
  * @param {Blob} blob
  * @returns {Promise<string>}
  */
 async function blobToDataUrl(blob) {
   if (!blob) throw new Error('Blob is required');
+  const mimeType = blob.type && !blob.type.includes('text/html') ? blob.type : 'video/mp4';
+
+  // Strategy 1: Native FileReader streaming (V8 C++ pipeline)
+  if (typeof FileReader !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to convert blob to data URL'));
+        }
+      };
+      reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Strategy 2: Node.js Buffer direct conversion (zero intermediate chunk allocations)
+  if (typeof Buffer !== 'undefined' && typeof blob.arrayBuffer === 'function') {
+    const buffer = await blob.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+    return `data:${mimeType};base64,${base64}`;
+  }
+
+  // Strategy 3: Fast chunked fallback
   const buffer = await blob.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   let binary = '';
-  const chunkSize = 16384;
+  const chunkSize = 32768;
   for (let i = 0; i < bytes.length; i += chunkSize) {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   }
   const base64 = typeof btoa === 'function' ? btoa(binary) : Buffer.from(buffer).toString('base64');
-  const mimeType = (blob.type && !blob.type.includes('text/html')) ? blob.type : 'video/mp4';
   return `data:${mimeType};base64,${base64}`;
 }
 
@@ -368,13 +614,14 @@ async function blobToDataUrl(blob) {
  * @returns {Promise<{ success: boolean, downloadCount: number, filename: string }>}
  */
 function recordDownloadTelemetry(params = {}) {
-  const p = (params && typeof params === 'object') ? params : {};
+  const p = params && typeof params === 'object' ? params : {};
   const safeAuthor = sanitizeAuthor(p.author);
   const videoId = p.videoId || p.id;
   const safeVideoId = sanitizeVideoId(videoId);
-  const safeFilename = (typeof p.filename === 'string' && p.filename.trim())
-    ? p.filename.trim()
-    : formatFilename(p.author, videoId);
+  const safeFilename =
+    typeof p.filename === 'string' && p.filename.trim()
+      ? p.filename.trim()
+      : formatFilename(p.author, videoId);
   const downloadId = p.downloadId || null;
 
   return new Promise((resolve) => {
@@ -387,14 +634,18 @@ function recordDownloadTelemetry(params = {}) {
     }
 
     try {
-      chrome.storage.local.get(['downloadCount', 'recentDownloads'], (data) => {
+      chrome.storage.local.get(['downloadCount', 'recentDownloads', 'downloadHistory'], (data) => {
         if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
           console.warn('[TikTok Downloader SW] Storage get error:', chrome.runtime.lastError);
         }
 
         const rawCount = Number(data && data.downloadCount);
-        const count = (!isNaN(rawCount) && rawCount >= 0) ? Math.floor(rawCount) + 1 : 1;
-        const recent = (data && Array.isArray(data.recentDownloads)) ? data.recentDownloads : [];
+        const count = !isNaN(rawCount) && rawCount >= 0 ? Math.floor(rawCount) + 1 : 1;
+        const recent = data && Array.isArray(data.recentDownloads) ? data.recentDownloads : [];
+        const history =
+          data && data.downloadHistory && typeof data.downloadHistory === 'object'
+            ? data.downloadHistory
+            : {};
 
         recent.unshift({
           downloadId,
@@ -404,10 +655,21 @@ function recordDownloadTelemetry(params = {}) {
           timestamp: Date.now()
         });
 
+        history[safeVideoId] = {
+          videoId: safeVideoId,
+          filename: safeFilename,
+          author: safeAuthor,
+          timestamp: Date.now()
+        };
+        if (videoId && videoId !== safeVideoId) {
+          history[videoId] = history[safeVideoId];
+        }
+
         chrome.storage.local.set(
           {
             downloadCount: count,
-            recentDownloads: recent.slice(0, 50)
+            recentDownloads: recent.slice(0, 50),
+            downloadHistory: history
           },
           () => {
             if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
@@ -453,44 +715,62 @@ async function executeDownload(params) {
     throw new Error('URL must be an HTTP or HTTPS stream');
   }
 
-  const isBstation = params.platform === 'bstation' ||
-                     cleanUrl.includes('bilivideo.com') ||
-                     cleanUrl.includes('biliapi.net') ||
-                     cleanUrl.includes('bilibili.tv') ||
-                     cleanUrl.includes('bstation.tv');
+  const isYoutube =
+    params.platform === 'youtube' ||
+    cleanUrl.includes('googlevideo.com') ||
+    cleanUrl.includes('youtube.com');
+  const isJwplyr =
+    params.platform === 'jwplyr' ||
+    cleanUrl.includes('overfetch.video') ||
+    cleanUrl.includes('jwplyr.com');
+  const isBstation =
+    params.platform === 'bstation' ||
+    cleanUrl.includes('bilivideo.com') ||
+    cleanUrl.includes('biliapi.net') ||
+    cleanUrl.includes('bilibili.tv') ||
+    cleanUrl.includes('bstation.tv');
 
   const videoId = params.videoId || params.id;
-  const filename = params.filename || (
-    isBstation
-      ? formatBstationFilename({
+  const filename =
+    params.filename ||
+    (isYoutube
+      ? formatYoutubeFilename({
           title: params.title,
-          episode: params.episode || params.epIndex,
-          quality: params.quality
+          author: params.author,
+          videoId: videoId
         })
-      : formatFilename(params.author, videoId)
-  );
+      : isJwplyr
+        ? sanitizeJwplyrFilename(params.title, videoId)
+        : isBstation
+          ? formatBstationFilename({
+              title: params.title,
+              episode: params.episode || params.epIndex,
+              quality: params.quality
+            })
+          : formatFilename(params.author, videoId));
 
   if (typeof chrome === 'undefined' || !chrome.downloads || !chrome.downloads.download) {
     throw new Error('chrome.downloads API is unavailable in this context');
   }
 
-  // Fetch video stream directly to Blob to bypass direct CDN 403 Forbidden (.htm download bug)
+  // For YouTube, bypass in-memory Blob buffering (which triggers Google Video 403 on full-file fetch)
+  // and pass the authentic stream URL directly to Chrome's native download manager.
+  // For other platforms (TikTok), fetch to Blob to bypass anti-hotlinking protections.
   let downloadUrl = cleanUrl;
   let isBlobUrl = false;
 
-  try {
-    const blob = await fetchVideoBlob(cleanUrl);
-    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-      downloadUrl = URL.createObjectURL(blob);
-      isBlobUrl = true;
-    } else {
-      // In Chrome Manifest V3 Service Worker where URL.createObjectURL is undefined,
-      // convert Blob to a Base64 Data URL so chrome.downloads.download receives
-      // the downloaded stream payload rather than reverting to the CDN URL (which causes 403 Forbidden .htm)
-      downloadUrl = await blobToDataUrl(blob);
+  if (!isYoutube) {
+    try {
+      const blob = await fetchVideoBlob(cleanUrl);
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        downloadUrl = URL.createObjectURL(blob);
+        isBlobUrl = true;
+      } else {
+        downloadUrl = await blobToDataUrl(blob);
+      }
+    } catch (fetchErr) {
+      throw new Error(`Video stream fetch failed: ${fetchErr.message}`);
     }
-  } catch (fetchErr) {
-    throw new Error(`Video stream fetch failed: ${fetchErr.message}`);
   }
 
   return new Promise((resolve, reject) => {
@@ -503,14 +783,26 @@ async function executeDownload(params) {
       },
       async (downloadId) => {
         if (chrome.runtime.lastError) {
-          if (isBlobUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
-            try { URL.revokeObjectURL(downloadUrl); } catch (_) {}
+          if (
+            isBlobUrl &&
+            typeof URL !== 'undefined' &&
+            typeof URL.revokeObjectURL === 'function'
+          ) {
+            try {
+              URL.revokeObjectURL(downloadUrl);
+            } catch (_) {}
           }
           return reject(new Error(chrome.runtime.lastError.message));
         }
         if (!downloadId) {
-          if (isBlobUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
-            try { URL.revokeObjectURL(downloadUrl); } catch (_) {}
+          if (
+            isBlobUrl &&
+            typeof URL !== 'undefined' &&
+            typeof URL.revokeObjectURL === 'function'
+          ) {
+            try {
+              URL.revokeObjectURL(downloadUrl);
+            } catch (_) {}
           }
           return reject(new Error('Download failed to start'));
         }
@@ -525,22 +817,30 @@ async function executeDownload(params) {
               timer = null;
             }
             if (listener && chrome.downloads?.onChanged?.removeListener) {
-              try { chrome.downloads.onChanged.removeListener(listener); } catch (_) {}
+              try {
+                chrome.downloads.onChanged.removeListener(listener);
+              } catch (_) {}
               listener = null;
             }
-            try { URL.revokeObjectURL(downloadUrl); } catch (_) {}
+            try {
+              URL.revokeObjectURL(downloadUrl);
+            } catch (_) {}
           };
 
           if (chrome.downloads.onChanged) {
             listener = (delta) => {
-              if (delta && delta.id === downloadId && (delta.state?.current === 'complete' || delta.state?.current === 'interrupted')) {
+              if (
+                delta &&
+                delta.id === downloadId &&
+                (delta.state?.current === 'complete' || delta.state?.current === 'interrupted')
+              ) {
                 cleanup();
               }
             };
             chrome.downloads.onChanged.addListener(listener);
           }
 
-          timer = setTimeout(cleanup, 60000);
+          timer = setTimeout(cleanup, 2000);
         }
 
         // Persist download statistics in chrome.storage.local
@@ -562,15 +862,42 @@ async function executeDownload(params) {
   });
 }
 
-// Register dynamic declarativeNetRequest rules on install/update/startup
+// Register dynamic declarativeNetRequest rules on install/update/startup (Fast / Cached)
 async function ensureDnrRules() {
   try {
-    if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest && chrome.declarativeNetRequest.updateDynamicRules) {
+    if (
+      typeof chrome !== 'undefined' &&
+      chrome.declarativeNetRequest &&
+      chrome.declarativeNetRequest.updateDynamicRules
+    ) {
+      const neededIds = [1, 2, 3, 11, 12, 13, 21, 22, 31, 32];
+
+      // Fast check: Skip disk I/O if all dynamic rules are already active
+      if (typeof chrome.declarativeNetRequest.getDynamicRules === 'function') {
+        try {
+          const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+          const currentIds = new Set(currentRules.map((r) => r.id));
+          if (
+            neededIds.every((id) => currentIds.has(id)) &&
+            currentRules.length === neededIds.length
+          ) {
+            return;
+          }
+        } catch (_) {}
+      }
+
       await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: [1, 2, 3, 11, 12, 13],
-        addRules: [...TIKTOK_CDN_RULES, ...BSTATION_CDN_RULES]
+        removeRuleIds: neededIds,
+        addRules: [
+          ...TIKTOK_CDN_RULES,
+          ...BSTATION_CDN_RULES,
+          ...JWPLYR_CDN_RULES,
+          ...YOUTUBE_CDN_RULES
+        ]
       });
-      console.log('[Downloader SW] Dynamic DNR rules registered for ByteDance & Bstation CDNs');
+      console.log(
+        '[Downloader SW] Dynamic DNR rules registered for ByteDance, Bstation, JWPlyr & YouTube CDNs'
+      );
     }
   } catch (err) {
     console.warn('[Downloader SW] Failed to update dynamic DNR rules:', err);
@@ -584,6 +911,515 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
   if (chrome.runtime.onStartup) {
     chrome.runtime.onStartup.addListener(ensureDnrRules);
   }
+  // Guarantee DNR rules are immediately registered whenever Service Worker activates
+  ensureDnrRules();
+}
+
+// Strict Filename Extension Guard: Prevent Chrome from renaming .mp4 downloads to .txt on server warnings
+if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    if (item && item.filename) {
+      let finalName = item.filename;
+      // Suppress any corrupt videoplayback.txt or error text dumps from googlevideo
+      if (
+        item.url &&
+        item.url.includes('googlevideo.com') &&
+        (finalName.endsWith('.txt') || finalName === 'videoplayback')
+      ) {
+        try {
+          chrome.downloads.cancel(item.id, () => {
+            if (chrome.downloads.erase) chrome.downloads.erase({ id: item.id });
+          });
+        } catch (_) {}
+        return false;
+      }
+      if (finalName.includes('[YouTube]') && finalName.endsWith('.txt')) {
+        finalName = finalName.replace(/\.txt$/, '.mp4');
+        suggest({ filename: finalName, conflictAction: 'uniquify' });
+        return true;
+      }
+    }
+  });
+}
+
+// Global Download Failure Guard: Automatically erase interrupted 403 / text plain downloads
+if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.onChanged) {
+  chrome.downloads.onChanged.addListener((delta) => {
+    if (
+      delta &&
+      delta.error &&
+      (delta.error.current === 'SERVER_BAD_CONTENT' || delta.error.current === 'SERVER_FORBIDDEN')
+    ) {
+      try {
+        if (chrome.downloads.erase) {
+          chrome.downloads.erase({ id: delta.id });
+        }
+      } catch (_) {}
+    }
+  });
+}
+
+const NATIVE_HOST_NAME = 'com.direct.downloader.host';
+
+// In-Memory and Synchronized Active Downloads Registry
+const activeDownloads = {};
+
+function broadcastToAllTabs(payload) {
+  if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) return;
+  try {
+    chrome.tabs.query({}, (tabs) => {
+      if (!Array.isArray(tabs)) return;
+      tabs.forEach((tab) => {
+        if (tab && tab.id) {
+          try {
+            chrome.tabs.sendMessage(tab.id, payload, () => {
+              if (chrome.runtime.lastError) {
+                /* ignore closed tab */
+              }
+            });
+          } catch (_) {}
+        }
+      });
+    });
+  } catch (_) {}
+}
+
+function updateActionBadge(text, color = '#2563eb') {
+  if (typeof chrome === 'undefined' || !chrome.action) return;
+  try {
+    if (chrome.action.setBadgeText) {
+      chrome.action.setBadgeText({ text: text ? String(text) : '' });
+    }
+    if (chrome.action.setBadgeBackgroundColor && color) {
+      chrome.action.setBadgeBackgroundColor({ color });
+    }
+  } catch (_) {}
+}
+
+/**
+ * Emits native Chrome desktop notification (Windows Notification Center / System Tray).
+ * Displays video title, author, file size, date, time, and status/error details.
+ *
+ * @param {object} params
+ */
+function showDesktopNotification({
+  success,
+  title,
+  author,
+  size,
+  videoId,
+  error,
+  errorCode,
+  filename
+}) {
+  if (typeof chrome === 'undefined' || !chrome.notifications || !chrome.notifications.create) {
+    return;
+  }
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+  const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+  const notifId = `dl_${success ? 'ok' : 'err'}_${videoId || Date.now()}_${Date.now()}`;
+  const icon =
+    chrome.runtime && chrome.runtime.getURL
+      ? chrome.runtime.getURL('icons/icon128.png')
+      : 'icons/icon128.png';
+
+  if (success) {
+    const lines = [
+      `Judul: ${title || filename || 'Video'}`,
+      `Author: ${author || 'Creator'}`,
+      size ? `Ukuran: ${size}` : null,
+      `Waktu: ${dateStr}, ${timeStr}`,
+      `Lokasi: Folder Downloads`
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      chrome.notifications.create(notifId, {
+        type: 'basic',
+        iconUrl: icon,
+        title: '✓ Video Berhasil Didownload!',
+        message: lines,
+        priority: 2
+      });
+    } catch (e) {
+      console.warn('[SW] Notification error:', e);
+    }
+  } else {
+    const errText = errorCode
+      ? `[${errorCode}] ${error || 'Unknown'}`
+      : error || 'Gagal memproses unduhan';
+    const lines = [
+      `Judul: ${title || videoId || 'Video'}`,
+      `Author: ${author || 'Creator'}`,
+      `Waktu: ${dateStr}, ${timeStr}`,
+      `Error: ${errText}`
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      chrome.notifications.create(notifId, {
+        type: 'basic',
+        iconUrl: icon,
+        title: '✗ Gagal Mengunduh Video',
+        message: lines,
+        priority: 2
+      });
+    } catch (e) {
+      console.warn('[SW] Notification error:', e);
+    }
+  }
+}
+
+// Concurrency Limiter & Download Queue (Max 2 concurrent yt-dlp processes)
+const MAX_CONCURRENT_DOWNLOADS = 2;
+let activeDownloadWorkers = 0;
+const downloadQueue = [];
+
+function checkAndProcessQueue() {
+  if (activeDownloadWorkers >= MAX_CONCURRENT_DOWNLOADS) return;
+  if (downloadQueue.length === 0) return;
+
+  const nextJob = downloadQueue.shift();
+  if (!nextJob) return;
+
+  activeDownloadWorkers++;
+  executeNativeDownloadWorker(nextJob.params, nextJob.tabId)
+    .then((result) => {
+      activeDownloadWorkers = Math.max(0, activeDownloadWorkers - 1);
+      nextJob.resolve(result);
+      checkAndProcessQueue();
+    })
+    .catch((err) => {
+      activeDownloadWorkers = Math.max(0, activeDownloadWorkers - 1);
+      nextJob.reject(err);
+      checkAndProcessQueue();
+    });
+}
+
+/**
+ * Downloads YouTube video via local yt-dlp + FFmpeg Native Messaging Host.
+ * Implements global concurrency queueing and data-saver preference resolution.
+ * @param {object} params
+ * @param {number|null} [tabId]
+ * @returns {Promise<object>}
+ */
+function downloadViaNativeYtDlp(params = {}, tabId = null) {
+  return new Promise((resolve, reject) => {
+    const videoId = params.videoId || params.id;
+    if (!videoId) {
+      return reject(new Error('Missing YouTube video identifier'));
+    }
+
+    // Duplicate Download Guard: Reject concurrent downloads of identical video
+    if (
+      activeDownloads[videoId] &&
+      (activeDownloads[videoId].status === 'downloading' ||
+        activeDownloads[videoId].status === 'queued')
+    ) {
+      const active = activeDownloads[videoId];
+      return resolve({
+        success: true,
+        alreadyActive: true,
+        message:
+          active.status === 'queued'
+            ? `Video "${active.title || videoId}" ada di dalam antrean unduhan...`
+            : `Video "${active.title || videoId}" sedang diunduh (${active.part || 'Memproses'}: ${Math.round(active.percent || 0)}%)`,
+        details: active
+      });
+    }
+
+    // If active workers at capacity, enqueue job
+    if (activeDownloadWorkers >= MAX_CONCURRENT_DOWNLOADS) {
+      activeDownloads[videoId] = {
+        videoId,
+        title: params.title || 'YouTube Video',
+        author: params.author || 'Creator',
+        startTime: Date.now(),
+        status: 'queued',
+        part: 'Dalam Antrean...',
+        percent: 0,
+        speed: '',
+        totalSize: '',
+        eta: ''
+      };
+
+      broadcastToAllTabs({
+        type: 'YT_NATIVE_PROGRESS',
+        videoId: videoId,
+        title: params.title,
+        author: params.author,
+        part: 'Dalam Antrean...',
+        percent: 0,
+        status: 'queued',
+        message: 'Menunggu antrean unduhan lain selesai...'
+      });
+
+      downloadQueue.push({ params, tabId, resolve, reject });
+      return;
+    }
+
+    activeDownloadWorkers++;
+    executeNativeDownloadWorker(params, tabId)
+      .then((res) => {
+        activeDownloadWorkers = Math.max(0, activeDownloadWorkers - 1);
+        resolve(res);
+        checkAndProcessQueue();
+      })
+      .catch((err) => {
+        activeDownloadWorkers = Math.max(0, activeDownloadWorkers - 1);
+        reject(err);
+        checkAndProcessQueue();
+      });
+  });
+}
+
+async function executeNativeDownloadWorker(params = {}, _tabId = null) {
+  const videoId = params.videoId || params.id;
+
+  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connectNative) {
+    throw new Error('chrome.runtime.connectNative is unavailable');
+  }
+
+  // Check data saver preference
+  let isDataSaver = false;
+  try {
+    if (chrome.storage && chrome.storage.local) {
+      const stored = await chrome.storage.local.get(['codecPreference']);
+      isDataSaver = stored?.codecPreference === 'data_saver';
+    }
+  } catch (_) {}
+
+  return new Promise((resolve, reject) => {
+    let port = null;
+    let isSettled = false;
+
+    try {
+      port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    } catch (err) {
+      return reject(new Error('Failed to connect to Native Host: ' + err.message));
+    }
+
+    // Register active download state
+    activeDownloads[videoId] = {
+      videoId,
+      title: params.title || 'YouTube Video',
+      author: params.author || 'Creator',
+      startTime: Date.now(),
+      status: 'downloading',
+      part: isDataSaver ? 'Video (Progressive)' : 'Memulai...',
+      percent: 0,
+      speed: '',
+      totalSize: '',
+      eta: ''
+    };
+
+    updateActionBadge('0%', '#2563eb');
+
+    port.onMessage.addListener(async (msg) => {
+      if (!msg) return;
+
+      // Handle intermediate progress updates
+      if (msg.type === 'PROGRESS') {
+        const percent = typeof msg.percent === 'number' ? msg.percent : 0;
+        const part = msg.part || (msg.status === 'merging' ? 'Muxing MP4' : 'Video');
+
+        if (activeDownloads[videoId]) {
+          activeDownloads[videoId].part = part;
+          activeDownloads[videoId].percent = percent;
+          activeDownloads[videoId].speed = msg.speed || '';
+          activeDownloads[videoId].totalSize = msg.totalSize || '';
+          activeDownloads[videoId].eta = msg.eta || '';
+          activeDownloads[videoId].status = msg.status === 'merging' ? 'merging' : 'downloading';
+        }
+
+        // Update toolbar action badge
+        if (msg.status === 'merging') {
+          updateActionBadge('MUX', '#06b6d4');
+        } else {
+          const badgeText = `${Math.round(percent)}%`;
+          const badgeColor = part.includes('Audio') ? '#8b5cf6' : '#2563eb';
+          updateActionBadge(badgeText, badgeColor);
+        }
+
+        // Broadcast real-time progress to all tabs and popup
+        broadcastToAllTabs({
+          type: 'YT_NATIVE_PROGRESS',
+          videoId: videoId,
+          title: params.title,
+          author: params.author,
+          part: part,
+          percent: percent,
+          speed: msg.speed,
+          totalSize: msg.totalSize,
+          eta: msg.eta,
+          status: msg.status,
+          message: msg.message
+        });
+        return;
+      }
+
+      // Handle final completion
+      if (msg.success) {
+        if (isSettled) return;
+        isSettled = true;
+        const finalName = msg.filename || `${params.title || 'YouTube_Video'}.mp4`;
+        const sizeFormatted = msg.size || '';
+
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('id-ID', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+        const timeStr =
+          now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+        if (activeDownloads[videoId]) {
+          activeDownloads[videoId].status = 'complete';
+          activeDownloads[videoId].filename = finalName;
+          activeDownloads[videoId].size = sizeFormatted;
+          activeDownloads[videoId].percent = 100;
+        }
+
+        updateActionBadge('✓', '#22c55e');
+        setTimeout(() => {
+          updateActionBadge('');
+          delete activeDownloads[videoId];
+        }, 8000);
+
+        // Native Windows Desktop Notification
+        showDesktopNotification({
+          success: true,
+          title: params.title,
+          author: params.author,
+          size: sizeFormatted,
+          filename: finalName,
+          videoId: videoId
+        });
+
+        broadcastToAllTabs({
+          type: 'YT_NATIVE_COMPLETE',
+          videoId: videoId,
+          filename: finalName,
+          title: params.title,
+          author: params.author,
+          size: sizeFormatted,
+          dateStr: dateStr,
+          timeStr: timeStr,
+          folder: msg.folder,
+          message: 'Video berhasil tersimpan di Downloads!'
+        });
+
+        await recordDownloadTelemetry({
+          author: params.author,
+          videoId: videoId,
+          title: params.title,
+          platform: 'youtube',
+          filename: finalName
+        });
+
+        resolve({
+          success: true,
+          native: true,
+          filename: finalName,
+          size: sizeFormatted,
+          folder: msg.folder,
+          message: msg.message || 'Video tersimpan di folder Downloads!'
+        });
+        try {
+          port.disconnect();
+        } catch (_) {}
+      } else {
+        if (isSettled) return;
+        isSettled = true;
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('id-ID', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+        const timeStr =
+          now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+        const errorCode = msg.errorCode || 'ERR_YTDLP_FAIL';
+
+        if (activeDownloads[videoId]) {
+          activeDownloads[videoId].status = 'error';
+          activeDownloads[videoId].error = msg.error;
+          activeDownloads[videoId].errorCode = errorCode;
+        }
+        updateActionBadge('ERR', '#ef4444');
+        setTimeout(() => {
+          updateActionBadge('');
+          delete activeDownloads[videoId];
+        }, 6000);
+
+        // Native Windows Desktop Notification (Error)
+        showDesktopNotification({
+          success: false,
+          title: params.title,
+          author: params.author,
+          error: msg.error,
+          errorCode: errorCode,
+          videoId: videoId
+        });
+
+        broadcastToAllTabs({
+          type: 'YT_NATIVE_ERROR',
+          videoId: videoId,
+          title: params.title,
+          author: params.author,
+          error: msg.error || 'Download failed',
+          errorCode: errorCode,
+          dateStr: dateStr,
+          timeStr: timeStr
+        });
+
+        reject(new Error(msg.error || 'Native yt-dlp download failed'));
+        try {
+          port.disconnect();
+        } catch (_) {}
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (isSettled) return;
+      isSettled = true;
+      try {
+        port.postMessage({ action: 'CANCEL' });
+      } catch (_) {}
+      const err = chrome.runtime.lastError
+        ? chrome.runtime.lastError.message
+        : 'Native host disconnected unexpectedly';
+      delete activeDownloads[videoId];
+      updateActionBadge('');
+      reject(new Error(err));
+    });
+
+    // Send the DOWNLOAD command to the native host
+    const videoUrl =
+      params.url && params.url.includes('youtube.com')
+        ? params.url
+        : `https://www.youtube.com/watch?v=${videoId}`;
+
+    port.postMessage({
+      action: 'DOWNLOAD',
+      url: videoUrl,
+      videoId: videoId,
+      title: params.title,
+      author: params.author,
+      quality: params.quality || (isDataSaver ? '720p' : '1080p'),
+      dataSaver: isDataSaver
+    });
+  });
 }
 
 // Primary IPC Listener
@@ -594,9 +1430,76 @@ function handleMessage(message, sender, sendResponse) {
 
   const actionType = message.type || message.action;
 
+  // Handle CHECK_NATIVE_HOST
+  if (actionType === 'CHECK_NATIVE_HOST') {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendNativeMessage) {
+      sendResponse({ success: false, available: false });
+      return false;
+    }
+    try {
+      chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, { action: 'PING' }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.success) {
+          sendResponse({
+            success: false,
+            available: false,
+            error: chrome.runtime.lastError?.message
+          });
+        } else {
+          sendResponse({ success: true, available: true, details: response });
+        }
+      });
+    } catch (e) {
+      sendResponse({ success: false, available: false, error: e.message });
+    }
+    return true;
+  }
+
+  // Handle GET_ACTIVE_DOWNLOADS (For in-page button and popup active queue)
+  if (actionType === 'GET_ACTIVE_DOWNLOADS') {
+    sendResponse({
+      success: true,
+      activeDownloads: activeDownloads,
+      count: Object.keys(activeDownloads).length
+    });
+    return true;
+  }
+
+  // Handle CHECK_DOWNLOADED_STATUS (For button gray state and redownload prompt)
+  if (actionType === 'CHECK_DOWNLOADED_STATUS') {
+    const vid = message.videoId || message.id;
+    if (!vid) {
+      sendResponse({ success: false, downloaded: false });
+      return false;
+    }
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['recentDownloads', 'downloadHistory'], (data) => {
+        const recent = Array.isArray(data?.recentDownloads) ? data.recentDownloads : [];
+        const history =
+          data?.downloadHistory && typeof data.downloadHistory === 'object'
+            ? data.downloadHistory
+            : {};
+        const safeId = sanitizeVideoId(vid);
+        const match =
+          history[safeId] ||
+          history[vid] ||
+          recent.find((r) => r.videoId === safeId || r.videoId === vid);
+        sendResponse({
+          success: true,
+          downloaded: Boolean(match),
+          details: match || null
+        });
+      });
+      return true;
+    } else {
+      sendResponse({ success: true, downloaded: false });
+      return false;
+    }
+  }
+
   // Handle RECORD_DOWNLOAD (Telemetry from in-page content script downloads)
   if (actionType === 'RECORD_DOWNLOAD') {
-    const payload = (message.payload && typeof message.payload === 'object') ? message.payload : message;
+    const payload =
+      message.payload && typeof message.payload === 'object' ? message.payload : message;
     recordDownloadTelemetry({
       author: payload.author,
       videoId: payload.videoId || payload.id,
@@ -621,7 +1524,28 @@ function handleMessage(message, sender, sendResponse) {
 
   // Handle DOWNLOAD_VIDEO (Fallback and direct downloads)
   if (actionType === 'DOWNLOAD_VIDEO') {
-    const payload = (message.payload && typeof message.payload === 'object') ? message.payload : message;
+    const payload =
+      message.payload && typeof message.payload === 'object' ? message.payload : message;
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+
+    // If downloading from YouTube, prioritize native yt-dlp host
+    if (
+      payload.platform === 'youtube' ||
+      (payload.url && payload.url.includes('youtube.com')) ||
+      payload.nativeOnly
+    ) {
+      downloadViaNativeYtDlp(payload, tabId)
+        .then((result) => sendResponse(result))
+        .catch((err) => {
+          console.warn('[SW] Native yt-dlp error:', err.message);
+          sendResponse({
+            success: false,
+            error: err.message || 'Gagal menjalankan yt-dlp host'
+          });
+        });
+      return true;
+    }
+
     executeDownload({
       url: payload.url,
       author: payload.author,
@@ -654,13 +1578,27 @@ function handleMessage(message, sender, sendResponse) {
         sendResponse({
           success: true,
           downloadCount: (data && data.downloadCount) || 0,
-          recentDownloads: (data && Array.isArray(data.recentDownloads)) ? data.recentDownloads : []
+          recentDownloads: data && Array.isArray(data.recentDownloads) ? data.recentDownloads : []
         });
       });
     } else {
       sendResponse({ success: true, downloadCount: 0, recentDownloads: [] });
     }
     return true;
+  }
+
+  // Handle OPEN_TAB (immune to browser popup blocker)
+  if (actionType === 'OPEN_TAB') {
+    const targetUrl = message.url || message.payload?.url;
+    if (targetUrl && typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: targetUrl, active: true }, (tab) => {
+        sendResponse({ success: true, tabId: tab?.id });
+      });
+      return true;
+    } else {
+      sendResponse({ success: false, error: 'Invalid URL or chrome.tabs unavailable' });
+      return false;
+    }
   }
 
   // Handle PING
@@ -681,16 +1619,47 @@ if (typeof chrome !== 'undefined' && chrome.contextMenus) {
   function setupContextMenu() {
     try {
       chrome.contextMenus.removeAll(() => {
-        chrome.contextMenus.create({
-          id: 'download-tiktok-active',
-          title: '⬇ Download Video/Konten TikTok Ini',
-          contexts: ['all'],
-          documentUrlPatterns: ['*://*.tiktok.com/*']
-        }, () => {
-          if (chrome.runtime.lastError) {
-            // Ignore duplicate menu warnings
+        chrome.contextMenus.create(
+          {
+            id: 'download-tiktok-active',
+            title: '⬇ Download Video/Konten TikTok Ini',
+            contexts: ['all'],
+            documentUrlPatterns: ['*://*.tiktok.com/*']
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              // Ignore duplicate menu warnings
+            }
           }
-        });
+        );
+
+        chrome.contextMenus.create(
+          {
+            id: 'download-jwplyr-active',
+            title: '⬇ Download Video JWPlyr Ini',
+            contexts: ['all'],
+            documentUrlPatterns: ['*://*.jwplyr.com/*']
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              // Ignore duplicate menu warnings
+            }
+          }
+        );
+
+        chrome.contextMenus.create(
+          {
+            id: 'download-youtube-active',
+            title: '⬇ Download Video YouTube Ini (MP4)',
+            contexts: ['all'],
+            documentUrlPatterns: ['*://*.youtube.com/*']
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              // Ignore duplicate menu warnings
+            }
+          }
+        );
       });
     } catch (_) {}
   }
@@ -702,10 +1671,16 @@ if (typeof chrome !== 'undefined' && chrome.contextMenus) {
   }
 
   chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === 'download-tiktok-active' && tab && tab.id) {
-      chrome.tabs.sendMessage(tab.id, { type: 'DOWNLOAD_ACTIVE_VIDEO' }, (response) => {
+    if (
+      (info.menuItemId === 'download-tiktok-active' ||
+        info.menuItemId === 'download-jwplyr-active' ||
+        info.menuItemId === 'download-youtube-active') &&
+      tab &&
+      tab.id
+    ) {
+      chrome.tabs.sendMessage(tab.id, { type: 'DOWNLOAD_ACTIVE_VIDEO' }, (_response) => {
         if (chrome.runtime.lastError) {
-          console.warn('[TikTok Downloader] Tab messaging error:', chrome.runtime.lastError);
+          console.warn('[Direct Downloader] Tab messaging error:', chrome.runtime.lastError);
         }
       });
     }
@@ -725,8 +1700,14 @@ if (typeof module !== 'undefined' && module.exports) {
     handleMessage,
     TIKTOK_CDN_RULES,
     BSTATION_CDN_RULES,
+    JWPLYR_CDN_RULES,
+    YOUTUBE_CDN_RULES,
     sanitizeBstationTitle,
     formatBstationEpisode,
-    formatBstationFilename
+    formatBstationFilename,
+    sanitizeJwplyrFilename,
+    sanitizeYoutubeTitle,
+    sanitizeYoutubeAuthor,
+    formatYoutubeFilename
   };
 }

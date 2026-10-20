@@ -64,7 +64,12 @@
 
     if (titleOrParams && typeof titleOrParams === 'object' && !Array.isArray(titleOrParams)) {
       title = titleOrParams.title;
-      episode = titleOrParams.episode !== undefined ? titleOrParams.episode : (titleOrParams.epIndex !== undefined ? titleOrParams.epIndex : 'E01');
+      episode =
+        titleOrParams.episode !== undefined
+          ? titleOrParams.episode
+          : titleOrParams.epIndex !== undefined
+            ? titleOrParams.epIndex
+            : 'E01';
       quality = titleOrParams.quality || '720p';
     } else {
       title = titleOrParams;
@@ -143,7 +148,8 @@
       this._notify();
 
       try {
-        const stream = typeof task.resolveStream === 'function' ? await task.resolveStream() : task.stream;
+        const stream =
+          typeof task.resolveStream === 'function' ? await task.resolveStream() : task.stream;
         if (typeof task.downloadStream === 'function') {
           await task.downloadStream(stream, task);
         }
@@ -207,7 +213,10 @@
       let fetchOptions = { method: 'GET' };
       try {
         const parsedUrl = new URL(cleanUrl);
-        if (parsedUrl.hostname.endsWith('bilibili.tv') || parsedUrl.hostname.endsWith('bstation.tv')) {
+        if (
+          parsedUrl.hostname.endsWith('bilibili.tv') ||
+          parsedUrl.hostname.endsWith('bstation.tv')
+        ) {
           fetchOptions.credentials = 'include';
         }
       } catch (_) {}
@@ -227,7 +236,7 @@
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
 
-      const contentType = response.headers ? (response.headers.get('content-type') || '') : '';
+      const contentType = response.headers ? response.headers.get('content-type') || '' : '';
       if (contentType.includes('text/html') || contentType.includes('application/xhtml+xml')) {
         throw new Error('Received HTML error page instead of video stream');
       }
@@ -263,18 +272,21 @@
         try {
           if (URL.revokeObjectURL) URL.revokeObjectURL(blobUrl);
         } catch (_) {}
-      }, 15000);
+      }, 1500);
 
       // Record telemetry via background service worker
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({
-          type: 'RECORD_DOWNLOAD',
-          payload: {
-            platform: 'bstation',
-            title: streamInput.title || filename,
-            filename: filename
-          }
-        }, () => {});
+        chrome.runtime.sendMessage(
+          {
+            type: 'RECORD_DOWNLOAD',
+            payload: {
+              platform: 'bstation',
+              title: streamInput.title || filename,
+              filename: filename
+            }
+          },
+          () => {}
+        );
       }
 
       return { success: true, filename, source: 'in_page' };
@@ -289,19 +301,23 @@
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         try {
           const swRes = await new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({
-              type: 'DOWNLOAD_VIDEO',
-              payload: {
-                url: cleanUrl,
-                platform: 'bstation',
-                title: streamInput.title,
-                filename: filename
+            chrome.runtime.sendMessage(
+              {
+                type: 'DOWNLOAD_VIDEO',
+                payload: {
+                  url: cleanUrl,
+                  platform: 'bstation',
+                  title: streamInput.title,
+                  filename: filename
+                }
+              },
+              (res) => {
+                if (chrome.runtime.lastError)
+                  return reject(new Error(chrome.runtime.lastError.message));
+                if (res && res.success) resolve(res);
+                else reject(new Error(res?.error || 'Background download failed'));
               }
-            }, (res) => {
-              if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-              if (res && res.success) resolve(res);
-              else reject(new Error(res?.error || 'Background download failed'));
-            });
+            );
           });
           return { success: true, filename, source: 'background_fallback', details: swRes };
         } catch (_) {}
@@ -345,18 +361,37 @@
         reject(new Error('Timeout waiting for Bstation stream bridge'));
       }, timeoutMs);
 
-      document.dispatchEvent(
-        new CustomEvent('BS_BRIDGE_REQUEST', {
-          detail: {
-            requestId,
-            action: 'GET_PLAY_URL',
-            ep_id: options.ep_id || options.epId,
-            aid: options.aid,
-            bvid: options.bvid,
-            qn: options.qn || 64
-          }
-        })
-      );
+      const sendEvent = (codecPref) => {
+        document.dispatchEvent(
+          new CustomEvent('BS_BRIDGE_REQUEST', {
+            detail: {
+              requestId,
+              action: 'GET_PLAY_URL',
+              ep_id: options.ep_id || options.epId,
+              aid: options.aid,
+              bvid: options.bvid,
+              qn: options.qn || 64,
+              codecPreference: options.codecPreference || codecPref
+            }
+          })
+        );
+      };
+
+      if (
+        !options.codecPreference &&
+        typeof chrome !== 'undefined' &&
+        chrome.storage &&
+        chrome.storage.local &&
+        typeof chrome.storage.local.get === 'function'
+      ) {
+        try {
+          chrome.storage.local.get(['codecPreference'], (st) => {
+            sendEvent((st && st.codecPreference) || 'data_saver');
+          });
+          return;
+        } catch (_) {}
+      }
+      sendEvent(options.codecPreference || 'data_saver');
     });
   }
 
@@ -577,7 +612,8 @@
    * Injects [ 📥 Batch Download ] button beside "Semua episode" header.
    */
   function injectBatchButton(headerContainer) {
-    if (!headerContainer || headerContainer.getAttribute('data-bs-batch-ready') === 'true') return null;
+    if (!headerContainer || headerContainer.getAttribute('data-bs-batch-ready') === 'true')
+      return null;
 
     if (headerContainer.querySelector('.bs-batch-trigger-btn')) {
       headerContainer.setAttribute('data-bs-batch-ready', 'true');
@@ -600,7 +636,12 @@
 
     // Append directly to header or beside title node
     const titleNode = headerContainer.querySelector('h2, h3, div, span') || headerContainer;
-    if (titleNode && titleNode !== headerContainer && titleNode.parentElement === headerContainer && typeof titleNode.insertAdjacentElement === 'function') {
+    if (
+      titleNode &&
+      titleNode !== headerContainer &&
+      titleNode.parentElement === headerContainer &&
+      typeof titleNode.insertAdjacentElement === 'function'
+    ) {
       titleNode.insertAdjacentElement('afterend', batchBtn);
     } else {
       headerContainer.appendChild(batchBtn);
@@ -623,16 +664,19 @@
     if (!element) return '';
 
     // 1. Check data-ep-id or data-id attribute if strictly numeric
-    const dataEpId = element.getAttribute ? (element.getAttribute('data-ep-id') || element.getAttribute('data-id')) : null;
+    const dataEpId = element.getAttribute
+      ? element.getAttribute('data-ep-id') || element.getAttribute('data-id')
+      : null;
     if (dataEpId && /^\d+$/.test(String(dataEpId))) {
       return String(dataEpId);
     }
 
     // 2. Check href attribute on element, child <a> tag, or ancestor <a> tag
-    let href = element.getAttribute ? (element.getAttribute('href') || element.href || '') : '';
+    let href = element.getAttribute ? element.getAttribute('href') || element.href || '' : '';
     if (!href) {
-      const a = (element.querySelector && element.querySelector('a[href*="/play/"], a')) ||
-                (element.closest && element.closest('a'));
+      const a =
+        (element.querySelector && element.querySelector('a[href*="/play/"], a')) ||
+        (element.closest && element.closest('a'));
       if (a) href = a.getAttribute('href') || a.href || '';
     }
 
@@ -673,14 +717,16 @@
           if (rawId && /^\d+$/.test(String(rawId))) {
             episodeId = String(rawId);
           }
-          episodeTitle = ep.short_title ? `E${ep.short_title}` : (ep.title || 'E01');
+          episodeTitle = ep.short_title ? `E${ep.short_title}` : ep.title || 'E01';
         }
       }
     }
 
     // 2. DOM Scrape Fallback for Title
     if (!animeTitle && typeof document !== 'undefined') {
-      const titleEl = document.querySelector('.ogv-title, .bstar-video-title, h1[class*="title"], h1, .media-info-title');
+      const titleEl = document.querySelector(
+        '.ogv-title, .bstar-video-title, h1[class*="title"], h1, .media-info-title'
+      );
       if (titleEl) {
         animeTitle = titleEl.textContent.trim();
       }
@@ -714,13 +760,16 @@
         const extractedId = extractNumericEpId(activeEpNode);
         if (extractedId) episodeId = extractedId;
 
-        const numText = activeEpNode.querySelector('span, div')?.textContent || activeEpNode.textContent || '';
+        const numText =
+          activeEpNode.querySelector('span, div')?.textContent || activeEpNode.textContent || '';
         const numMatch = numText.match(/\d+/);
         if (numMatch) episodeTitle = `E${numMatch[0]}`;
       } else if (!episodeId) {
         // If URL has only seasonId (/play/2411889) and active class is not set yet,
         // take the first episode item in the episode container!
-        const firstEp = document.querySelector('.bstar-episode-list a[href*="/play/"], .bstar-episode-item, [class*="ep-item"]');
+        const firstEp = document.querySelector(
+          '.bstar-episode-list a[href*="/play/"], .bstar-episode-item, [class*="ep-item"]'
+        );
         if (firstEp) {
           const extractedId = extractNumericEpId(firstEp);
           if (extractedId) episodeId = extractedId;
@@ -730,7 +779,9 @@
 
     // Check if VIP badge appears on active episode or user profile
     if (!isUserVip && typeof document !== 'undefined') {
-      const vipHeader = document.querySelector('.vip-icon, .bstar-header-vip, [class*="badge--vip"]');
+      const vipHeader = document.querySelector(
+        '.vip-icon, .bstar-header-vip, [class*="badge--vip"]'
+      );
       if (vipHeader) isUserVip = true;
     }
 
@@ -776,14 +827,14 @@
       let rawList = state.epList;
       if (!rawList && state.sections && Array.isArray(state.sections)) {
         rawList = [];
-        state.sections.forEach(sec => {
+        state.sections.forEach((sec) => {
           const list = sec.epList || sec.episodes || sec.episodeList || sec.list || sec.items;
           if (Array.isArray(list)) rawList.push(...list);
         });
       }
       if (!rawList && state.ogv && Array.isArray(state.ogv.sectionsList)) {
         rawList = [];
-        state.ogv.sectionsList.forEach(sec => {
+        state.ogv.sectionsList.forEach((sec) => {
           const list = sec.epList || sec.episodes || sec.episodeList || sec.list || sec.items;
           if (Array.isArray(list)) rawList.push(...list);
         });
@@ -793,14 +844,26 @@
       }
       if (Array.isArray(rawList) && rawList.length > 0) {
         const media = state.mediaInfo || state.season || (state.ogv && state.ogv.season) || {};
-        const title = media.title || media.season_title || (state.ogv && state.ogv.season && (state.ogv.season.title || state.ogv.season.season_title)) || videoInfo.animeTitle;
+        const title =
+          media.title ||
+          media.season_title ||
+          (state.ogv &&
+            state.ogv.season &&
+            (state.ogv.season.title || state.ogv.season.season_title)) ||
+          videoInfo.animeTitle;
         const user = state.user || state.userInfo || {};
         const vipInfo = user.vip_info || user.vip || {};
-        const isVip = !!(vipInfo.is_vip || vipInfo.status === 1 || vipInfo.vip_type > 0 || (user.vip && user.vip.status === 1));
+        const isVip = !!(
+          vipInfo.is_vip ||
+          vipInfo.status === 1 ||
+          vipInfo.vip_type > 0 ||
+          (user.vip && user.vip.status === 1)
+        );
 
         const episodes = rawList.map((ep, idx) => {
           const epId = String(ep.ep_id || ep.id || ep.epid || ep.episode_id || `ep_${idx + 1}`);
-          const rawTitle = ep.title || (ep.short_title ? `EP ${ep.short_title}` : `Episode ${idx + 1}`);
+          const rawTitle =
+            ep.title || (ep.short_title ? `EP ${ep.short_title}` : `Episode ${idx + 1}`);
           let epIndex = idx + 1;
           if (ep.short_title && /^\d+$/.test(ep.short_title)) {
             epIndex = parseInt(ep.short_title, 10);
@@ -835,9 +898,12 @@
 
     // 3. Fallback: STRICTLY Scoped DOM Scrape
     const episodes = [];
-    const episodeSection = typeof document !== 'undefined'
-      ? document.querySelector('.bstar-episode-list, .bstar-episodes, .bstar-episode-wrap, [class*="ep-wrap"], [class*="episode-list"]')
-      : null;
+    const episodeSection =
+      typeof document !== 'undefined'
+        ? document.querySelector(
+            '.bstar-episode-list, .bstar-episodes, .bstar-episode-wrap, [class*="ep-wrap"], [class*="episode-list"]'
+          )
+        : null;
     const scope = episodeSection || (typeof document !== 'undefined' ? document : null);
 
     if (scope) {
@@ -849,7 +915,10 @@
 
       // Discard recommendation cards, sidebar links, or elements with long text (titles/descriptions)
       const epElements = candidateElements.filter((el) => {
-        if (el.closest && el.closest('.bstar-recommend, .bstar-aside, .recommend-list, aside, .right-container')) {
+        if (
+          el.closest &&
+          el.closest('.bstar-recommend, .bstar-aside, .recommend-list, aside, .right-container')
+        ) {
           return false;
         }
         const txt = (el.textContent || '').trim();
@@ -859,17 +928,24 @@
       const seenIds = new Set();
       epElements.forEach((el, index) => {
         const extractedNumeric = extractNumericEpId(el);
-        const epId = extractedNumeric || el.getAttribute('data-ep-id') || el.getAttribute('data-id') || `ep_${index + 1}`;
+        const epId =
+          extractedNumeric ||
+          el.getAttribute('data-ep-id') ||
+          el.getAttribute('data-id') ||
+          `ep_${index + 1}`;
         if (seenIds.has(epId)) return;
         seenIds.add(epId);
 
         const titleText = el.textContent.trim();
         const digits = titleText.match(/\d+/);
-        const epIndex = digits ? parseInt(digits[0], 10) : (index + 1);
+        const epIndex = digits ? parseInt(digits[0], 10) : index + 1;
 
         // Detect VIP badge
         const hasVipBadge = !!(
-          (el.querySelector && el.querySelector('.bstar-episode-item__badge, .bstar-vip-badge, .vip-badge, [class*="badge--vip"], svg[class*="diamond"]')) ||
+          (el.querySelector &&
+            el.querySelector(
+              '.bstar-episode-item__badge, .bstar-vip-badge, .vip-badge, [class*="badge--vip"], svg[class*="diamond"]'
+            )) ||
           titleText.toUpperCase().includes('VIP')
         );
 
@@ -945,6 +1021,7 @@
     headerInfo.appendChild(vipBadge);
 
     const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
     closeBtn.className = 'bs-modal-close-btn';
     closeBtn.id = 'bs-modal-close';
     closeBtn.setAttribute('aria-label', 'Tutup');
@@ -962,18 +1039,21 @@
     pillGroup.className = 'bs-pill-group';
 
     const pillAll = document.createElement('button');
+    pillAll.type = 'button';
     pillAll.className = 'bs-pill-btn';
     pillAll.id = 'bs-pill-all';
     pillAll.textContent = 'Pilih Semua';
     pillGroup.appendChild(pillAll);
 
     const pillFree = document.createElement('button');
+    pillFree.type = 'button';
     pillFree.className = 'bs-pill-btn';
     pillFree.id = 'bs-pill-free';
     pillFree.textContent = 'Hanya Episode Gratis';
     pillGroup.appendChild(pillFree);
 
     const pillNone = document.createElement('button');
+    pillNone.type = 'button';
     pillNone.className = 'bs-pill-btn';
     pillNone.id = 'bs-pill-none';
     pillNone.textContent = 'Kosongkan';
@@ -1115,12 +1195,14 @@
     footerActions.className = 'bs-footer-actions';
 
     const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
     cancelBtn.className = 'bs-btn-secondary';
     cancelBtn.id = 'bs-btn-modal-cancel';
     cancelBtn.textContent = 'Tutup';
     footerActions.appendChild(cancelBtn);
 
     const startBatchBtn = document.createElement('button');
+    startBatchBtn.type = 'button';
     startBatchBtn.className = 'bs-btn-primary';
     startBatchBtn.id = 'bs-btn-start-batch';
 
@@ -1141,7 +1223,9 @@
     overlay.appendChild(dialog);
 
     function updateSelectedCount() {
-      const checkboxes = Array.from(grid.querySelectorAll('.bs-episode-checkbox') || []).filter((cb) => cb.checked);
+      const checkboxes = Array.from(grid.querySelectorAll('.bs-episode-checkbox') || []).filter(
+        (cb) => cb.checked
+      );
       const count = checkboxes.length;
       if (countLabel) countLabel.textContent = `${count} episode dipilih`;
       if (startBatchBtn) {
@@ -1356,17 +1440,32 @@
     if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
 
     // 1. Single Player Injection
-    const playerControl = document.querySelector('.bpx-player-control-bottom-right, .bstar-video-action, .video-info-action, .bstar-danmaku-bar');
-    if (playerControl && playerControl.getAttribute && playerControl.getAttribute('data-bs-dl-ready') !== 'true') {
+    const playerControl = document.querySelector(
+      '.bpx-player-control-bottom-right, .bstar-video-action, .video-info-action, .bstar-danmaku-bar'
+    );
+    if (
+      playerControl &&
+      playerControl.getAttribute &&
+      playerControl.getAttribute('data-bs-dl-ready') !== 'true'
+    ) {
       injectPlayerButton(playerControl);
     }
 
     // 2. Batch Button Injection beside "Semua episode"
     if (typeof document.querySelectorAll !== 'function') return;
-    const headers = Array.from(document.querySelectorAll('h2, h3, .bstar-episode-list, .ogv-episodes-list, section[class*="episode"]') || []);
+    const headers = Array.from(
+      document.querySelectorAll(
+        'h2, h3, .bstar-episode-list, .ogv-episodes-list, section[class*="episode"]'
+      ) || []
+    );
     for (const h of headers) {
       const text = (h.textContent || '').toLowerCase();
-      if (text.includes('semua episode') || text.includes('all episodes') || text.includes('daftar episode') || (h.classList && h.classList.contains && h.classList.contains('bstar-episode-list'))) {
+      if (
+        text.includes('semua episode') ||
+        text.includes('all episodes') ||
+        text.includes('daftar episode') ||
+        (h.classList && h.classList.contains && h.classList.contains('bstar-episode-list'))
+      ) {
         if (h.getAttribute && h.getAttribute('data-bs-batch-ready') !== 'true') {
           injectBatchButton(h);
           break;
@@ -1480,7 +1579,12 @@
   }
 
   // Execute initialization (browser runtime only, not during Node module load)
-  if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof document.querySelector === 'function' && !(typeof module !== 'undefined' && module.exports)) {
+  if (
+    typeof window !== 'undefined' &&
+    typeof document !== 'undefined' &&
+    typeof document.querySelector === 'function' &&
+    !(typeof module !== 'undefined' && module.exports)
+  ) {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
         initObserver();

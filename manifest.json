@@ -7,7 +7,9 @@
     "downloads",
     "declarativeNetRequest",
     "storage",
-    "contextMenus"
+    "contextMenus",
+    "nativeMessaging",
+    "notifications"
   ],
   "host_permissions": [
     "*://*.tiktok.com/*",
@@ -16,7 +18,12 @@
     "*://*.ibytedtos.com/*",
     "*://*.bilibili.tv/*",
     "*://*.bstation.tv/*",
-    "*://*.biliapi.net/*"
+    "*://*.biliapi.net/*",
+    "*://*.jwplyr.com/*",
+    "*://*.overfetch.video/*",
+    "*://*.youtube.com/*",
+    "*://*.googlevideo.com/*",
+    "*://*.ytimg.com/*"
   ],
   "background": {
     "service_worker": "background/service_worker.js"
@@ -45,6 +52,24 @@
       "js": ["content/platforms/bstation.js"],
       "css": ["content/styles/bstation.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.jwplyr.com/*"],
+      "js": ["content/platforms/jwplyr.js"],
+      "css": ["content/styles/jwplyr.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content/injected/youtube_bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content/platforms/youtube.js"],
+      "css": ["content/styles/youtube.css"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -65,6 +90,23 @@
         "icons/icon128.png"
       ],
       "matches": ["*://*.bilibili.tv/*", "*://*.bstation.tv/*"]
+    },
+    {
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": ["*://*.jwplyr.com/*"]
+    },
+    {
+      "resources": [
+        "content/injected/youtube_bridge.js",
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": ["*://*.youtube.com/*"]
     }
   ],
   "action": {

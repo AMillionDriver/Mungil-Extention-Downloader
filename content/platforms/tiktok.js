@@ -1,7 +1,7 @@
 /**
  * TikTok Direct Downloader - Content Script (ISOLATED World)
  * Injected on *://*.tiktok.com/*
- * 
+ *
  * Responsibilities:
  * 1. 250ms debounced MutationObserver scanning FYP feed, photo slideshows, and modal video cards.
  * 2. Multi-strategy injection: Action-bar docking + In-Player Floating Overlay Button (Fullscreen compatible).
@@ -145,18 +145,20 @@
         }, 2500);
         break;
 
-      case 'error':
+      case 'error': {
         btn.disabled = false;
         if (iconBox) iconBox.innerHTML = ICONS.error;
         const displayErrorLabel = customLabel && customLabel.length <= 15 ? customLabel : 'Failed';
         if (labelEl) labelEl.textContent = displayErrorLabel;
-        if (fabText) fabText.textContent = customLabel && customLabel.length <= 15 ? customLabel : 'Gagal';
+        if (fabText)
+          fabText.textContent = customLabel && customLabel.length <= 15 ? customLabel : 'Gagal';
         if (customLabel) btn.setAttribute('title', customLabel);
         // Revert to idle after 3.0 seconds
         btn._stateTimeout = setTimeout(() => {
           setButtonState(btn, 'idle');
         }, 3000);
         break;
+      }
 
       case 'idle':
       default:
@@ -182,7 +184,8 @@
     let description = '';
     let duration = 0;
     let videoId = '';
-    const currentUrl = (typeof window !== 'undefined' && window.location) ? (window.location.href || '') : '';
+    const currentUrl =
+      typeof window !== 'undefined' && window.location ? window.location.href || '' : '';
 
     if (container) {
       // Find the outermost card container if container is an inner element
@@ -208,17 +211,29 @@
       ].join(',');
 
       // Prioritize outer card container so author avatar, caption, and video player are all enclosed
-      const root = (typeof container.closest === 'function')
-        ? (container.closest(OUTER_POST_SELECTORS) || container.closest(ROOT_CARD_SELECTORS) || (container.parentElement && container.parentElement.closest ? container.parentElement.closest(ROOT_CARD_SELECTORS) : null) || container)
-        : (container.parentElement || container);
+      const root =
+        typeof container.closest === 'function'
+          ? container.closest(OUTER_POST_SELECTORS) ||
+            container.closest(ROOT_CARD_SELECTORS) ||
+            (container.parentElement && container.parentElement.closest
+              ? container.parentElement.closest(ROOT_CARD_SELECTORS)
+              : null) ||
+            container
+          : container.parentElement || container;
 
       // 1. Author UniqueId (Handle)
       // Check author elements inside root first, prioritizing href on <a> tags to avoid display nickname confusion
-      const authorEl = (typeof root.querySelector === 'function') ? root.querySelector(
-        'a[data-e2e="video-author-avatar"], [data-e2e="video-author-uniqueid"], [data-e2e*="author-uniqueid"], a[href*="/@"]'
-      ) : null;
+      const authorEl =
+        typeof root.querySelector === 'function'
+          ? root.querySelector(
+              'a[data-e2e="video-author-avatar"], [data-e2e="video-author-uniqueid"], [data-e2e*="author-uniqueid"], a[href*="/@"]'
+            )
+          : null;
       if (authorEl) {
-        const href = (typeof authorEl.getAttribute === 'function' ? authorEl.getAttribute('href') : '') || authorEl.href || '';
+        const href =
+          (typeof authorEl.getAttribute === 'function' ? authorEl.getAttribute('href') : '') ||
+          authorEl.href ||
+          '';
         const hrefMatch = href.match(/\/@([a-zA-Z0-9_.-]+)/);
         if (hrefMatch && hrefMatch[1] && hrefMatch[1] !== 'video' && hrefMatch[1] !== 'photo') {
           author = hrefMatch[1].toLowerCase();
@@ -235,7 +250,10 @@
       if (author === 'unknown' && typeof root.querySelectorAll === 'function') {
         const authorLinks = Array.from(root.querySelectorAll('a[href*="/@"]') || []);
         for (const aLink of authorLinks) {
-          const href = (typeof aLink.getAttribute === 'function' ? aLink.getAttribute('href') : '') || aLink.href || '';
+          const href =
+            (typeof aLink.getAttribute === 'function' ? aLink.getAttribute('href') : '') ||
+            aLink.href ||
+            '';
           const match = href.match(/\/@([a-zA-Z0-9_.-]+)/);
           if (match && match[1] && match[1] !== 'video' && match[1] !== 'photo') {
             author = match[1].toLowerCase();
@@ -274,9 +292,14 @@
 
       // 5. Video ID from anchor links in root (e.g. /@user/video/1234567890123456789)
       if (typeof root.querySelectorAll === 'function') {
-        const postLinks = Array.from(root.querySelectorAll('a[href*="/video/"], a[href*="/photo/"]') || []);
+        const postLinks = Array.from(
+          root.querySelectorAll('a[href*="/video/"], a[href*="/photo/"]') || []
+        );
         for (const postLink of postLinks) {
-          const href = (typeof postLink.getAttribute === 'function' ? postLink.getAttribute('href') : '') || postLink.href || '';
+          const href =
+            (typeof postLink.getAttribute === 'function' ? postLink.getAttribute('href') : '') ||
+            postLink.href ||
+            '';
           const linkMatch = href.match(/@([^/?#]+)\/(?:video|photo)\/(\d+)/);
           if (linkMatch) {
             if (author === 'unknown') author = linkMatch[1];
@@ -294,7 +317,11 @@
 
       // 6. Deep search in root id, data attributes, or child elements for 15-22 digit snowflake ID
       if (!videoId && typeof root.querySelectorAll === 'function') {
-        const allCandidates = Array.from(root.querySelectorAll('[id], [data-id], [data-aweme-id], [data-item-id], [data-video-id], video') || []);
+        const allCandidates = Array.from(
+          root.querySelectorAll(
+            '[id], [data-id], [data-aweme-id], [data-item-id], [data-video-id], video'
+          ) || []
+        );
         if (root.getAttribute) allCandidates.unshift(root);
         for (const el of allCandidates) {
           const idAttrs = [
@@ -393,21 +420,39 @@
 
       document.addEventListener('TT_BRIDGE_RESPONSE', onResponse);
 
-      document.dispatchEvent(
-        new CustomEvent('TT_BRIDGE_REQUEST', {
-          detail: {
-            source: 'TT_CONTENT_ISOLATED',
-            requestId,
-            videoId,
-            url,
-            author: targetAuthor,
-            nickname,
-            description,
-            duration,
-            targetSelector
-          }
-        })
-      );
+      const sendBridgeEvent = (codecPref) => {
+        document.dispatchEvent(
+          new CustomEvent('TT_BRIDGE_REQUEST', {
+            detail: {
+              source: 'TT_CONTENT_ISOLATED',
+              requestId,
+              videoId,
+              url,
+              author: targetAuthor,
+              nickname,
+              description,
+              duration,
+              targetSelector,
+              codecPreference: codecPref
+            }
+          })
+        );
+      };
+
+      if (
+        typeof chrome !== 'undefined' &&
+        chrome.storage &&
+        chrome.storage.local &&
+        typeof chrome.storage.local.get === 'function'
+      ) {
+        try {
+          chrome.storage.local.get(['codecPreference'], (st) => {
+            sendBridgeEvent((st && st.codecPreference) || 'data_saver');
+          });
+          return;
+        } catch (_) {}
+      }
+      sendBridgeEvent('data_saver');
     });
   }
 
@@ -422,8 +467,9 @@
   function extractFromHtml5Video(container, domInfo) {
     if (!container && typeof document === 'undefined') return null;
 
-    const video = (container && container.querySelector('video')) ||
-                  (typeof document !== 'undefined' ? document.querySelector('video') : null);
+    const video =
+      (container && container.querySelector('video')) ||
+      (typeof document !== 'undefined' ? document.querySelector('video') : null);
 
     // If HTML5 video is present, try direct src (non-blob)
     if (video) {
@@ -450,7 +496,12 @@
       const slideImg = container.querySelector(
         'div[class*="SlideItem"] img, div[class*="PhotoContainer"] img, [data-e2e="feed-photo"] img:not([data-e2e*="avatar"]):not([class*="Avatar"])'
       );
-      if (slideImg && slideImg.src && !slideImg.src.startsWith('data:') && !slideImg.src.includes('100x100')) {
+      if (
+        slideImg &&
+        slideImg.src &&
+        !slideImg.src.startsWith('data:') &&
+        !slideImg.src.includes('100x100')
+      ) {
         return {
           url: slideImg.src,
           author: domInfo.author,
@@ -572,7 +623,7 @@
    * @returns {Promise<{ success: boolean, filename: string, source: string }>}
    */
   async function downloadStreamInPage(streamInput) {
-    const stream = (typeof streamInput === 'string') ? { url: streamInput } : streamInput;
+    const stream = typeof streamInput === 'string' ? { url: streamInput } : streamInput;
     if (!stream || !stream.url || typeof stream.url !== 'string') {
       throw new Error('Invalid or missing stream URL');
     }
@@ -613,13 +664,21 @@
 
       // Step 2: Convert fetched response into Blob
       const blob = await response.blob();
-      if (blob && blob.type && (blob.type.includes('text/html') || blob.type.includes('application/xhtml+xml'))) {
+      if (
+        blob &&
+        blob.type &&
+        (blob.type.includes('text/html') || blob.type.includes('application/xhtml+xml'))
+      ) {
         throw new Error('Received HTML error page instead of video stream');
       }
       if (blob && blob.type && blob.type.includes('application/json')) {
         throw new Error('Received JSON error response instead of video stream');
       }
-      if (blob && blob.type && (blob.type.includes('text/xml') || blob.type.includes('application/xml'))) {
+      if (
+        blob &&
+        blob.type &&
+        (blob.type.includes('text/xml') || blob.type.includes('application/xml'))
+      ) {
         throw new Error('Received XML error response instead of video stream');
       }
       if (!blob || (typeof blob.size === 'number' && blob.size === 0)) {
@@ -687,9 +746,12 @@
               filename: filename
             }
           },
-          (res) => {
+          (_res) => {
             if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
-              console.warn('[TikTok Downloader] Telemetry reporting warning:', chrome.runtime.lastError);
+              console.warn(
+                '[TikTok Downloader] Telemetry reporting warning:',
+                chrome.runtime.lastError
+              );
             }
           }
         );
@@ -706,7 +768,10 @@
         } catch (_) {}
       }
 
-      console.warn('[TikTok Downloader] In-page stream fetch failed, falling back to background service worker:', inPageErr);
+      console.warn(
+        '[TikTok Downloader] In-page stream fetch failed, falling back to background service worker:',
+        inPageErr
+      );
 
       // Fallback: Dispatch DOWNLOAD_VIDEO to background service worker
       return new Promise((resolve, reject) => {
@@ -725,7 +790,10 @@
           },
           (response) => {
             if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
-              console.error('[TikTok Downloader] Background fallback runtime error:', chrome.runtime.lastError);
+              console.error(
+                '[TikTok Downloader] Background fallback runtime error:',
+                chrome.runtime.lastError
+              );
               return reject(new Error(chrome.runtime.lastError.message));
             }
 
@@ -736,7 +804,10 @@
                 source: 'background_fallback'
               });
             } else {
-              const errMsg = (response && response.error) || (inPageErr && inPageErr.message) || (typeof inPageErr === 'string' ? inPageErr : 'Download failed');
+              const errMsg =
+                (response && response.error) ||
+                (inPageErr && inPageErr.message) ||
+                (typeof inPageErr === 'string' ? inPageErr : 'Download failed');
               reject(new Error(errMsg));
             }
           }
@@ -757,9 +828,12 @@
     }
 
     // Ensure we resolve the exact enclosing video card containing this specific button
-    const targetCard = (btn && typeof btn.closest === 'function')
-      ? (btn.closest('[data-e2e="recommend-list-item-container"], [data-e2e="browse-video"], [data-e2e="feed-video"], [data-e2e="feed-photo"], article, div[class*="DivItemContainer"]') || card)
-      : card;
+    const targetCard =
+      btn && typeof btn.closest === 'function'
+        ? btn.closest(
+            '[data-e2e="recommend-list-item-container"], [data-e2e="browse-video"], [data-e2e="feed-video"], [data-e2e="feed-photo"], article, div[class*="DivItemContainer"]'
+          ) || card
+        : card;
 
     setButtonState(btn, 'loading', 'Extracting...');
 
@@ -777,9 +851,12 @@
       }
     } catch (err) {
       console.error('[TikTok Downloader] Download failure:', err);
-      const errMsg = (err && typeof err === 'object' && err.message)
-        ? err.message
-        : (typeof err === 'string' ? err : 'Failed');
+      const errMsg =
+        err && typeof err === 'object' && err.message
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : 'Failed';
       setButtonState(btn, 'error', errMsg);
     }
   }
@@ -906,13 +983,18 @@
         shareItem = e2eItem;
         actionBar = e2eItem.parentElement;
       } else {
-        const btn = shareBtn.closest ? (shareBtn.closest('button') || shareBtn) : shareBtn;
+        const btn = shareBtn.closest ? shareBtn.closest('button') || shareBtn : shareBtn;
         const parent = btn.parentElement;
         if (!parent) return;
 
         // If parent has a grandparent inside card and few children, parent is the item wrapper;
         // otherwise parent is the action bar itself and btn is the shareItem.
-        if (parent.parentElement && parent.parentElement !== card && parent.children && parent.children.length <= 3) {
+        if (
+          parent.parentElement &&
+          parent.parentElement !== card &&
+          parent.children &&
+          parent.children.length <= 3
+        ) {
           shareItem = parent;
           actionBar = parent.parentElement;
         } else {
@@ -927,7 +1009,9 @@
     }
 
     // Strict Action-Bar-Level Guards & Deduplication:
-    const existingInBar = actionBar.querySelectorAll ? actionBar.querySelectorAll('.tt-dl-action-item') : [];
+    const existingInBar = actionBar.querySelectorAll
+      ? actionBar.querySelectorAll('.tt-dl-action-item')
+      : [];
     if (existingInBar.length > 1) {
       for (let i = 1; i < existingInBar.length; i++) {
         if (typeof existingInBar[i].remove === 'function') {
@@ -976,7 +1060,9 @@
     // Self-healing 1: if an element has data-tt-dl-ready="true" but lost its button child, reset attribute
     const markedElements = document.querySelectorAll('[data-tt-dl-ready="true"]');
     markedElements.forEach((el) => {
-      const isButton = el.classList?.contains ? el.classList.contains('tt-dl-action-item') : String(el.getAttribute?.('class') || '').includes('tt-dl-action-item');
+      const isButton = el.classList?.contains
+        ? el.classList.contains('tt-dl-action-item')
+        : String(el.getAttribute?.('class') || '').includes('tt-dl-action-item');
       if (!isButton && !el.querySelector('.tt-dl-action-item')) {
         el.removeAttribute('data-tt-dl-ready');
       }
@@ -1071,8 +1157,9 @@
           const visibilityRatio = visibleHeight / rect.height;
 
           // Bonus if it has playback progress (was actively being watched)
-          const bonus = (v.currentTime > 0) ? 0.5 : 0;
-          const score = visibilityRatio + bonus - (Math.abs(rect.top + rect.height / 2 - centerY) / winHeight);
+          const bonus = v.currentTime > 0 ? 0.5 : 0;
+          const score =
+            visibilityRatio + bonus - Math.abs(rect.top + rect.height / 2 - centerY) / winHeight;
 
           if (score > maxVisibility) {
             maxVisibility = score;
@@ -1119,7 +1206,7 @@
       }
     }
 
-    return (typeof document !== 'undefined' && document.body) ? document.body : null;
+    return typeof document !== 'undefined' && document.body ? document.body : null;
   }
 
   /**
@@ -1129,7 +1216,14 @@
    */
   async function getActiveVideoInfo() {
     if (typeof document === 'undefined') {
-      return { success: false, ready: false, author: '', videoId: '', title: '', error: 'Document not ready' };
+      return {
+        success: false,
+        ready: false,
+        author: '',
+        videoId: '',
+        title: '',
+        error: 'Document not ready'
+      };
     }
 
     const card = getActiveVideoCard();
@@ -1137,15 +1231,20 @@
       return { success: true, ready: false, author: '', videoId: '', title: '' };
     }
 
-    const videos = (typeof document.querySelectorAll === 'function')
-      ? Array.from(document.querySelectorAll('video') || [])
-      : [];
-    const candidateCards = (typeof document.querySelectorAll === 'function')
-      ? Array.from(document.querySelectorAll(SELECTORS.videoCards) || [])
-      : [];
+    const videos =
+      typeof document.querySelectorAll === 'function'
+        ? Array.from(document.querySelectorAll('video') || [])
+        : [];
+    const candidateCards =
+      typeof document.querySelectorAll === 'function'
+        ? Array.from(document.querySelectorAll(SELECTORS.videoCards) || [])
+        : [];
 
-    const hasVideo = videos.length > 0 || (card.tagName === 'VIDEO') || (typeof card.querySelector === 'function' && !!card.querySelector('video'));
-    const isDocBody = (card === document.body || card === document.documentElement);
+    const hasVideo =
+      videos.length > 0 ||
+      card.tagName === 'VIDEO' ||
+      (typeof card.querySelector === 'function' && !!card.querySelector('video'));
+    const isDocBody = card === document.body || card === document.documentElement;
     const hasCard = candidateCards.length > 0 || !isDocBody;
 
     // If there are no video elements and no card containers, it's an empty or uninitialized page
@@ -1164,10 +1263,10 @@
       domInfo = parseDomVideoInfo(card);
     }
 
-    const author = (domInfo && domInfo.author && domInfo.author !== 'unknown') ? domInfo.author : '';
-    let videoId = (domInfo && domInfo.videoId) ? domInfo.videoId : '';
+    const author = domInfo && domInfo.author && domInfo.author !== 'unknown' ? domInfo.author : '';
+    let videoId = domInfo && domInfo.videoId ? domInfo.videoId : '';
 
-    let title = (domInfo && domInfo.description) ? domInfo.description : '';
+    let title = domInfo && domInfo.description ? domInfo.description : '';
     if (!title && card && typeof card.querySelector === 'function') {
       const descEl = card.querySelector(
         '[data-e2e="video-desc"], [data-e2e="browse-video-desc"], [data-e2e*="desc"], h1, [class*="DivTextInfoContainer"]'
@@ -1181,7 +1280,7 @@
       title = title.slice(0, 67) + '...';
     }
 
-    const isReady = hasVideo || (videoId.length > 0) || (author.length > 0);
+    const isReady = hasVideo || videoId.length > 0 || author.length > 0;
 
     return {
       success: true,
@@ -1224,7 +1323,14 @@
             const info = await getActiveVideoInfo();
             sendResponse(info);
           } catch (err) {
-            sendResponse({ success: false, ready: false, author: '', videoId: '', title: '', error: err.message });
+            sendResponse({
+              success: false,
+              ready: false,
+              author: '',
+              videoId: '',
+              title: '',
+              error: err.message
+            });
           }
         });
         return true; // asynchronous IPC handling

@@ -1,0 +1,651 @@
+/**
+ * YouTube Direct Downloader - In-Page UI Stylesheet
+ * 
+ * Styled with Linear Matte Dark & YouTube Cyber Red aesthetics.
+ * Blends seamlessly into YouTube Polymer Dark Theme and Desktop/Shorts layouts.
+ */
+
+:root {
+  --yt-dl-red: #ff0000;
+  --yt-dl-red-hover: #cc0000;
+  --yt-dl-red-glow: rgba(255, 0, 0, 0.25);
+  --yt-dl-bg: rgba(255, 255, 255, 0.08);
+  --yt-dl-bg-hover: rgba(255, 255, 255, 0.15);
+  --yt-dl-border: rgba(255, 255, 255, 0.14);
+  --yt-dl-text: #f1f1f1;
+  --yt-dl-radius: 18px;
+  --yt-dl-transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 1. Main Action Button injected into YouTube Watch metadata actions */
+.yt-direct-dl-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--yt-dl-bg);
+  border: 1px solid var(--yt-dl-border);
+  border-radius: var(--yt-dl-radius);
+  color: var(--yt-dl-text);
+  font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 36px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: middle;
+  transition: var(--yt-dl-transition);
+  margin-left: 6px;
+  margin-right: 6px;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  flex-shrink: 0 !important;
+  z-index: 10;
+}
+
+.yt-direct-dl-btn:hover {
+  background: var(--yt-dl-bg-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.yt-direct-dl-btn:active {
+  transform: translateY(0);
+}
+
+/* Primary Accent Variant */
+.yt-direct-dl-btn.yt-dl-accent {
+  background: linear-gradient(135deg, rgba(255, 0, 0, 0.2) 0%, rgba(204, 0, 0, 0.1) 100%);
+  border-color: rgba(255, 0, 0, 0.4);
+  color: #ffffff;
+}
+
+.yt-direct-dl-btn.yt-dl-accent:hover {
+  background: linear-gradient(135deg, rgba(255, 0, 0, 0.35) 0%, rgba(204, 0, 0, 0.2) 100%);
+  border-color: rgba(255, 0, 0, 0.7);
+  box-shadow: 0 4px 12px var(--yt-dl-red-glow);
+}
+
+/* Icon box */
+.yt-dl-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.yt-dl-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+/* Quality Tag Badge */
+.yt-dl-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  background: rgba(255, 0, 0, 0.25);
+  color: #ff4d4d;
+  border-radius: 4px;
+  margin-left: 2px;
+}
+
+/* State: Loading */
+.yt-direct-dl-btn.is-loading {
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.yt-dl-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #ff0000;
+  border-radius: 50%;
+  animation: yt-dl-spin 0.65s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+@keyframes yt-dl-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* State: Success */
+.yt-direct-dl-btn.is-success {
+  background: rgba(34, 197, 94, 0.2) !important;
+  border-color: rgba(34, 197, 94, 0.5) !important;
+  color: #4ade80 !important;
+}
+
+/* State: Error */
+.yt-direct-dl-btn.is-error {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  color: #f87171 !important;
+}
+
+/* 2. YouTube Shorts Action Overlay injection */
+.ytd-reel-player-overlay-renderer .yt-direct-dl-btn,
+ytd-shorts-player-controls .yt-direct-dl-btn {
+  height: 48px;
+  width: 48px;
+  border-radius: 50%;
+  padding: 0;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ytd-reel-player-overlay-renderer .yt-direct-dl-btn span.yt-dl-label,
+ytd-shorts-player-controls .yt-direct-dl-btn span.yt-dl-label,
+.ytd-reel-player-overlay-renderer .yt-direct-dl-btn span.yt-dl-badge,
+ytd-shorts-player-controls .yt-direct-dl-btn span.yt-dl-badge {
+  display: none;
+}
+
+/* 3. Floating Bottom-Right Toast Notifications */
+#yt-dl-toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 360px;
+  pointer-events: none;
+}
+
+.yt-dl-toast {
+  pointer-events: auto;
+  background: rgba(18, 20, 24, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.6),
+    0 1px 3px rgba(0, 0, 0, 0.4);
+  color: #ededed;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  animation: yt-dl-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.yt-dl-toast.is-leaving {
+  opacity: 0;
+  transform: translateY(16px) scale(0.96);
+}
+
+@keyframes yt-dl-toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.yt-dl-toast-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.yt-dl-toast-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yt-dl-toast-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.yt-dl-toast.is-success .yt-dl-toast-icon {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.yt-dl-toast.is-error .yt-dl-toast-icon {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.yt-dl-toast-heading {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+}
+
+.yt-dl-toast.is-success .yt-dl-toast-heading {
+  color: #22c55e;
+}
+
+.yt-dl-toast.is-error .yt-dl-toast-heading {
+  color: #ef4444;
+}
+
+.yt-dl-toast-close {
+  background: none;
+  border: none;
+  color: #949aa5;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.yt-dl-toast-close:hover {
+  color: #ededed;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.yt-dl-toast-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.yt-dl-toast-video-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ededed;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.yt-dl-toast-author {
+  font-size: 11px;
+  color: #949aa5;
+}
+
+.yt-dl-toast-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #949aa5;
+  margin-top: 3px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.yt-dl-toast-size {
+  color: #25f4ee;
+  font-weight: 600;
+  background: rgba(37, 244, 238, 0.1);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.yt-dl-toast-error-box {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  color: #fca5a5;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  word-break: break-word;
+}
+
+/* 4. State: Already Downloaded (Gray / Muted Button) */
+.yt-direct-dl-btn.is-downloaded {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: #949aa5 !important;
+}
+
+.yt-direct-dl-btn.is-downloaded:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  color: #f3f4f6 !important;
+}
+
+/* 5. In-Page Redownload Confirmation Modal / Overlay */
+.yt-dl-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  z-index: 99999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: yt-dl-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.yt-dl-confirm-card {
+  background: #16181e;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 18px 22px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.8),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+  color: #ededed;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: yt-dl-scale-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes yt-dl-scale-up {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes yt-dl-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.yt-dl-confirm-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ededed;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.yt-dl-confirm-badge {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.yt-dl-confirm-desc {
+  font-size: 12px;
+  color: #949aa5;
+  line-height: 1.5;
+}
+
+.yt-dl-confirm-video-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ededed;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yt-dl-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.yt-dl-btn-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #949aa5;
+  padding: 7px 15px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.yt-dl-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ededed;
+}
+
+.yt-dl-btn-confirm {
+  background: #2563eb;
+  border: 1px solid #3b82f6;
+  color: #ffffff;
+  padding: 7px 15px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.yt-dl-btn-confirm:hover {
+  background: #1d4ed8;
+}
+
+/* 6. Button Group & Split Quality Selector Dropdown */
+.yt-dl-btn-group {
+  display: inline-flex !important;
+  align-items: center;
+  position: relative;
+  vertical-align: middle;
+  margin-left: 6px;
+  margin-right: 6px;
+  z-index: 10;
+  flex-shrink: 0 !important;
+}
+
+.yt-dl-btn-group .yt-direct-dl-btn {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  border-right: none !important;
+}
+
+.yt-dl-quality-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--yt-dl-bg);
+  border: 1px solid var(--yt-dl-border);
+  border-top-right-radius: var(--yt-dl-radius);
+  border-bottom-right-radius: var(--yt-dl-radius);
+  color: var(--yt-dl-text);
+  font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: middle;
+  transition: var(--yt-dl-transition);
+  box-sizing: border-box;
+}
+
+.yt-dl-quality-btn:hover {
+  background: var(--yt-dl-bg-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.yt-dl-q-chevron {
+  font-size: 10px;
+  opacity: 0.75;
+  transition: transform 0.15s ease;
+}
+
+/* Floating Quality Dropdown Menu */
+.yt-dl-quality-menu {
+  position: absolute;
+  top: 42px;
+  right: 0;
+  background: rgba(22, 24, 30, 0.98);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.8),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+  z-index: 9999999;
+  min-width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: yt-dl-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.yt-dl-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #949aa5;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.yt-dl-menu-sub {
+  font-size: 10px;
+  font-weight: 400;
+  color: #949aa5;
+}
+
+.yt-dl-quality-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.yt-dl-quality-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.yt-dl-quality-item.is-active {
+  background: rgba(255, 0, 0, 0.18);
+  border: 1px solid rgba(255, 0, 0, 0.35);
+}
+
+.yt-dl-q-item-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yt-dl-q-item-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ededed;
+}
+
+.yt-dl-quality-item.is-active .yt-dl-q-item-badge {
+  color: #ff4d4d;
+}
+
+.yt-dl-q-item-desc {
+  font-size: 11px;
+  color: #949aa5;
+}
+
+.yt-dl-q-item-size {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-weight: 600;
+  color: #25f4ee;
+  background: rgba(37, 244, 238, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.yt-dl-confirm-quality-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.yt-dl-confirm-q-label {
+  color: #949aa5;
+}
+
+.yt-dl-confirm-q-badge {
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.yt-dl-confirm-q-size {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-weight: 600;
+  color: #25f4ee;
+  background: rgba(37, 244, 238, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}

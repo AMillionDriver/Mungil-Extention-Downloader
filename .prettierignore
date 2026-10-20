@@ -1,0 +1,7 @@
+node_modules/
+native_host/bin/
+scratch/
+.agents/
+*.min.js
+coverage/
+manifest.json
