@@ -555,11 +555,11 @@ async function runAdversarialSuites() {
   });
 
   // =========================================================================
-  // SECTION 2: VIP Security Boundary Adversarial Testing
+  // SECTION 2: All-Access Batch Downloader & High-Resolution Verification
   // =========================================================================
-  console.log('\n[SECTION 2] VIP Security Boundary Adversarial Testing');
+  console.log('\n[SECTION 2] All-Access Batch Downloader & High-Resolution Verification');
 
-  test('Non-VIP user batch modal: marks [VIP Diperlukan], disables checkbox, sets locked card style', () => {
+  test('Batch modal: all episodes unlocked, enabled checkboxes, clean labels without VIP locks', () => {
     setupMockEnvironment({
       mediaInfo: { title: 'One Piece' },
       user: { vip: { is_vip: false, status: 0 } },
@@ -571,46 +571,38 @@ async function runAdversarialSuites() {
     const overlay = document.getElementById('bs-batch-modal-root');
     assert.ok(overlay, 'Batch modal root element must be created');
 
-    const vipBadge = overlay.querySelector('.bs-vip-status-badge');
-    assert.ok(vipBadge, 'VIP status badge must exist');
-    assert.strictEqual(vipBadge.textContent, '👤 Akun Gratis');
-    assert.ok(vipBadge.classList.contains('bs-is-free'));
-
     const grid = overlay.querySelector('#bs-episode-grid');
     const cards = grid.querySelectorAll('.bs-episode-card');
     assert.strictEqual(cards.length, 12, 'Default series should have 12 episodes');
 
-    // Ep 1-3 are free
-    for (let i = 0; i < 3; i++) {
+    // All episodes 1-12 are unlocked and enabled
+    for (let i = 0; i < 12; i++) {
       const card = cards[i];
       assert.ok(
         !card.classList.contains('bs-episode-card--vip-locked'),
-        `Free episode ${i + 1} must not be locked`
+        `Episode ${i + 1} must not have vip-locked class`
       );
       const cb = card.querySelector('.bs-episode-checkbox');
-      assert.strictEqual(cb.disabled, false, `Free episode ${i + 1} checkbox must be enabled`);
+      assert.strictEqual(cb.disabled, false, `Episode ${i + 1} checkbox must be enabled`);
+
+      // Ensure no [VIP Diperlukan] or GRATIS badges are rendered on cards
       const badge = card.querySelector('.bs-episode-badge');
-      assert.strictEqual(badge.textContent, 'GRATIS');
-      assert.ok(badge.classList.contains('bs-episode-badge--free'));
+      assert.strictEqual(badge, null, `Episode ${i + 1} must not display VIP/Free badges`);
     }
 
-    // Ep 4-12 are VIP
-    for (let i = 3; i < 12; i++) {
-      const card = cards[i];
-      assert.ok(
-        card.classList.contains('bs-episode-card--vip-locked'),
-        `VIP episode ${i + 1} must be locked for non-VIP user`
-      );
-      const cb = card.querySelector('.bs-episode-checkbox');
-      assert.strictEqual(cb.disabled, true, `VIP episode ${i + 1} checkbox must be disabled`);
-      assert.strictEqual(cb.checked, false, `VIP episode ${i + 1} checkbox must not be checked`);
-      const badge = card.querySelector('.bs-episode-badge');
-      assert.strictEqual(badge.textContent, '💎 [VIP Diperlukan]');
-      assert.ok(badge.classList.contains('bs-episode-badge--vip'));
-    }
+    // Quality selector allows 1080p, 720p, 480p, 360p without disabled options
+    const qualitySelect = overlay.querySelector('#bs-quality-select');
+    assert.ok(qualitySelect, 'Quality selector must exist');
+    const opt1080 = qualitySelect.querySelector('option[value="1080p"]');
+    assert.ok(opt1080, '1080p option must exist');
+    assert.strictEqual(opt1080.disabled, false, '1080p option must be unlocked and enabled');
+    assert.ok(
+      !opt1080.textContent.includes('VIP Diperlukan'),
+      '1080p must not display VIP Diperlukan'
+    );
   });
 
-  test('Adversarial user interaction: clicking on VIP card does NOT select it', () => {
+  test('User interaction: clicking on any episode card toggles selection', () => {
     setupMockEnvironment({
       mediaInfo: { title: 'One Piece' },
       user: { vip: { is_vip: false } }
@@ -619,17 +611,21 @@ async function runAdversarialSuites() {
     bstation.openBatchModal();
     const overlay = document.getElementById('bs-batch-modal-root');
     const grid = overlay.querySelector('#bs-episode-grid');
-    const vipCard = grid.querySelectorAll('.bs-episode-card')[4]; // Ep 5 (VIP)
-    assert.ok(vipCard, 'Ep 5 card must exist');
-    const cb = vipCard.querySelector('.bs-episode-checkbox');
+    const ep5Card = grid.querySelectorAll('.bs-episode-card')[4]; // Ep 5
+    assert.ok(ep5Card, 'Ep 5 card must exist');
+    const cb = ep5Card.querySelector('.bs-episode-checkbox');
 
     assert.strictEqual(cb.checked, false);
-    vipCard.click();
-    assert.strictEqual(cb.checked, false, 'Clicking locked VIP card must not check the box');
-    assert.ok(!vipCard.classList.contains('bs-episode-card--selected'));
+    ep5Card.click();
+    assert.strictEqual(cb.checked, true, 'Clicking card must check the box');
+    assert.ok(ep5Card.classList.contains('bs-episode-card--selected'));
+
+    ep5Card.click();
+    assert.strictEqual(cb.checked, false, 'Clicking card again must uncheck the box');
+    assert.ok(!ep5Card.classList.contains('bs-episode-card--selected'));
   });
 
-  test('Adversarial action pills: [Pilih Semua] does NOT check disabled VIP episodes', () => {
+  test('Action pills: [Pilih Semua] selects all episodes', () => {
     setupMockEnvironment({
       mediaInfo: { title: 'One Piece' },
       user: { vip: { is_vip: false } }
@@ -641,17 +637,13 @@ async function runAdversarialSuites() {
     pillAll.click();
 
     const checkedBoxes = overlay.querySelectorAll('.bs-episode-checkbox:checked');
-    assert.strictEqual(
-      checkedBoxes.length,
-      3,
-      'Pilih Semua must only select the 3 free episodes for non-VIP'
-    );
+    assert.strictEqual(checkedBoxes.length, 12, 'Pilih Semua must select all 12 episodes');
 
     const countLabel = overlay.querySelector('#bs-selected-count');
-    assert.strictEqual(countLabel.textContent, '3 episode dipilih');
+    assert.strictEqual(countLabel.textContent, '12 episode dipilih');
   });
 
-  test('Adversarial DOM injection bypass attempt: manually un-disabling checkbox fails at stream resolution', async () => {
+  test('Batch queue execution: routes via native host DOWNLOAD_VIDEO matching 1-by-1 button', async () => {
     setupMockEnvironment({
       mediaInfo: { title: 'One Piece' },
       user: { vip: { is_vip: false } }
@@ -660,14 +652,11 @@ async function runAdversarialSuites() {
     bstation.openBatchModal();
     const overlay = document.getElementById('bs-batch-modal-root');
     const grid = overlay.querySelector('#bs-episode-grid');
-    const vipCard = grid.querySelectorAll('.bs-episode-card')[3]; // Ep 4 (VIP)
-    const cb = vipCard.querySelector('.bs-episode-checkbox');
-
-    // Attacker manually un-disables and checks Ep 4 in DOM
-    cb.disabled = false;
+    const ep4Card = grid.querySelectorAll('.bs-episode-card')[3]; // Ep 4
+    const cb = ep4Card.querySelector('.bs-episode-checkbox');
     cb.checked = true;
 
-    // Reset bridge cache to ensure no unauthorized streams exist
+    // Reset bridge cache
     bridge.resetCache();
 
     // Start Batch
@@ -681,41 +670,70 @@ async function runAdversarialSuites() {
     );
   });
 
-  test('VIP user mode: enables all episodes and displays VIP Member status', () => {
-    setupMockEnvironment({
-      mediaInfo: { title: 'Bleach TYBW' },
-      user: { vip: { is_vip: true, status: 1 } },
-      epInfo: { ep_id: 201, title: 'Episode 1' }
-    });
+  await testAsync(
+    'Zero trailer hijacking: Batch queue never uses active player preview/trailer',
+    async () => {
+      setupMockEnvironment({
+        mediaInfo: { title: 'One Piece' },
+        user: { vip: { is_vip: false } }
+      });
+      global.window.location = {
+        pathname: '/id/play/1048837/101',
+        href: 'https://www.bilibili.tv/id/play/1048837/101'
+      };
 
-    bstation.openBatchModal();
-    const overlay = document.getElementById('bs-batch-modal-root');
-    const vipBadge = overlay.querySelector('.bs-vip-status-badge');
-    assert.ok(vipBadge);
-    assert.strictEqual(vipBadge.textContent, '👑 VIP Member');
-    assert.ok(vipBadge.classList.contains('bs-is-vip'));
+      // Ensure queue task routes via native host without touching video.src
+      let dispatchedMsg = null;
+      const originalChrome = global.chrome;
+      global.chrome = {
+        runtime: {
+          sendMessage: (msg, callback) => {
+            if (msg.action === 'DOWNLOAD_VIDEO') {
+              dispatchedMsg = msg;
+              if (callback) callback({ success: true });
+            } else if (callback) {
+              callback({ success: true });
+            }
+          }
+        }
+      };
 
-    const grid = overlay.querySelector('#bs-episode-grid');
-    const cards = grid.querySelectorAll('.bs-episode-card');
+      // Mock DOM video element containing a trailer / preview stream
+      const mockVideo = document.createElement('video');
+      mockVideo.src = 'https://preview.bilibili.tv/trailer_8mb.mp4';
+      document.body.appendChild(mockVideo);
 
-    cards.forEach((card, idx) => {
-      assert.ok(
-        !card.classList.contains('bs-episode-card--vip-locked'),
-        `Episode ${idx + 1} must not be locked for VIP user`
-      );
-      const cb = card.querySelector('.bs-episode-checkbox');
-      assert.strictEqual(
-        cb.disabled,
-        false,
-        `Episode ${idx + 1} checkbox must be enabled for VIP user`
-      );
-    });
+      try {
+        bstation.openBatchModal();
+        const overlay = document.getElementById('bs-batch-modal-root');
+        const grid = overlay.querySelector('#bs-episode-grid');
+        const ep2Card = grid.querySelectorAll('.bs-episode-card')[1]; // Ep 2
+        const cb = ep2Card.querySelector('.bs-episode-checkbox');
+        cb.checked = true;
 
-    const pillAll = overlay.querySelector('#bs-pill-all');
-    pillAll.click();
-    const checked = grid.querySelectorAll('.bs-episode-checkbox:checked');
-    assert.strictEqual(checked.length, 12, 'VIP user can select all 12 episodes');
-  });
+        const startBtn = overlay.querySelector('#bs-btn-start-batch');
+        startBtn.click();
+
+        // Give worker queue time to process task
+        for (let i = 0; i < 20 && !dispatchedMsg; i++) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+
+        assert.ok(dispatchedMsg, 'DOWNLOAD_VIDEO must be dispatched to native host');
+        assert.ok(
+          !dispatchedMsg.url.includes('trailer_8mb.mp4'),
+          'Dispatched URL must be canonical episode URL, NEVER active video trailer'
+        );
+        assert.ok(
+          dispatchedMsg.url.includes('bilibili.tv'),
+          'Dispatched URL must be canonical episode URL'
+        );
+      } finally {
+        global.chrome = originalChrome;
+        if (mockVideo.parentNode) mockVideo.parentNode.removeChild(mockVideo);
+      }
+    }
+  );
 
   // =========================================================================
   // SECTION 3: Corrupt Stream / 403 / Fallback & Error Handling

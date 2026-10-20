@@ -1329,6 +1329,7 @@
     const vipBadge = document.createElement('span');
     vipBadge.className = `bs-vip-status-badge ${isUserVip ? 'bs-is-vip' : 'bs-is-free'}`;
     vipBadge.textContent = isUserVip ? '👑 VIP Member' : '👤 Akun Gratis';
+    vipBadge.style.display = 'none'; // Hidden to remove VIP/Gratis labels per user request
     headerInfo.appendChild(vipBadge);
 
     const closeBtn = document.createElement('button');
@@ -1360,7 +1361,8 @@
     pillFree.type = 'button';
     pillFree.className = 'bs-pill-btn';
     pillFree.id = 'bs-pill-free';
-    pillFree.textContent = 'Hanya Episode Gratis';
+    pillFree.textContent = 'Pilih Semua';
+    pillFree.style.display = 'none'; // Hidden to remove "Gratis" label, all episodes are downloadable
     pillGroup.appendChild(pillFree);
 
     const pillNone = document.createElement('button');
@@ -1387,11 +1389,7 @@
     const opt1080 = document.createElement('option');
     opt1080.value = '1080p';
     opt1080.setAttribute('value', '1080p');
-    opt1080.textContent = isUserVip ? '1080p Full HD (VIP)' : '1080p Full HD [VIP Diperlukan]';
-    if (!isUserVip) {
-      opt1080.disabled = true;
-      opt1080.setAttribute('disabled', 'true');
-    }
+    opt1080.textContent = '1080p Full HD';
     qualitySelect.appendChild(opt1080);
 
     const opt720 = document.createElement('option');
@@ -1406,13 +1404,16 @@
     opt480.textContent = '480p SD';
     qualitySelect.appendChild(opt480);
 
-    if (isUserVip) {
-      qualitySelect.value = '1080p';
-      opt1080.selected = true;
-    } else {
-      qualitySelect.value = '720p';
-      opt720.selected = true;
-    }
+    const opt360 = document.createElement('option');
+    opt360.value = '360p';
+    opt360.setAttribute('value', '360p');
+    opt360.textContent = '360p Hemat Kuota';
+    qualitySelect.appendChild(opt360);
+
+    const initialQuality = currentSelectedQuality || '720p';
+    qualitySelect.value = initialQuality;
+    const matchingOpt = qualitySelect.querySelector(`option[value="${initialQuality}"]`);
+    if (matchingOpt) matchingOpt.selected = true;
 
     qualityWrap.appendChild(qualitySelect);
     toolbar.appendChild(qualityWrap);
@@ -1424,9 +1425,8 @@
     grid.id = 'bs-episode-grid';
 
     seriesData.episodes.forEach((ep) => {
-      const isLocked = ep.isVip && !isUserVip;
       const card = document.createElement('div');
-      card.className = `bs-episode-card ${isLocked ? 'bs-episode-card--vip-locked' : ''}`;
+      card.className = 'bs-episode-card';
       card.setAttribute('data-ep-id', ep.id);
       card.setAttribute('data-vip', String(ep.isVip));
 
@@ -1441,25 +1441,22 @@
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.className = 'bs-episode-checkbox';
-      if (!isLocked && ep.index <= 3) {
+      if (ep.index <= 3) {
         checkbox.checked = true;
         card.classList.add('bs-episode-card--selected');
       }
-      if (isLocked) {
-        checkbox.disabled = true;
-      }
+      checkbox.disabled = false;
       cardHeader.appendChild(checkbox);
       card.appendChild(cardHeader);
 
-      const badge = document.createElement('span');
-      if (ep.isVip) {
-        badge.className = 'bs-episode-badge bs-episode-badge--vip';
-        badge.textContent = isLocked ? '💎 [VIP Diperlukan]' : '💎 VIP';
-      } else {
-        badge.className = 'bs-episode-badge bs-episode-badge--free';
-        badge.textContent = 'GRATIS';
+      if (ep.title && ep.title !== `Episode ${ep.index}` && ep.title !== `EP ${ep.index}`) {
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'bs-episode-title-sub';
+        titleSpan.textContent = ep.title;
+        titleSpan.title = ep.title;
+        card.appendChild(titleSpan);
       }
-      card.appendChild(badge);
+
       grid.appendChild(card);
     });
 
@@ -1553,9 +1550,10 @@
     // Checkbox and card clicks
     grid.addEventListener('click', (e) => {
       const card = e.target.closest('.bs-episode-card');
-      if (!card || card.classList.contains('bs-episode-card--vip-locked')) return;
+      if (!card) return;
 
       const checkbox = card.querySelector('.bs-episode-checkbox');
+      if (!checkbox || checkbox.disabled) return;
       if (e.target !== checkbox) {
         checkbox.checked = !checkbox.checked;
       }
@@ -1582,13 +1580,9 @@
     pillFree.addEventListener('click', () => {
       grid.querySelectorAll('.bs-episode-card').forEach((card) => {
         const checkbox = card.querySelector('.bs-episode-checkbox');
-        const isVip = card.getAttribute('data-vip') === 'true';
-        if (!isVip && !checkbox.disabled) {
+        if (!checkbox.disabled) {
           checkbox.checked = true;
           card.classList.add('bs-episode-card--selected');
-        } else {
-          checkbox.checked = false;
-          card.classList.remove('bs-episode-card--selected');
         }
       });
       updateSelectedCount();
@@ -1681,13 +1675,19 @@
           epIndex: epIndex,
           quality: quality,
           resolveStream: async () => {
+            // Priority 1: Direct Native yt-dlp download (fully synced with 1-by-1 button)
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+              return { native: true, epId, quality };
+            }
+
+            // Fallback for non-extension / mock test environments:
             // Tier 1: Try requested quality (e.g. 1080p or 720p)
             try {
               const res = await requestBridgeStream({ ep_id: epId, qn }, 4000);
               if (res && (res.playUrl || res.url)) return res;
             } catch (_) {}
 
-            // Tier 2: Resilient fallback to 720p if requested quality failed (e.g. VIP restriction)
+            // Tier 2: Resilient fallback to 720p
             if (qn !== 64) {
               try {
                 const res720 = await requestBridgeStream({ ep_id: epId, qn: 64 }, 3500);
@@ -1703,34 +1703,21 @@
               } catch (_) {}
             }
 
-            // Tier 4: Fallback stream from active DOM video tag
-            const videoEl = document.querySelector('video');
-            if (videoEl && videoEl.src && videoEl.src.startsWith('http')) {
-              return { url: videoEl.src, quality };
-            }
-
-            // Tier 5: Fallback to Native yt-dlp host
-            return { native: true, epId };
+            // NOTE: Never fall back to document.querySelector('video').src here
+            // to eliminate trailer / preview hijacking!
+            throw new Error(`Aliran video untuk Episode ${epIndex} tidak ditemukan`);
           },
           downloadStream: async (stream) => {
-            const actualQuality = stream.qualityLabel || quality;
+            const actualQuality = stream?.qualityLabel || quality;
             const filename = formatBstationFilename({
               title: seriesData.animeTitle,
               episode: epIndex,
               quality: actualQuality
             });
 
-            if (stream && (stream.playUrl || stream.url)) {
-              await downloadStreamInPage({
-                url: stream.playUrl || stream.url,
-                filename: filename,
-                title: seriesData.animeTitle
-              });
-              return;
-            }
-
-            // Route via Native yt-dlp host
             const canonicalUrl = getCanonicalBstationUrl({ episodeId: epId });
+
+            // Priority 1: Native yt-dlp host (exact match with 1-by-1 download button)
             if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
               await new Promise((resolve, reject) => {
                 chrome.runtime.sendMessage(
@@ -1744,24 +1731,59 @@
                     quality: actualQuality,
                     filename: filename
                   },
-                  (res) => {
+                  async (res) => {
                     if (chrome.runtime.lastError || !res || !res.success) {
-                      reject(
-                        new Error(
-                          chrome.runtime.lastError?.message ||
-                            res?.error ||
-                            `Gagal mengunduh Episode ${epIndex}`
-                        )
+                      const nativeErr =
+                        chrome.runtime.lastError?.message ||
+                        res?.error ||
+                        `Gagal mengunduh Episode ${epIndex}`;
+                      console.warn(
+                        `[Bstation Batch] Native download failed for Episode ${epIndex}, attempting stream fallback:`,
+                        nativeErr
                       );
+
+                      // In-page fallback if bridge stream is available
+                      let fallbackStream = stream && (stream.playUrl || stream.url) ? stream : null;
+                      if (!fallbackStream) {
+                        try {
+                          fallbackStream = await requestBridgeStream({ ep_id: epId, qn }, 3000);
+                        } catch (_) {}
+                      }
+
+                      if (fallbackStream && (fallbackStream.playUrl || fallbackStream.url)) {
+                        try {
+                          await downloadStreamInPage({
+                            url: fallbackStream.playUrl || fallbackStream.url,
+                            filename: filename,
+                            title: seriesData.animeTitle
+                          });
+                          resolve({ success: true, inPage: true });
+                        } catch (inPageErr) {
+                          reject(inPageErr);
+                        }
+                      } else {
+                        reject(new Error(nativeErr));
+                      }
                     } else {
                       resolve(res);
                     }
                   }
                 );
               });
-            } else {
-              throw new Error(`Aliran video untuk Episode ${epIndex} tidak ditemukan`);
+              return;
             }
+
+            // In-page fallback for non-extension / mock environments
+            if (stream && (stream.playUrl || stream.url)) {
+              await downloadStreamInPage({
+                url: stream.playUrl || stream.url,
+                filename: filename,
+                title: seriesData.animeTitle
+              });
+              return;
+            }
+
+            throw new Error(`Aliran video untuk Episode ${epIndex} tidak ditemukan`);
           }
         });
       });

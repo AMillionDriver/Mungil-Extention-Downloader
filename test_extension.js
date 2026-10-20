@@ -4262,7 +4262,12 @@ async function runAllSuites() {
             'Free user must default to 720p HD quality'
           );
           const opt1080 = qualitySelect.querySelector('option[value="1080p"]');
-          assert.ok(opt1080 && opt1080.disabled, '1080p option must be disabled for non-VIP user');
+          assert.ok(opt1080, '1080p option must exist');
+          assert.strictEqual(
+            opt1080.disabled,
+            false,
+            '1080p option must be enabled and unlocked for all users'
+          );
 
           const startBtn = modalRoot.querySelector('#bs-btn-start-batch');
           assert.ok(startBtn, 'Start batch download button must exist');

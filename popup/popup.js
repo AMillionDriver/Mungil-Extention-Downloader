@@ -489,7 +489,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (bstationEpBadge)
               bstationEpBadge.textContent = `${response.episode || 'E01'} • ${response.quality || currentBsQuality}`;
             if (bstationStatusChip) {
-              bstationStatusChip.textContent = response.isVip ? 'VIP Ready' : 'Ready';
+              bstationStatusChip.textContent = 'Ready';
               bstationStatusChip.style.color = 'var(--accent-green)';
             }
 
