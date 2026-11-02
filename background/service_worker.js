@@ -2818,15 +2818,13 @@ function handleMessage(message, sender, sendResponse) {
       }
     } catch (_) {}
 
-    // Post-OCR hallucination cleaner: remove stray gibberish English from Korean dialogues
+    // Post-OCR hallucination cleaner: normalize whitespace and remove noise tokens
     if (lang === 'kor') {
-      translated = translated.replace(/\bENCLAND\b/gi, 'GAK BOLEH');
-      translated = translated.replace(/\b(JANGAN|TIDAK)\s+ENCLAND\b/gi, 'JANGAN! NGGAK BOLEH!');
       translated = translated.replace(/\bADALAH\s+TERMASUK\b/gi, '');
-      translated = translated.replace(/\bRBURR\b/gi, 'Pihak sekolah');
       translated = translated.replace(/\bJSa\s+Gyeonggi\b/gi, '');
       translated = translated.replace(/\b010-\d{3,4}-\d{4}\b/g, '');
       translated = translated.replace(/13\/-Lee\s+Myung-hee/gi, 'Lee Myung-hee');
+      translated = translated.replace(/\bTuan\s+J\b/gi, 'Hasil Investigasi');
       translated = translated.replace(/\s{2,}/g, ' ').trim();
     }
 
