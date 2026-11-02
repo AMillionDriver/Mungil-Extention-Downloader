@@ -594,7 +594,8 @@
 
   /**
    * Sets up or teardowns IntersectionObserver for seamless auto-scroll translation.
-   * Uses 2800px forward rootMargin for predictive pre-loading 3-4 panels ahead.
+   * Uses 600px forward rootMargin for predictive pre-loading the next panel ahead
+   * without overwhelming the free API rate limit.
    *
    * @param {boolean} enable
    * @param {function} statusCallback
@@ -618,14 +619,15 @@
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting && !translatedPanelsSet.has(entry.target)) {
-            if (!activeQueue.includes(entry.target)) {
+            // Guard: Never pile more than 3 panels in queue to prevent API lockup
+            if (!activeQueue.includes(entry.target) && activeQueue.length < 3) {
               activeQueue.push(entry.target);
             }
           }
         }
         processAutoQueue(statusCallback);
       },
-      { rootMargin: '2800px 0px 1000px 0px' }
+      { rootMargin: '600px 0px 200px 0px' }
     );
 
     const panels = findComicPanels();

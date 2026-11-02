@@ -2770,7 +2770,7 @@ function handleMessage(message, sender, sendResponse) {
     });
 
     const controller = new AbortController();
-    const timeoutTimer = setTimeout(() => controller.abort(), 12000);
+    const timeoutTimer = setTimeout(() => controller.abort(), 6000);
 
     try {
       const res = await fetch('https://api.ocr.space/parse/image', {
@@ -2780,11 +2780,21 @@ function handleMessage(message, sender, sendResponse) {
       });
       clearTimeout(timeoutTimer);
       const data = await res.json();
-      if (data.error && data.error.includes('E551') && retryCount < OCR_API_KEYS.length) {
+      const errMsg = Array.isArray(data.ErrorMessage)
+        ? data.ErrorMessage.join(' ')
+        : String(data.ErrorMessage || data.error || '');
+
+      if (
+        (errMsg.includes('E551') ||
+          errMsg.includes('overloaded') ||
+          errMsg.includes('timed out') ||
+          data.IsErroredOnProcessing) &&
+        retryCount < OCR_API_KEYS.length - 1
+      ) {
         return fetchOcrLines(base64Image, lang, retryCount + 1);
       }
       if (data.IsErroredOnProcessing || !data.ParsedResults?.[0]) {
-        throw new Error(data.ErrorMessage?.[0] || 'OCR engine returned no text');
+        throw new Error(errMsg || 'OCR engine returned no text');
       }
       const overlay = data.ParsedResults[0].TextOverlay;
       return overlay?.Lines || [];
