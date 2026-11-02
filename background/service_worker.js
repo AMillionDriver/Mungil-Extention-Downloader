@@ -2378,6 +2378,7 @@ function applyScanlationFilter(text, genre = 'action') {
   let str = text.trim();
 
   // Universal Comic Flow: Eliminate overly rigid formal phrasing
+  str = str.replace(/\bPergilah\b/g, 'Hasil Investigasi');
   str = str.replace(/Di ruang pengarahan/gi, 'Ruang pers');
   str = str.replace(
     /Investigasi penuh di depan wartawan/gi,
@@ -2743,13 +2744,24 @@ function handleMessage(message, sender, sendResponse) {
   // In-memory translation cache for instant 0ms retrieval on repeated phrases
   const comicTranslationCache = new Map();
 
-  // Helper to query OCR.space with automatic Engine 2 -> Engine 1 fallback
-  async function fetchOcrLines(base64Image, lang, engine = '2') {
+  // Free OCR.space API key pool with automatic failover rotation to defuse E551 throttling
+  const OCR_API_KEYS = ['K87899142388957', 'K88863647388957', 'K85868846888957', 'helloworld'];
+  let currentApiKeyIndex = 0;
+
+  function getNextApiKey() {
+    const key = OCR_API_KEYS[currentApiKeyIndex];
+    currentApiKeyIndex = (currentApiKeyIndex + 1) % OCR_API_KEYS.length;
+    return key;
+  }
+
+  // Helper to query OCR.space with automatic key failover rotation
+  async function fetchOcrLines(base64Image, lang, retryCount = 0) {
+    const apiKey = getNextApiKey();
     const payload = new URLSearchParams({
-      apikey: 'helloworld',
+      apikey: apiKey,
       isOverlayRequired: 'true',
       language: lang,
-      OCREngine: engine,
+      OCREngine: '1',
       scale: 'false',
       detectOrientation: 'false',
       base64Image: base64Image.startsWith('data:')
@@ -2758,7 +2770,7 @@ function handleMessage(message, sender, sendResponse) {
     });
 
     const controller = new AbortController();
-    const timeoutTimer = setTimeout(() => controller.abort(), 14000);
+    const timeoutTimer = setTimeout(() => controller.abort(), 12000);
 
     try {
       const res = await fetch('https://api.ocr.space/parse/image', {
@@ -2768,6 +2780,9 @@ function handleMessage(message, sender, sendResponse) {
       });
       clearTimeout(timeoutTimer);
       const data = await res.json();
+      if (data.error && data.error.includes('E551') && retryCount < OCR_API_KEYS.length) {
+        return fetchOcrLines(base64Image, lang, retryCount + 1);
+      }
       if (data.IsErroredOnProcessing || !data.ParsedResults?.[0]) {
         throw new Error(data.ErrorMessage?.[0] || 'OCR engine returned no text');
       }
@@ -2775,9 +2790,8 @@ function handleMessage(message, sender, sendResponse) {
       return overlay?.Lines || [];
     } catch (err) {
       clearTimeout(timeoutTimer);
-      // If Engine 2 failed, fallback to Engine 1
-      if (engine === '2') {
-        return fetchOcrLines(base64Image, lang, '1');
+      if (retryCount < OCR_API_KEYS.length - 1) {
+        return fetchOcrLines(base64Image, lang, retryCount + 1);
       }
       throw err;
     }

@@ -108,41 +108,28 @@
    * @param {HTMLImageElement} imgEl
    * @returns {Promise<Array<{base64: string, startY: number, height: number, width: number, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}>>}
    */
-  async function getFullPanelTiles(imgEl) {
+  async function getFullPanelImage(imgEl) {
     const naturalW = imgEl.naturalWidth || imgEl.width || 800;
     const naturalH = imgEl.naturalHeight || imgEl.height || 1200;
 
-    function buildTiles(srcImg) {
-      const tileH = 1200;
-      const overlap = 180;
-      const step = tileH - overlap;
-      const tiles = [];
-
-      for (let y = 0; y < naturalH; y += step) {
-        const h = Math.min(tileH, naturalH - y);
-        const canvas = document.createElement('canvas');
-        canvas.width = naturalW;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(srcImg, 0, y, naturalW, h, 0, 0, naturalW, h);
-
-        tiles.push({
-          startY: y,
-          height: h,
-          width: naturalW,
-          base64: canvas.toDataURL('image/jpeg', 0.84),
-          canvas,
-          ctx
-        });
-
-        if (y + h >= naturalH) break;
-      }
-      return tiles;
+    function captureCanvas(srcImg) {
+      const canvas = document.createElement('canvas');
+      canvas.width = naturalW;
+      canvas.height = naturalH;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(srcImg, 0, 0, naturalW, naturalH);
+      return {
+        base64: canvas.toDataURL('image/jpeg', 0.8),
+        width: naturalW,
+        height: naturalH,
+        canvas,
+        ctx
+      };
     }
 
     try {
-      const direct = buildTiles(imgEl);
-      if (direct && direct.length > 0 && direct[0].base64.length > 200) {
+      const direct = captureCanvas(imgEl);
+      if (direct && direct.base64 && direct.base64.length > 200) {
         return direct;
       }
     } catch (_) {}
@@ -160,15 +147,15 @@
             const temp = new Image();
             temp.onload = () => {
               try {
-                resolve(buildTiles(temp));
+                resolve(captureCanvas(temp));
               } catch (err) {
                 reject(err);
               }
             };
-            temp.onerror = () => reject(new Error('Gagal render tile panel proxy'));
+            temp.onerror = () => reject(new Error('Gagal render panel proxy'));
             temp.src = res.dataUrl;
           } else {
-            reject(new Error(res?.error || 'Gagal ambil data tile panel'));
+            reject(new Error(res?.error || 'Gagal ambil data panel'));
           }
         }
       );
@@ -179,8 +166,12 @@
    * Backwards-compatible single-slice capture helper.
    */
   async function getImageSlice(imgEl) {
-    const tiles = await getFullPanelTiles(imgEl);
-    return tiles[0];
+    return getFullPanelImage(imgEl);
+  }
+
+  async function getFullPanelTiles(imgEl) {
+    const single = await getFullPanelImage(imgEl);
+    return [{ ...single, startY: 0 }];
   }
 
   /**
@@ -479,9 +470,9 @@
     overlay.appendChild(cover);
 
     if (statusCallback) statusCallback('Ambil piksel...');
-    let tiles = null;
+    let panelData = null;
     try {
-      tiles = await getFullPanelTiles(imgEl);
+      panelData = await getFullPanelImage(imgEl);
     } catch (_err) {
       translatedPanelsSet.delete(imgEl);
       cover.remove();
@@ -494,7 +485,7 @@
       chrome.runtime.sendMessage(
         {
           action: 'OCR_AND_TRANSLATE_PANEL',
-          tiles: tiles.map((t) => ({ base64: t.base64, startY: t.startY })),
+          base64Image: panelData.base64,
           lang: currentSourceLang,
           targetLang: 'id',
           genre: currentGenre
@@ -514,29 +505,17 @@
             return resolve(0);
           }
 
-          // Contour snap bounding box inside corresponding tile canvas
           const snappedBubbles = rawBubbles.map((item) => {
-            const tile =
-              tiles.find((t) => item.bbox.y >= t.startY && item.bbox.y <= t.startY + t.height) ||
-              tiles[0];
-
-            const localBbox = {
-              x: item.bbox.x,
-              y: Math.max(0, item.bbox.y - tile.startY),
-              w: item.bbox.w,
-              h: item.bbox.h
-            };
-
-            const snapped = snapBboxToContainer(tile.ctx, localBbox, tile.width, tile.height);
+            const snapped = snapBboxToContainer(
+              panelData.ctx,
+              item.bbox,
+              panelData.width,
+              panelData.height
+            );
 
             return {
               ...item,
-              bbox: {
-                x: snapped.x,
-                y: tile.startY + snapped.y,
-                w: snapped.w,
-                h: snapped.h
-              },
+              bbox: snapped,
               bgColor: snapped.bgColor,
               textColor: snapped.textColor
             };
@@ -558,23 +537,21 @@
   }
 
   /**
-   * Processes the auto-scroll translation queue with concurrency of 2 panels for predictive pre-loading.
+   * Processes the auto-scroll translation queue sequentially with 350ms pacing to defuse API limits.
    */
   async function processAutoQueue(statusCallback) {
     if (isProcessingQueue || activeQueue.length === 0) return;
     isProcessingQueue = true;
 
     while (activeQueue.length > 0) {
-      const batch = activeQueue.splice(0, 2);
-      await Promise.all(
-        batch.map(async (panel) => {
-          if (panel && !translatedPanelsSet.has(panel)) {
-            try {
-              await translateComicPanel(panel, statusCallback);
-            } catch (_) {}
-          }
-        })
-      );
+      const nextPanel = activeQueue.shift();
+      if (nextPanel && !translatedPanelsSet.has(nextPanel)) {
+        try {
+          await translateComicPanel(nextPanel, statusCallback);
+          // 350ms pace between panels to defuse free API rate throttling
+          await new Promise((r) => setTimeout(r, 350));
+        } catch (_) {}
+      }
     }
 
     isProcessingQueue = false;
@@ -721,7 +698,7 @@
         const cropCanvas = document.createElement('canvas');
         cropCanvas.width = Math.max(30, sourceW);
         cropCanvas.height = Math.max(20, sourceH);
-        const ctx = cropCanvas.getContext('2d');
+        const ctx = cropCanvas.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(
           sliceMeta.canvas,
           Math.max(0, sourceX),
