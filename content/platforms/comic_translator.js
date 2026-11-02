@@ -356,6 +356,19 @@
             break;
           }
         }
+
+        // Also merge vertically stacked lines belonging to the same slide card or text block
+        const isStacked =
+          Math.abs(m.bbox.x - cur.bbox.x) < 55 &&
+          Math.abs(m.bbox.x + m.bbox.w - (cur.bbox.x + cur.bbox.w)) < 55 &&
+          (Math.abs(m.bbox.y + m.bbox.h - cur.bbox.y) < 65 ||
+            Math.abs(cur.bbox.y + cur.bbox.h - m.bbox.y) < 65) &&
+          m.bgColor === cur.bgColor;
+
+        if (isStacked) {
+          matched = m;
+          break;
+        }
       }
 
       if (matched) {
@@ -537,20 +550,41 @@
   }
 
   /**
-   * Processes the auto-scroll translation queue sequentially with 350ms pacing to defuse API limits.
+   * Processes the auto-scroll translation queue using a predictive lookahead buffer.
+   * Prioritizes panels closest to viewport, processing with concurrency of 2 workers
+   * across our rotated API key pool for perceived zero-latency translation.
    */
   async function processAutoQueue(statusCallback) {
     if (isProcessingQueue || activeQueue.length === 0) return;
     isProcessingQueue = true;
 
+    // Concurrency 2: dispatch 2 lookahead panels simultaneously using distinct API keys
+    const CONCURRENCY = 2;
+
     while (activeQueue.length > 0) {
-      const nextPanel = activeQueue.shift();
-      if (nextPanel && !translatedPanelsSet.has(nextPanel)) {
-        try {
-          await translateComicPanel(nextPanel, statusCallback);
-          // 350ms pace between panels to defuse free API rate throttling
-          await new Promise((r) => setTimeout(r, 350));
-        } catch (_) {}
+      // Sort active queue by proximity to viewport center
+      const viewportY = window.innerHeight / 2;
+      activeQueue.sort((a, b) => {
+        const distA = Math.abs(a.getBoundingClientRect().top - viewportY);
+        const distB = Math.abs(b.getBoundingClientRect().top - viewportY);
+        return distA - distB;
+      });
+
+      const batch = [];
+      while (batch.length < CONCURRENCY && activeQueue.length > 0) {
+        const candidate = activeQueue.shift();
+        if (candidate && !translatedPanelsSet.has(candidate)) {
+          batch.push(candidate);
+        }
+      }
+
+      if (batch.length === 0) break;
+
+      await Promise.allSettled(batch.map((p) => translateComicPanel(p, statusCallback)));
+
+      // Brief pacing to prevent network bursts
+      if (activeQueue.length > 0) {
+        await new Promise((r) => setTimeout(r, 200));
       }
     }
 
@@ -560,7 +594,7 @@
 
   /**
    * Sets up or teardowns IntersectionObserver for seamless auto-scroll translation.
-   * Uses 1400px forward rootMargin for predictive pre-loading 2-3 viewports ahead.
+   * Uses 2800px forward rootMargin for predictive pre-loading 3-4 panels ahead.
    *
    * @param {boolean} enable
    * @param {function} statusCallback
@@ -591,7 +625,7 @@
         }
         processAutoQueue(statusCallback);
       },
-      { rootMargin: '1400px 0px' }
+      { rootMargin: '2800px 0px 1000px 0px' }
     );
 
     const panels = findComicPanels();
