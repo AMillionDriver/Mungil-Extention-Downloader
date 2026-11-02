@@ -1,0 +1,269 @@
+/**
+ * Mungil Comic Lens & In-Page Webtoon Translator Stylesheet
+ * High-contrast, non-destructive DOM overlay system with zero-distraction collapsible dock
+ */
+
+/* Discreet Collapsible Mini Pill (Default state when minimized) */
+#mungil-trans-pill {
+  position: fixed;
+  bottom: 32px;
+  right: 18px;
+  z-index: 2147483640;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(18, 20, 26, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 184, 0, 0.6);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    0 0 10px rgba(255, 184, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #ffb800;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+#mungil-trans-pill:hover {
+  transform: scale(1.1);
+  border-color: #ffb800;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(255, 184, 0, 0.5);
+}
+
+#mungil-trans-pill svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+#mungil-trans-pill.mungil-hidden {
+  display: none !important;
+}
+
+/* Floating Control Bar */
+#mungil-trans-bar {
+  position: fixed;
+  bottom: 24px;
+  right: 20px;
+  z-index: 2147483640;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(18, 20, 26, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 32px;
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 184, 0, 0.25);
+  color: #f1f3f5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  user-select: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#mungil-trans-bar.mungil-collapsed {
+  display: none !important;
+}
+
+#mungil-trans-bar .mungil-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: #ffb800;
+  letter-spacing: 0.2px;
+}
+
+#mungil-trans-bar .mungil-brand-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+#mungil-trans-bar .mungil-trans-status {
+  font-size: 11px;
+  color: #94a3b8;
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#mungil-trans-bar .mungil-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#mungil-trans-bar button.mungil-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  line-height: 1.2;
+}
+
+#mungil-trans-bar button.mungil-btn-primary {
+  background: linear-gradient(135deg, #ffb800 0%, #ff9000 100%);
+  color: #12141a;
+  box-shadow: 0 2px 6px rgba(255, 184, 0, 0.3);
+}
+
+#mungil-trans-bar button.mungil-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+#mungil-trans-bar button.mungil-btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+#mungil-trans-bar button.mungil-btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+#mungil-trans-bar button.mungil-btn-secondary.active {
+  background: rgba(255, 184, 0, 0.2);
+  color: #ffb800;
+  border-color: #ffb800;
+}
+
+#mungil-trans-bar button.mungil-btn-icon-only {
+  padding: 5px 8px;
+  font-size: 13px;
+  border-radius: 50%;
+}
+
+#mungil-trans-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#mungil-trans-bar select.mungil-select-sm {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  color: #f1f3f5;
+  font-size: 11px;
+  padding: 4px 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+#mungil-trans-bar select.mungil-select-sm option {
+  background: #1a1c23;
+  color: #f1f3f5;
+}
+
+/* Panel Relative Wrapper */
+.mungil-panel-relative {
+  position: relative !important;
+  display: inline-block !important;
+  max-width: 100% !important;
+}
+
+/* Bubble Container Layer */
+.mungil-bubble-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* Individual Translated Speech Bubble (Flat blend, zero heavy border/shadow) */
+.mungil-trans-bubble {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #000000;
+  border-radius: 4px;
+  border: none !important;
+  box-shadow: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4px 6px;
+  font-family:
+    'CC Wild Words', 'Anime Ace', 'Comic Neue', 'Trebuchet MS', 'Arial Rounded MT Bold', sans-serif;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.1px;
+  overflow: hidden;
+  word-break: keep-all;
+  transition:
+    opacity 0.15s ease,
+    background-color 0.15s ease;
+  cursor: pointer;
+}
+
+.mungil-trans-bubble:hover {
+  background: #fdfdfd;
+  outline: 1.5px solid rgba(255, 184, 0, 0.45);
+  z-index: 120;
+}
+
+/* Tooltip on bubble hover displaying original Korean/English */
+.mungil-trans-bubble::after {
+  content: attr(data-original-text);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 4px 8px;
+  background: rgba(15, 23, 42, 0.95);
+  color: #f8fafc;
+  font-family: -apple-system, sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 130;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.mungil-trans-bubble:hover::after {
+  opacity: 1;
+}
+
+/* Interactive Box Drag Canvas Overlay */
+#mungil-lens-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483630;
+  cursor: crosshair;
+  background: rgba(0, 0, 0, 0.15);
+  pointer-events: auto;
+}
+
+#mungil-lens-selection-box {
+  position: absolute;
+  border: 2px dashed #ffb800;
+  background: rgba(255, 184, 0, 0.15);
+  border-radius: 8px;
+  pointer-events: none;
+  box-shadow: 0 0 12px rgba(255, 184, 0, 0.4);
+}

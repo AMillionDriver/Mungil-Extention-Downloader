@@ -7913,6 +7913,163 @@ async function runAllSuites() {
   );
 
   // --------------------------------------------------------------------------
+  // SUITE 31: Comic Translator & Non-Destructive DOM Speech Bubble Overlay
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 31: Comic Translator & Non-Destructive In-Page Speech Bubble Overlay',
+    async ({ test, testAsync }) => {
+      test('Manifest V3 registers Naver Webtoon and Webtoons in host_permissions & content_scripts', () => {
+        const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('naver.com')),
+          'naver.com must be in host_permissions'
+        );
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('translate.googleapis.com')),
+          'translate.googleapis.com must be in host_permissions'
+        );
+
+        const transScript = manifest.content_scripts.find(
+          (cs) => cs.js && cs.js.includes('content/platforms/comic_translator.js')
+        );
+        assert.ok(transScript, 'comic_translator.js must be registered in content_scripts');
+        assert.ok(
+          transScript.matches.some((m) => m.includes('comic.naver.com')),
+          'comic.naver.com must be matched'
+        );
+      });
+
+      test('comic_translator.js and comic_translator.css exist on disk with non-zero size', () => {
+        const jsPath = path.join(PROJECT_ROOT, 'content/platforms/comic_translator.js');
+        const cssPath = path.join(PROJECT_ROOT, 'content/styles/comic_translator.css');
+
+        assert.ok(fs.existsSync(jsPath), 'comic_translator.js must exist');
+        assert.ok(fs.statSync(jsPath).size > 500, 'comic_translator.js must have non-trivial size');
+        assert.ok(fs.existsSync(cssPath), 'comic_translator.css must exist');
+        assert.ok(
+          fs.statSync(cssPath).size > 500,
+          'comic_translator.css must have non-trivial size'
+        );
+      });
+
+      test('Strict DOM Button Creation Hygiene in comic_translator.js', () => {
+        const jsPath = path.join(PROJECT_ROOT, 'content/platforms/comic_translator.js');
+        const c = fs.readFileSync(jsPath, 'utf8');
+
+        const btnCreateMatches = c.match(/createElement(['"]button['"])/g) || [];
+        const btnTypeMatches = c.match(/.types*=s*['"]button['"]/g) || [];
+
+        assert.strictEqual(
+          btnCreateMatches.length,
+          btnTypeMatches.length,
+          `Every created button in comic_translator.js (${btnCreateMatches.length}) must explicitly declare type="button" (${btnTypeMatches.length})`
+        );
+      });
+
+      await testAsync('autoFitBubbleText adapts font size for given box bounds', async () => {
+        const translator = require(
+          path.join(PROJECT_ROOT, 'content/platforms/comic_translator.js')
+        );
+        assert.strictEqual(typeof translator.autoFitBubbleText, 'function');
+
+        const mockEl = {
+          style: { fontSize: '16px' },
+          scrollHeight: 80,
+          scrollWidth: 150
+        };
+
+        translator.autoFitBubbleText(mockEl, 100, 50);
+        const parsedSize = parseInt(mockEl.style.fontSize, 10);
+        assert.ok(
+          parsedSize <= 22 && parsedSize >= 8,
+          `Font size should be scaled safely between 8 and 22px, got: ${parsedSize}`
+        );
+      });
+
+      test('snapBboxToContainer raymarches contour and samples background color', () => {
+        const translator = require(
+          path.join(PROJECT_ROOT, 'content/platforms/comic_translator.js')
+        );
+        assert.strictEqual(typeof translator.snapBboxToContainer, 'function');
+
+        const width = 100;
+        const height = 100;
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            if (x === 10 || x === 90 || y === 10 || y === 90) {
+              data[idx] = 0;
+              data[idx + 1] = 0;
+              data[idx + 2] = 0;
+            } else {
+              data[idx] = 255;
+              data[idx + 1] = 255;
+              data[idx + 2] = 255;
+            }
+            data[idx + 3] = 255;
+          }
+        }
+
+        const mockCtx = {
+          getImageData: () => ({ data })
+        };
+
+        const rawBbox = { x: 30, y: 30, w: 20, h: 20 };
+        const snapped = translator.snapBboxToContainer(mockCtx, rawBbox, width, height);
+
+        assert.ok(snapped.w > rawBbox.w, 'Snapped width should expand towards card boundary');
+        assert.ok(snapped.h > rawBbox.h, 'Snapped height should expand towards card boundary');
+        assert.strictEqual(
+          snapped.bgColor.toLowerCase(),
+          '#ffffff',
+          'Background color should detect white'
+        );
+        assert.strictEqual(snapped.textColor, '#000000', 'Text color on white should be black');
+      });
+
+      test('mergeOverlappingBubbles merges co-located slide cards and bubbles', () => {
+        const translator = require(
+          path.join(PROJECT_ROOT, 'content/platforms/comic_translator.js')
+        );
+        assert.strictEqual(typeof translator.mergeOverlappingBubbles, 'function');
+
+        const items = [
+          {
+            bbox: { x: 100, y: 100, w: 200, h: 80 },
+            originalText: '선경예고 전수조사',
+            translatedText: 'Survei lengkap Sekolah Seni Sunkyung',
+            bgColor: '#ffffff',
+            textColor: '#000000'
+          },
+          {
+            bbox: { x: 110, y: 110, w: 180, h: 70 },
+            originalText: '결과 발표',
+            translatedText: 'Pengumuman Hasil',
+            bgColor: '#ffffff',
+            textColor: '#000000'
+          }
+        ];
+
+        const merged = translator.mergeOverlappingBubbles(items);
+        assert.strictEqual(
+          merged.length,
+          1,
+          'Co-located boxes should merge into strictly 1 container'
+        );
+        assert.ok(
+          merged[0].translatedText.includes('Survei lengkap') &&
+            merged[0].translatedText.includes('Pengumuman Hasil'),
+          'Merged text should preserve both lines'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // --------------------------------------------------------------------------
   // TEST REPORT SUMMARY & EXIT CODE
   // --------------------------------------------------------------------------
   console.log(

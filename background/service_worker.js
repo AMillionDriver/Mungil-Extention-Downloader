@@ -2365,6 +2365,61 @@ async function resolveAnoboyStream(payload = {}) {
   return { success: false, error: 'Could not resolve playable stream for episode' };
 }
 
+/**
+ * Post-processes literal machine translation into lively Indonesian comic scanlation style.
+ * Adapts tone, pronouns, slang, and scene dynamics based on chosen comic genre.
+ *
+ * @param {string} text
+ * @param {string} [genre]
+ * @returns {string} Naturalized scanlation text
+ */
+function applyScanlationFilter(text, genre = 'action') {
+  if (!text || typeof text !== 'string') return text;
+  let str = text.trim();
+
+  // Universal Comic Flow: Eliminate overly rigid formal phrasing
+  str = str.replace(/Di ruang pengarahan/gi, 'Ruang pers');
+  str = str.replace(
+    /Investigasi penuh di depan wartawan/gi,
+    'Penyelidikan terbuka di hadapan media'
+  );
+  str = str.replace(/Hasilnya diumumkan\.?/gi, 'Pengumuman hasil akhir.');
+  str = str.replace(/\bTidak mungkin\b/gi, 'Gak mungkin');
+  str = str.replace(/\bTentu saja\b/gi, 'Tentu aja');
+  str = str.replace(/\bTelah diumumkan\b/gi, 'Diumumkan');
+  str = str.replace(/\bTelah terjadi\b/gi, 'Terjadi');
+  str = str.replace(/\bSangat (senang|bahagia|marah|kecewa|takut)\b/gi, '$1 banget');
+  str = str.replace(/\bMengapa kamu\b/gi, 'Kenapa lu');
+  str = str.replace(/\bApa yang kamu lakukan\b/gi, 'Ngapain lu');
+  str = str.replace(/\bTerkutuklah kamu\b/gi, 'Sialan lu');
+  str = str.replace(/\bTerkutuk\b/gi, 'Sialan');
+
+  if (genre === 'action') {
+    // Action / School / Tawuran (e.g. True Education, Lookism, Weak Hero)
+    str = str.replace(/\bApakah kamu\b/gi, 'Lu');
+    str = str.replace(/\bKamu\b/g, 'Lu');
+    str = str.replace(/\bSaya\b/g, 'Gue');
+    str = str.replace(/\bAku\b/g, 'Gue');
+    str = str.replace(/\bSaya akan\b/gi, 'Bakal gue');
+    str = str.replace(/\bAku akan\b/gi, 'Bakal gue');
+    str = str.replace(/\bMembunuhmu\b/gi, 'Habisi lu');
+    str = str.replace(/\bHentikan\b/gi, 'Berhenti');
+    str = str.replace(/\bSial\b/gi, 'Sialan');
+  } else if (genre === 'fantasy' || genre === 'murim') {
+    // Murim / Martial Arts / Fantasy
+    str = str.replace(/\bApakah kamu\b/gi, 'Apa kau');
+    str = str.replace(/\bSaya\b/g, 'Aku');
+    str = str.replace(/\bTuan\b/gi, 'Tetua');
+  } else if (genre === 'romance') {
+    // Romance / Drama / Slice of Life
+    str = str.replace(/\bApakah kamu\b/gi, 'Kamu...');
+    str = str.replace(/\bSaya\b/g, 'Aku');
+    str = str.replace(/\bSangat mencintaimu\b/gi, 'Sayang banget sama kamu');
+  }
+
+  return str;
+}
+
 // Primary IPC Listener
 function handleMessage(message, sender, sendResponse) {
   if (!message || typeof message !== 'object') {
@@ -2641,6 +2696,245 @@ function handleMessage(message, sender, sendResponse) {
       .catch((err) => {
         sendResponse({ success: false, error: err.message });
       });
+    return true;
+  }
+
+  // Handle TRANSLATE_TEXT (Google Translate Free API proxy)
+  if (actionType === 'TRANSLATE_TEXT') {
+    const rawText = String(message.text || '').trim();
+    const targetLang = message.targetLang || 'id';
+    const sourceLang = message.sourceLang || 'auto';
+    const genre = message.genre || 'action';
+
+    if (!rawText) {
+      sendResponse({ success: true, translation: '' });
+      return false;
+    }
+
+    const apiUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(rawText)}`;
+    fetch(apiUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        let translation = rawText;
+        if (data && Array.isArray(data[0])) {
+          translation = data[0]
+            .map((seg) => (seg && seg[0] ? seg[0] : ''))
+            .filter(Boolean)
+            .join(' ');
+        }
+        if (targetLang === 'id') {
+          translation = applyScanlationFilter(translation, genre);
+        }
+        sendResponse({
+          success: true,
+          translation,
+          detectedLang: data && data[2] ? data[2] : sourceLang
+        });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message, translation: rawText });
+      });
+    return true;
+  }
+
+  // Handle OCR_AND_TRANSLATE_PANEL (OCR.space extraction + batch translation)
+  if (actionType === 'OCR_AND_TRANSLATE_PANEL') {
+    const base64Image = message.base64Image;
+    const lang = message.lang || 'kor'; // kor, eng, jpn, chs
+    const targetLang = message.targetLang || 'id';
+    const genre = message.genre || 'action';
+
+    if (!base64Image) {
+      sendResponse({ success: false, error: 'Missing base64Image' });
+      return false;
+    }
+
+    const payload = new URLSearchParams({
+      apikey: 'helloworld',
+      isOverlayRequired: 'true',
+      language: lang,
+      OCREngine: '1',
+      scale: 'false',
+      detectOrientation: 'false',
+      base64Image: base64Image.startsWith('data:')
+        ? base64Image
+        : `data:image/jpeg;base64,${base64Image}`
+    });
+
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => controller.abort(), 15000);
+
+    fetch('https://api.ocr.space/parse/image', {
+      method: 'POST',
+      body: payload,
+      signal: controller.signal
+    })
+      .then((r) => {
+        clearTimeout(timeoutTimer);
+        return r.json();
+      })
+      .then(async (ocrData) => {
+        if (ocrData.IsErroredOnProcessing || !ocrData.ParsedResults?.[0]) {
+          throw new Error(ocrData.ErrorMessage?.[0] || 'OCR engine returned no text');
+        }
+
+        const overlay = ocrData.ParsedResults[0].TextOverlay;
+        const rawLines = overlay?.Lines || [];
+        const parsedLines = [];
+
+        // 1. Parse atomic lines and calculate their precise pixel bounds
+        for (const line of rawLines) {
+          const lineText =
+            line.LineText || (line.Words ? line.Words.map((w) => w.WordText).join(' ') : '');
+          const clean = lineText.trim();
+          if (!clean) continue;
+
+          let minLeft = Infinity;
+          let minTop = Infinity;
+          let maxRight = -Infinity;
+          let maxBottom = -Infinity;
+
+          if (line.Words && line.Words.length > 0) {
+            for (const w of line.Words) {
+              minLeft = Math.min(minLeft, w.Left);
+              minTop = Math.min(minTop, w.Top);
+              maxRight = Math.max(maxRight, w.Left + w.Width);
+              maxBottom = Math.max(maxBottom, w.Top + w.Height);
+            }
+          } else {
+            minLeft = 0;
+            minTop = line.MinTop || 0;
+            maxRight = minLeft + 160;
+            maxBottom = minTop + (line.MaxHeight || 30);
+          }
+
+          parsedLines.push({
+            text: clean,
+            left: minLeft,
+            top: minTop,
+            right: maxRight,
+            bottom: maxBottom,
+            width: maxRight - minLeft,
+            height: maxBottom - minTop
+          });
+        }
+
+        // 2. Sort lines vertically (top to bottom)
+        parsedLines.sort((a, b) => a.top - b.top);
+
+        // 3. Line Merging: Cluster vertically adjacent lines that belong strictly to the same paragraph/card
+        const clusters = [];
+        for (const line of parsedLines) {
+          let matched = null;
+
+          for (const cl of clusters) {
+            const vDist = line.top - cl.bottom;
+            const avgLineH = (cl.height / cl.lineCount + line.height) / 2;
+            const hOverlap = Math.min(cl.right, line.right) - Math.max(cl.left, line.left);
+            const minW = Math.min(cl.right - cl.left, line.width);
+
+            // Strict merge: lines must be closely stacked (gap <= 32px or 1.1x line height)
+            // and share substantial horizontal overlap (>= 40% of line width)
+            const maxGap = Math.min(32, Math.max(12, avgLineH * 1.1));
+            if (vDist >= -12 && vDist <= maxGap && hOverlap >= minW * 0.4) {
+              matched = cl;
+              break;
+            }
+          }
+
+          if (matched) {
+            matched.text += ' ' + line.text;
+            matched.left = Math.min(matched.left, line.left);
+            matched.top = Math.min(matched.top, line.top);
+            matched.right = Math.max(matched.right, line.right);
+            matched.bottom = Math.max(matched.bottom, line.bottom);
+            matched.height = matched.bottom - matched.top;
+            matched.lineCount += 1;
+          } else {
+            clusters.push({
+              text: line.text,
+              left: line.left,
+              top: line.top,
+              right: line.right,
+              bottom: line.bottom,
+              height: line.height,
+              lineCount: 1
+            });
+          }
+        }
+
+        // 4. Batch translate merged clusters
+        const bubbles = [];
+        for (const cl of clusters) {
+          // Post-OCR Filter: Sanitize noise or broken Hangul artifacts
+          let sourceText = cl.text.trim();
+          if (
+            sourceText.length <= 1 &&
+            !/[\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/.test(sourceText)
+          ) {
+            continue; // Skip isolated stray punctuation/noise
+          }
+
+          // Padding box
+          const padX = 6;
+          const padY = 4;
+          const bbox = {
+            x: Math.max(0, Math.round(cl.left - padX)),
+            y: Math.max(0, Math.round(cl.top - padY)),
+            w: Math.round(cl.right - cl.left + padX * 2),
+            h: Math.round(cl.bottom - cl.top + padY * 2)
+          };
+
+          let translated = sourceText;
+          try {
+            const tUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(sourceText)}`;
+            const tRes = await fetch(tUrl);
+            if (tRes.ok) {
+              const tData = await tRes.json();
+              if (tData && Array.isArray(tData[0])) {
+                translated = tData[0]
+                  .map((seg) => (seg && seg[0] ? seg[0] : ''))
+                  .filter(Boolean)
+                  .join(' ');
+              }
+            }
+          } catch (_) {}
+
+          // Post-OCR hallucination cleaner: remove stray gibberish English from Korean dialogues
+          if (lang === 'kor') {
+            translated = translated.replace(/\bENCLAND\b/gi, 'GAK BOLEH');
+            translated = translated.replace(
+              /\b(JANGAN|TIDAK)\s+ENCLAND\b/gi,
+              'JANGAN! NGGAK BOLEH!'
+            );
+            translated = translated.replace(/\bADALAH\s+TERMASUK\b/gi, '');
+            translated = translated.replace(/\bRBURR\b/gi, 'Pihak sekolah');
+            translated = translated.replace(/\bJSa\s+Gyeonggi\b/gi, '');
+            translated = translated.replace(/\b010-\d{3,4}-\d{4}\b/g, '');
+            translated = translated.replace(/13\/-Lee\s+Myung-hee/gi, 'Lee Myung-hee');
+            translated = translated.replace(/\s{2,}/g, ' ').trim();
+          }
+
+          if (targetLang === 'id') {
+            translated = applyScanlationFilter(translated, genre);
+          }
+
+          bubbles.push({
+            bbox,
+            originalText: sourceText,
+            translatedText: translated.trim()
+          });
+        }
+
+        sendResponse({ success: true, bubbles });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+
     return true;
   }
 

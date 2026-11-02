@@ -44,7 +44,12 @@
     "*://*.blogger.com/*",
     "*://*.shinigami.asia/*",
     "*://*.shngm.io/*",
-    "*://*.shngm.id/*"
+    "*://*.shngm.id/*",
+    "*://*.naver.com/*",
+    "*://*.pstatic.net/*",
+    "*://*.webtoons.com/*",
+    "https://translate.googleapis.com/*",
+    "https://api.ocr.space/*"
   ],
   "background": {
     "service_worker": "background/service_worker.js"
@@ -215,6 +220,25 @@
       ],
       "css": [
         "content/styles/shinigami.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://comic.naver.com/*",
+        "*://*.webtoons.com/*",
+        "*://*.shinigami.asia/*",
+        "*://11.shinigami.asia/*",
+        "*://*.komiku.org/*",
+        "*://*.komiku.id/*",
+        "*://*.komiku.com/*",
+        "*://*.komiku.co.id/*"
+      ],
+      "js": [
+        "content/platforms/comic_translator.js"
+      ],
+      "css": [
+        "content/styles/comic_translator.css"
       ],
       "run_at": "document_idle"
     },
