@@ -843,6 +843,7 @@ async function runAllSuites() {
         'content/platforms/cosplaytele.js',
         'content/platforms/pinterest.js',
         'content/platforms/anoboy.js',
+        'content/platforms/comic_translator.js',
         'test_extension.js',
         'test_adversarial_bstation.js'
       ];
