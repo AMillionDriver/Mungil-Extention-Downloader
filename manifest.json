@@ -33,52 +33,111 @@
     "*://*.terabox.app/*",
     "*://*.1024tera.com/*",
     "*://*.teraboxcdn.com/*",
-    "*://*.baidupcs.com/*"
+    "*://*.baidupcs.com/*",
+    "*://*.cosplaytele.com/*",
+    "*://*.pinterest.com/*",
+    "*://*.pinimg.com/*",
+    "*://pin.it/*",
+    "*://*.anoboy.quest/*",
+    "*://*.anoboy.online/*",
+    "*://*.anoboy.ninja/*",
+    "*://*.blogger.com/*",
+    "*://*.shinigami.asia/*",
+    "*://*.shngm.io/*",
+    "*://*.shngm.id/*"
   ],
   "background": {
     "service_worker": "background/service_worker.js"
   },
   "content_scripts": [
     {
-      "matches": ["*://*.tiktok.com/*"],
-      "js": ["content/injected/tiktok_bridge.js"],
+      "matches": [
+        "*://*.tiktok.com/*"
+      ],
+      "js": [
+        "content/injected/tiktok_bridge.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     },
     {
-      "matches": ["*://*.tiktok.com/*"],
-      "js": ["content/platforms/tiktok.js"],
-      "css": ["content/styles/tiktok.css"],
+      "matches": [
+        "*://*.tiktok.com/*"
+      ],
+      "js": [
+        "content/platforms/tiktok.js"
+      ],
+      "css": [
+        "content/styles/tiktok.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://*.bilibili.tv/*", "*://*.bstation.tv/*"],
-      "js": ["content/injected/bstation_bridge.js"],
+      "matches": [
+        "*://*.bilibili.tv/*",
+        "*://*.bstation.tv/*"
+      ],
+      "js": [
+        "content/injected/bstation_bridge.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     },
     {
-      "matches": ["*://*.bilibili.tv/*", "*://*.bstation.tv/*"],
-      "js": ["content/platforms/bstation.js"],
-      "css": ["content/styles/bstation.css"],
+      "matches": [
+        "*://*.bilibili.tv/*",
+        "*://*.bstation.tv/*"
+      ],
+      "js": [
+        "content/platforms/bstation.js"
+      ],
+      "css": [
+        "content/styles/bstation.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://*.jwplyr.com/*"],
-      "js": ["content/platforms/jwplyr.js"],
-      "css": ["content/styles/jwplyr.css"],
+      "matches": [
+        "*://*.jwplyr.com/*"
+      ],
+      "js": [
+        "content/platforms/jwplyr.js"
+      ],
+      "css": [
+        "content/styles/jwplyr.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["content/injected/youtube_bridge.js"],
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "exclude_matches": [
+        "*://studio.youtube.com/*",
+        "*://upload.youtube.com/*",
+        "*://accounts.youtube.com/*"
+      ],
+      "js": [
+        "content/injected/youtube_bridge.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     },
     {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["content/platforms/youtube.js"],
-      "css": ["content/styles/youtube.css"],
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "exclude_matches": [
+        "*://studio.youtube.com/*",
+        "*://upload.youtube.com/*",
+        "*://accounts.youtube.com/*"
+      ],
+      "js": [
+        "content/platforms/youtube.js"
+      ],
+      "css": [
+        "content/styles/youtube.css"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -87,7 +146,9 @@
         "*://*.terabox.app/*",
         "*://*.1024tera.com/*"
       ],
-      "js": ["content/injected/terabox_bridge.js"],
+      "js": [
+        "content/injected/terabox_bridge.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     },
@@ -97,8 +158,64 @@
         "*://*.terabox.app/*",
         "*://*.1024tera.com/*"
       ],
-      "js": ["content/platforms/terabox.js"],
-      "css": ["content/styles/terabox.css"],
+      "js": [
+        "content/platforms/terabox.js"
+      ],
+      "css": [
+        "content/styles/terabox.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.cosplaytele.com/*"
+      ],
+      "js": [
+        "content/platforms/cosplaytele.js"
+      ],
+      "css": [
+        "content/styles/cosplaytele.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.pinterest.com/*",
+        "*://pin.it/*"
+      ],
+      "js": [
+        "content/platforms/pinterest.js"
+      ],
+      "css": [
+        "content/styles/pinterest.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.anoboy.quest/*",
+        "*://*.anoboy.online/*",
+        "*://*.anoboy.ninja/*"
+      ],
+      "js": [
+        "content/platforms/anoboy.js"
+      ],
+      "css": [
+        "content/styles/anoboy.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.shinigami.asia/*",
+        "*://11.shinigami.asia/*"
+      ],
+      "js": [
+        "content/platforms/shinigami.js"
+      ],
+      "css": [
+        "content/styles/shinigami.css"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -115,7 +232,14 @@
         "*://*.komiku.plus/*",
         "*://*.komiku.vip/*"
       ],
-      "js": ["content/platforms/shield_listener.js"],
+      "exclude_matches": [
+        "*://studio.youtube.com/*",
+        "*://upload.youtube.com/*",
+        "*://accounts.youtube.com/*"
+      ],
+      "js": [
+        "content/platforms/shield_listener.js"
+      ],
       "run_at": "document_start"
     },
     {
@@ -132,7 +256,14 @@
         "*://*.komiku.plus/*",
         "*://*.komiku.vip/*"
       ],
-      "js": ["content/injected/shield_bridge.js"],
+      "exclude_matches": [
+        "*://studio.youtube.com/*",
+        "*://upload.youtube.com/*",
+        "*://accounts.youtube.com/*"
+      ],
+      "js": [
+        "content/injected/shield_bridge.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     }
@@ -145,7 +276,9 @@
         "icons/icon48.png",
         "icons/icon128.png"
       ],
-      "matches": ["*://*.tiktok.com/*"]
+      "matches": [
+        "*://*.tiktok.com/*"
+      ]
     },
     {
       "resources": [
@@ -154,7 +287,10 @@
         "icons/icon48.png",
         "icons/icon128.png"
       ],
-      "matches": ["*://*.bilibili.tv/*", "*://*.bstation.tv/*"]
+      "matches": [
+        "*://*.bilibili.tv/*",
+        "*://*.bstation.tv/*"
+      ]
     },
     {
       "resources": [
@@ -182,7 +318,9 @@
         "icons/icon48.png",
         "icons/icon128.png"
       ],
-      "matches": ["*://*.youtube.com/*"]
+      "matches": [
+        "*://*.youtube.com/*"
+      ]
     },
     {
       "resources": [
@@ -195,6 +333,50 @@
         "*://*.terabox.com/*",
         "*://*.terabox.app/*",
         "*://*.1024tera.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": [
+        "*://*.cosplaytele.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": [
+        "*://*.pinterest.com/*",
+        "*://pin.it/*"
+      ]
+    },
+    {
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": [
+        "*://*.anoboy.quest/*",
+        "*://*.anoboy.online/*",
+        "*://*.anoboy.ninja/*"
+      ]
+    },
+    {
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": [
+        "*://*.shinigami.asia/*",
+        "*://11.shinigami.asia/*"
       ]
     }
   ],

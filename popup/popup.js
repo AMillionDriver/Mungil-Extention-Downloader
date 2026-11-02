@@ -40,6 +40,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tbQualityBox = document.getElementById('tb-quality-box');
   const tbQualitySelect = document.getElementById('tb-quality-select');
   const tbQualityEstBadge = document.getElementById('tb-quality-est-badge');
+  const stateCosplaytele = document.getElementById('state-cosplaytele');
+  const ctTitle = document.getElementById('ct-title');
+  const ctDesc = document.getElementById('ct-desc');
+  const ctStatusChip = document.getElementById('ct-status-chip');
+  const statePinterest = document.getElementById('state-pinterest');
+  const ptTitle = document.getElementById('pt-title');
+  const ptDesc = document.getElementById('pt-desc');
+  const ptStatusChip = document.getElementById('pt-status-chip');
+  const stateAnoboy = document.getElementById('state-anoboy');
+  const abTitle = document.getElementById('ab-title');
+  const abDesc = document.getElementById('ab-desc');
+  const abStatusChip = document.getElementById('ab-status-chip');
+  const stateShinigami = document.getElementById('state-shinigami');
+  const snTitle = document.getElementById('sn-title');
+  const snDesc = document.getElementById('sn-desc');
+  const snStatusChip = document.getElementById('sn-status-chip');
   const btnDownloadActive = document.getElementById('btn-download-active');
   const btnDownloadText = document.getElementById('btn-download-text');
   const btnOpenTikTok = document.getElementById('btn-open-tiktok');
@@ -370,6 +386,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isJwplyr = false;
   let isYoutube = false;
   let isTeraBox = false;
+  let isCosplaytele = false;
+  let isPinterest = false;
+  let isAnoboy = false;
+  let isShinigami = false;
 
   try {
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
@@ -387,8 +407,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             host === 'bstation.tv' ||
             host.endsWith('.bstation.tv');
           isJwplyr = host === 'jwplyr.com' || host.endsWith('.jwplyr.com');
+          const isStudioOrUpload =
+            host === 'studio.youtube.com' ||
+            host.endsWith('.studio.youtube.com') ||
+            host === 'upload.youtube.com' ||
+            host === 'accounts.youtube.com' ||
+            host === 'admin.youtube.com';
           isYoutube =
-            host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be';
+            !isStudioOrUpload &&
+            (host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be');
           isTeraBox =
             host === 'terabox.com' ||
             host.endsWith('.terabox.com') ||
@@ -396,15 +423,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             host.endsWith('.terabox.app') ||
             host === '1024tera.com' ||
             host.endsWith('.1024tera.com');
+          isCosplaytele = host === 'cosplaytele.com' || host.endsWith('.cosplaytele.com');
+          isPinterest =
+            host === 'pinterest.com' || host.endsWith('.pinterest.com') || host === 'pin.it';
+          isAnoboy = host.includes('anoboy.');
+          isShinigami = host.includes('shinigami.');
         } catch (_) {
           isTikTok = tabUrl.includes('tiktok.com');
           isBstation = tabUrl.includes('bilibili.tv') || tabUrl.includes('bstation.tv');
           isJwplyr = tabUrl.includes('jwplyr.com');
-          isYoutube = tabUrl.includes('youtube.com') || tabUrl.includes('youtu.be');
+          const isStudioOrUploadFallback =
+            tabUrl.includes('studio.youtube.com') ||
+            tabUrl.includes('upload.youtube.com') ||
+            tabUrl.includes('accounts.youtube.com') ||
+            tabUrl.includes('admin.youtube.com');
+          isYoutube =
+            !isStudioOrUploadFallback &&
+            (tabUrl.includes('youtube.com') || tabUrl.includes('youtu.be'));
           isTeraBox =
             tabUrl.includes('terabox.com') ||
             tabUrl.includes('terabox.app') ||
             tabUrl.includes('1024tera.com');
+          isCosplaytele = tabUrl.includes('cosplaytele.com');
+          isPinterest = tabUrl.includes('pinterest.com') || tabUrl.includes('pin.it');
+          isAnoboy = tabUrl.includes('anoboy.');
+          isShinigami = tabUrl.includes('shinigami.');
         }
       }
     }
@@ -1082,6 +1125,372 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     }
+  } else if (isCosplaytele && activeTab && activeTab.id) {
+    // Online / Active CosplayTele State
+    if (statusDot) statusDot.className = 'status-dot online';
+    if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'none';
+    if (stateJwplyr) stateJwplyr.style.display = 'none';
+    if (stateYoutube) stateYoutube.style.display = 'none';
+    if (stateTerabox) stateTerabox.style.display = 'none';
+    if (stateCosplaytele) stateCosplaytele.style.display = 'flex';
+    if (stateEmpty) stateEmpty.style.display = 'none';
+    if (btnDownloadActive) btnDownloadActive.style.display = 'inline-flex';
+    if (btnDownloadText) btnDownloadText.textContent = 'Unduh Semua Foto';
+
+    const ctActionOptions = document.getElementById('ct-action-options');
+    const ctPopupBtnVideo = document.getElementById('ct-popup-btn-video');
+
+    try {
+      chrome.tabs.sendMessage(activeTab.id, { action: 'GET_ACTIVE_VIDEO_INFO' }, (response) => {
+        if (chrome.runtime.lastError) {
+          if (ctTitle) ctTitle.textContent = 'CosplayTele Gallery';
+          if (ctDesc) ctDesc.textContent = 'Muat ulang tab (F5) untuk mendeteksi media';
+          if (ctStatusChip) {
+            ctStatusChip.textContent = 'Connected';
+            ctStatusChip.style.color = 'var(--text-muted)';
+          }
+          return;
+        }
+
+        if (response && response.found) {
+          if (ctTitle) ctTitle.textContent = response.title || 'Cosplay Gallery';
+          const pCount = response.photoCount || 0;
+          const hasPhotos = Boolean(
+            response.hasPhotos !== undefined ? response.hasPhotos : pCount > 0
+          );
+          const hasVideo = Boolean(
+            response.hasVideo !== undefined ? response.hasVideo : response.videoIframe
+          );
+
+          if (hasPhotos && hasVideo) {
+            if (ctDesc) ctDesc.textContent = `${pCount} foto • 1 video siap unduh`;
+            if (btnDownloadText) btnDownloadText.textContent = `Unduh Semua (${pCount + 1})`;
+            if (ctActionOptions) ctActionOptions.style.display = 'block';
+            if (ctPopupBtnVideo) ctPopupBtnVideo.style.display = 'inline-flex';
+          } else if (hasPhotos) {
+            if (ctDesc) ctDesc.textContent = `${pCount} foto siap unduh langsung`;
+            if (btnDownloadText) btnDownloadText.textContent = `Unduh Semua Foto (${pCount})`;
+            if (ctActionOptions) ctActionOptions.style.display = 'none';
+            if (ctPopupBtnVideo) ctPopupBtnVideo.style.display = 'none';
+          } else if (hasVideo) {
+            if (ctDesc) ctDesc.textContent = '1 video Cossora siap unduh langsung';
+            if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video Saja';
+            if (ctActionOptions) ctActionOptions.style.display = 'none';
+            if (ctPopupBtnVideo) ctPopupBtnVideo.style.display = 'none';
+          }
+
+          if (ctStatusChip) {
+            ctStatusChip.textContent = 'Ready';
+            ctStatusChip.style.color = 'var(--accent-green)';
+          }
+        } else {
+          if (ctTitle) ctTitle.textContent = 'CosplayTele';
+          if (ctDesc) ctDesc.textContent = 'Buka halaman postingan untuk mengunduh media';
+          if (ctStatusChip) {
+            ctStatusChip.textContent = 'Idle';
+            ctStatusChip.style.color = 'var(--text-muted)';
+          }
+          if (ctActionOptions) ctActionOptions.style.display = 'none';
+          if (ctPopupBtnVideo) ctPopupBtnVideo.style.display = 'none';
+        }
+      });
+    } catch (err) {
+      console.warn('[Popup] CosplayTele query failed:', err);
+    }
+
+    if (btnDownloadActive) {
+      btnDownloadActive.addEventListener('click', () => {
+        if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
+        btnDownloadActive.disabled = true;
+        const prevText = btnDownloadText ? btnDownloadText.textContent : 'Unduh';
+        if (btnDownloadText) btnDownloadText.textContent = 'Memulai Unduhan...';
+        showStatus('Mengirim perintah unduh ke halaman...', 'info', 2000);
+
+        chrome.tabs.sendMessage(
+          activeTab.id,
+          { action: 'DOWNLOAD_ACTIVE_VIDEO', target: 'all' },
+          (res) => {
+            btnDownloadActive.disabled = false;
+            if (chrome.runtime.lastError) {
+              if (btnDownloadText) btnDownloadText.textContent = prevText;
+              showStatus('Mohon muat ulang halaman CosplayTele (F5).', 'error', 4000);
+              return;
+            }
+            if (res && res.success) {
+              if (btnDownloadText) btnDownloadText.textContent = 'Mengunduh...';
+              showStatus('✓ Unduhan CosplayTele dimulai!', 'success', 3500);
+            } else {
+              if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
+              showStatus('Gagal memulai unduhan CosplayTele.', 'error', 4000);
+            }
+          }
+        );
+      });
+    }
+
+    if (ctPopupBtnVideo) {
+      ctPopupBtnVideo.addEventListener('click', () => {
+        if (ctPopupBtnVideo.disabled || !activeTab || !activeTab.id) return;
+        ctPopupBtnVideo.disabled = true;
+        showStatus('Mengirim perintah unduh video ke halaman...', 'info', 2000);
+
+        chrome.tabs.sendMessage(
+          activeTab.id,
+          { action: 'DOWNLOAD_ACTIVE_VIDEO', target: 'video' },
+          (res) => {
+            ctPopupBtnVideo.disabled = false;
+            if (chrome.runtime.lastError) {
+              showStatus('Mohon muat ulang halaman CosplayTele (F5).', 'error', 4000);
+              return;
+            }
+            if (res && res.success) {
+              showStatus('✓ Unduhan video CosplayTele dimulai!', 'success', 3500);
+            } else {
+              showStatus('Gagal memulai unduhan video CosplayTele.', 'error', 4000);
+            }
+          }
+        );
+      });
+    }
+  } else if (isPinterest && activeTab && activeTab.id) {
+    // Online / Active Pinterest State
+    if (statusDot) statusDot.className = 'status-dot online';
+    if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'none';
+    if (stateJwplyr) stateJwplyr.style.display = 'none';
+    if (stateYoutube) stateYoutube.style.display = 'none';
+    if (stateTerabox) stateTerabox.style.display = 'none';
+    if (stateCosplaytele) stateCosplaytele.style.display = 'none';
+    if (statePinterest) statePinterest.style.display = 'flex';
+    if (stateEmpty) stateEmpty.style.display = 'none';
+    if (btnDownloadActive) btnDownloadActive.style.display = 'flex';
+    if (platformTitle) platformTitle.textContent = 'Pinterest Media Downloader';
+    if (platformDesc)
+      platformDesc.textContent =
+        'Direct lossless master image (/originals/) and progressive video extraction for Pinterest.';
+
+    try {
+      chrome.tabs.sendMessage(activeTab.id, { action: 'GET_ACTIVE_VIDEO_INFO' }, (response) => {
+        if (chrome.runtime.lastError) {
+          if (ptTitle) ptTitle.textContent = 'Pinterest Pin';
+          if (ptDesc) ptDesc.textContent = 'Muat ulang tab (F5) untuk mendeteksi media';
+          if (ptStatusChip) {
+            ptStatusChip.textContent = 'Connected';
+            ptStatusChip.style.color = 'var(--text-muted)';
+          }
+          return;
+        }
+
+        if (response && response.success) {
+          if (ptTitle) ptTitle.textContent = response.title || 'Pinterest Pin';
+          const author = response.author ? `@${response.author}` : 'pinner';
+
+          if (response.mediaType === 'video') {
+            if (ptDesc) ptDesc.textContent = `Video ${response.videoQuality || 'MP4'} • ${author}`;
+            if (btnDownloadText) btnDownloadText.textContent = 'Unduh Video (.mp4)';
+          } else if (response.mediaType === 'carousel') {
+            if (ptDesc)
+              ptDesc.textContent = `Carousel (${response.slidesCount || 0} slide) • ${author}`;
+            if (btnDownloadText)
+              btnDownloadText.textContent = `Unduh Semua Slide (${response.slidesCount || 0})`;
+          } else {
+            if (ptDesc) ptDesc.textContent = `Foto Original HD • ${author}`;
+            if (btnDownloadText) btnDownloadText.textContent = 'Unduh Gambar (HD)';
+          }
+
+          if (ptStatusChip) {
+            ptStatusChip.textContent = 'Ready';
+            ptStatusChip.style.color = 'var(--accent-green)';
+          }
+        } else {
+          if (ptTitle) ptTitle.textContent = 'Pinterest';
+          if (ptDesc) ptDesc.textContent = 'Buka pin tertentu (/pin/:id/) untuk mengunduh media';
+          if (ptStatusChip) {
+            ptStatusChip.textContent = 'Idle';
+            ptStatusChip.style.color = 'var(--text-muted)';
+          }
+          if (btnDownloadText) btnDownloadText.textContent = 'Buka Pin Detail';
+        }
+      });
+    } catch (err) {
+      console.warn('[Popup] Pinterest query failed:', err);
+    }
+
+    if (btnDownloadActive) {
+      btnDownloadActive.addEventListener('click', () => {
+        if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
+        btnDownloadActive.disabled = true;
+        const prevText = btnDownloadText ? btnDownloadText.textContent : 'Unduh';
+        if (btnDownloadText) btnDownloadText.textContent = 'Memulai Unduhan...';
+        showStatus('Mengirim perintah unduh ke halaman...', 'info', 2000);
+
+        chrome.tabs.sendMessage(activeTab.id, { action: 'DOWNLOAD_ACTIVE_VIDEO' }, (res) => {
+          btnDownloadActive.disabled = false;
+          if (chrome.runtime.lastError) {
+            if (btnDownloadText) btnDownloadText.textContent = prevText;
+            showStatus('Mohon muat ulang halaman Pinterest (F5).', 'error', 4000);
+            return;
+          }
+          if (res && res.success) {
+            if (btnDownloadText) btnDownloadText.textContent = 'Mengunduh...';
+            showStatus('✓ Unduhan Pinterest dimulai!', 'success', 3500);
+          } else {
+            if (btnDownloadText) btnDownloadText.textContent = 'Coba Lagi';
+            showStatus('Gagal memulai unduhan Pinterest.', 'error', 4000);
+          }
+        });
+      });
+    }
+  } else if (isAnoboy && activeTab && activeTab.id) {
+    // Online / Active AnoBoy State
+    if (statusDot) statusDot.className = 'status-dot online';
+    if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'none';
+    if (stateJwplyr) stateJwplyr.style.display = 'none';
+    if (stateYoutube) stateYoutube.style.display = 'none';
+    if (stateTerabox) stateTerabox.style.display = 'none';
+    if (stateCosplaytele) stateCosplaytele.style.display = 'none';
+    if (statePinterest) statePinterest.style.display = 'none';
+    if (stateAnoboy) stateAnoboy.style.display = 'flex';
+    if (stateShinigami) stateShinigami.style.display = 'none';
+    if (stateEmpty) stateEmpty.style.display = 'none';
+    if (btnDownloadActive) btnDownloadActive.style.display = 'flex';
+    if (platformTitle) platformTitle.textContent = 'AnoBoy Anime Downloader';
+    if (platformDesc)
+      platformDesc.textContent =
+        'Direct 720p/360p stream extraction with auto-folder batch episode downloader.';
+
+    try {
+      chrome.tabs.sendMessage(activeTab.id, { action: 'GET_ACTIVE_VIDEO_INFO' }, (response) => {
+        if (chrome.runtime.lastError) {
+          if (abTitle) abTitle.textContent = 'AnoBoy Anime';
+          if (abDesc) abDesc.textContent = 'Muat ulang tab (F5) untuk mendeteksi episode';
+          if (abStatusChip) {
+            abStatusChip.textContent = 'Connected';
+            abStatusChip.style.color = 'var(--text-muted)';
+          }
+          return;
+        }
+
+        if (response && response.success) {
+          if (abTitle) abTitle.textContent = response.animeTitle || 'Anime Episode';
+          if (abDesc) abDesc.textContent = `Episode ${response.episodeNum || 1} • Siap Batch Unduh`;
+          if (btnDownloadText) btnDownloadText.textContent = 'Buka Batch Downloader';
+
+          if (abStatusChip) {
+            abStatusChip.textContent = 'Ready';
+            abStatusChip.style.color = 'var(--accent-green)';
+          }
+        } else {
+          if (abTitle) abTitle.textContent = 'AnoBoy';
+          if (abDesc) abDesc.textContent = 'Buka halaman episode anime untuk mengunduh';
+          if (abStatusChip) {
+            abStatusChip.textContent = 'Idle';
+            abStatusChip.style.color = 'var(--text-muted)';
+          }
+          if (btnDownloadText) btnDownloadText.textContent = 'Buka Halaman Episode';
+        }
+      });
+    } catch (err) {
+      console.warn('[Popup] AnoBoy query failed:', err);
+    }
+
+    if (btnDownloadActive) {
+      btnDownloadActive.addEventListener('click', () => {
+        if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
+        btnDownloadActive.disabled = true;
+        showStatus('Membuka modal batch downloader di halaman...', 'info', 2000);
+
+        chrome.tabs.sendMessage(activeTab.id, { action: 'DOWNLOAD_ACTIVE_VIDEO' }, (res) => {
+          btnDownloadActive.disabled = false;
+          if (chrome.runtime.lastError) {
+            showStatus('Mohon muat ulang halaman AnoBoy (F5).', 'error', 4000);
+            return;
+          }
+          if (res && res.success) {
+            showStatus('✓ Modal batch terbuka di halaman!', 'success', 3000);
+          } else {
+            showStatus('Gagal membuka batch modal.', 'error', 4000);
+          }
+        });
+      });
+    }
+  } else if (isShinigami && activeTab && activeTab.id) {
+    // Online / Active Shinigami Comic State
+    if (statusDot) statusDot.className = 'status-dot online';
+    if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'none';
+    if (stateJwplyr) stateJwplyr.style.display = 'none';
+    if (stateYoutube) stateYoutube.style.display = 'none';
+    if (stateTerabox) stateTerabox.style.display = 'none';
+    if (stateCosplaytele) stateCosplaytele.style.display = 'none';
+    if (statePinterest) statePinterest.style.display = 'none';
+    if (stateAnoboy) stateAnoboy.style.display = 'none';
+    if (stateShinigami) stateShinigami.style.display = 'flex';
+    if (stateEmpty) stateEmpty.style.display = 'none';
+    if (btnDownloadActive) btnDownloadActive.style.display = 'flex';
+    if (platformTitle) platformTitle.textContent = 'Shinigami Comic Downloader';
+    if (platformDesc)
+      platformDesc.textContent =
+        'Direct chapter & series batch downloader into PDF, Long Image strip, or CBZ archive.';
+
+    try {
+      chrome.tabs.sendMessage(activeTab.id, { action: 'GET_ACTIVE_VIDEO_INFO' }, (response) => {
+        if (chrome.runtime.lastError) {
+          if (snTitle) snTitle.textContent = 'Shinigami Comic';
+          if (snDesc) snDesc.textContent = 'Muat ulang tab (F5) untuk mendeteksi chapter';
+          if (snStatusChip) {
+            snStatusChip.textContent = 'Connected';
+            snStatusChip.style.color = 'var(--text-muted)';
+          }
+          return;
+        }
+
+        if (response && response.success) {
+          if (snTitle) snTitle.textContent = response.mangaTitle || 'Comic Series';
+          if (snDesc)
+            snDesc.textContent = `Chapter ${response.chapterNumber || 1} • Siap Batch Unduh`;
+          if (btnDownloadText) btnDownloadText.textContent = 'Buka Batch Downloader';
+
+          if (snStatusChip) {
+            snStatusChip.textContent = 'Ready';
+            snStatusChip.style.color = 'var(--accent-green)';
+          }
+        } else {
+          if (snTitle) snTitle.textContent = 'Shinigami';
+          if (snDesc) snDesc.textContent = 'Buka halaman chapter atau series untuk mengunduh';
+          if (snStatusChip) {
+            snStatusChip.textContent = 'Idle';
+            snStatusChip.style.color = 'var(--text-muted)';
+          }
+          if (btnDownloadText) btnDownloadText.textContent = 'Buka Halaman Komik';
+        }
+      });
+    } catch (err) {
+      console.warn('[Popup] Shinigami query failed:', err);
+    }
+
+    if (btnDownloadActive) {
+      btnDownloadActive.addEventListener('click', () => {
+        if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
+        btnDownloadActive.disabled = true;
+        showStatus('Membuka modal batch downloader di halaman...', 'info', 2000);
+
+        chrome.tabs.sendMessage(activeTab.id, { action: 'DOWNLOAD_ACTIVE_VIDEO' }, (res) => {
+          btnDownloadActive.disabled = false;
+          if (chrome.runtime.lastError) {
+            showStatus('Mohon muat ulang halaman Shinigami (F5).', 'error', 4000);
+            return;
+          }
+          if (res && res.success) {
+            showStatus('✓ Modal batch terbuka di halaman!', 'success', 3000);
+          } else {
+            showStatus('Gagal membuka batch modal.', 'error', 4000);
+          }
+        });
+      });
+    }
   } else {
     // Inactive / Non-Supported State
     if (statusDot) statusDot.className = 'status-dot idle';
@@ -1090,11 +1499,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (stateJwplyr) stateJwplyr.style.display = 'none';
     if (stateYoutube) stateYoutube.style.display = 'none';
     if (stateTerabox) stateTerabox.style.display = 'none';
+    if (stateCosplaytele) stateCosplaytele.style.display = 'none';
+    if (statePinterest) statePinterest.style.display = 'none';
+    if (stateAnoboy) stateAnoboy.style.display = 'none';
+    if (stateShinigami) stateShinigami.style.display = 'none';
     if (stateEmpty) stateEmpty.style.display = 'flex';
     if (btnDownloadActive) btnDownloadActive.style.display = 'none';
     if (platformTitle) platformTitle.textContent = 'Not on Supported Platform';
     if (platformDesc)
       platformDesc.textContent =
-        'Open TikTok, Bstation, JWPlyr, YouTube, or TeraBox Web to start downloading files directly.';
+        'Open TikTok, Bstation, JWPlyr, YouTube, TeraBox, CosplayTele, Pinterest, AnoBoy, or Shinigami to start downloading files directly.';
   }
 });

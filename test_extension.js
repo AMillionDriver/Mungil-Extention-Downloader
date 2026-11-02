@@ -840,6 +840,9 @@ async function runAllSuites() {
         'icons/generate_icons.js',
         'content/injected/shield_bridge.js',
         'content/platforms/shield_listener.js',
+        'content/platforms/cosplaytele.js',
+        'content/platforms/pinterest.js',
+        'content/platforms/anoboy.js',
         'test_extension.js',
         'test_adversarial_bstation.js'
       ];
@@ -5203,6 +5206,55 @@ async function runAllSuites() {
         assert.ok(css.includes('-webkit-line-clamp: 2;'), 'Must define -webkit-line-clamp');
         assert.ok(css.includes('line-clamp: 2;'), 'Must define standard line-clamp property');
       });
+
+      test('Manifest V3 and Service Worker strictly exclude studio.youtube.com & upload.youtube.com from header modification & injection', () => {
+        const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+        const { YOUTUBE_CDN_RULES } = sw;
+
+        // Verify Rule 32 exclusions
+        const rule32 = YOUTUBE_CDN_RULES.find((r) => r.id === 32);
+        assert.ok(rule32, 'Rule 32 must exist');
+        assert.ok(
+          rule32.condition.excludedRequestDomains &&
+            rule32.condition.excludedRequestDomains.includes('studio.youtube.com') &&
+            rule32.condition.excludedRequestDomains.includes('upload.youtube.com'),
+          'Rule 32 must exclude studio.youtube.com and upload.youtube.com from requestDomains'
+        );
+        assert.ok(
+          rule32.condition.excludedInitiatorDomains &&
+            rule32.condition.excludedInitiatorDomains.includes('studio.youtube.com') &&
+            rule32.condition.excludedInitiatorDomains.includes('upload.youtube.com'),
+          'Rule 32 must exclude studio.youtube.com and upload.youtube.com from initiatorDomains'
+        );
+
+        // Verify Rule 31 exclusions
+        const rule31 = YOUTUBE_CDN_RULES.find((r) => r.id === 31);
+        assert.ok(rule31, 'Rule 31 must exist');
+        assert.ok(
+          rule31.condition.excludedInitiatorDomains &&
+            rule31.condition.excludedInitiatorDomains.includes('studio.youtube.com'),
+          'Rule 31 must exclude studio.youtube.com initiator'
+        );
+
+        // Verify Manifest exclude_matches
+        const ytBridgeScript = manifest.content_scripts.find(
+          (s) => s.world === 'MAIN' && s.matches.includes('*://*.youtube.com/*')
+        );
+        assert.ok(
+          ytBridgeScript.exclude_matches &&
+            ytBridgeScript.exclude_matches.includes('*://studio.youtube.com/*'),
+          'YouTube bridge must declare exclude_matches for studio.youtube.com'
+        );
+
+        const ytPlatformScript = manifest.content_scripts.find(
+          (s) => (!s.world || s.world === 'ISOLATED') && s.matches.includes('*://*.youtube.com/*')
+        );
+        assert.ok(
+          ytPlatformScript.exclude_matches &&
+            ytPlatformScript.exclude_matches.includes('*://studio.youtube.com/*'),
+          'YouTube platform UI must declare exclude_matches for studio.youtube.com'
+        );
+      });
     }
   );
 
@@ -6055,6 +6107,10 @@ async function runAllSuites() {
           'must hide YouTube sidebar companion ad banners'
         );
         assert.ok(code.includes('playbackRate = 16'), 'must fast-forward video ads at 16x speed');
+        assert.ok(
+          code.includes("id.includes('mungil-')") || code.includes('mungil-'),
+          'must strictly exempt all mungil- elements and modals from overlay neutralization'
+        );
       });
 
       test('service_worker.js defines dynamic DNR adblock rules and synchronization helper', () => {
@@ -6457,6 +6513,1402 @@ async function runAllSuites() {
           'terabox_bridge.js must route to streaming URL when preferredType is provided'
         );
       });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 27: CosplayTele Platform Registration, NTFS Sanitization & Batch Lifecycle
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 27: CosplayTele Platform Registration, NTFS Sanitization & Batch Lifecycle',
+    ({ test }) => {
+      const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+      test('Manifest V3 registers cosplaytele.com in host_permissions, content_scripts & web_accessible_resources', () => {
+        assert.ok(
+          manifest.host_permissions.includes('*://*.cosplaytele.com/*'),
+          'host_permissions must include *://*.cosplaytele.com/*'
+        );
+
+        const contentEntry = manifest.content_scripts.find(
+          (s) => Array.isArray(s.js) && s.js.includes('content/platforms/cosplaytele.js')
+        );
+        assert.ok(contentEntry, 'content_scripts must have entry for cosplaytele.js');
+        assert.ok(
+          contentEntry.matches.includes('*://*.cosplaytele.com/*'),
+          'cosplaytele.js matches must include *://*.cosplaytele.com/*'
+        );
+        assert.ok(
+          contentEntry.css && contentEntry.css.includes('content/styles/cosplaytele.css'),
+          'contentEntry must register content/styles/cosplaytele.css'
+        );
+        assert.strictEqual(
+          contentEntry.run_at,
+          'document_idle',
+          'cosplaytele.js must run at document_idle'
+        );
+
+        const webRes = manifest.web_accessible_resources.find(
+          (r) => Array.isArray(r.matches) && r.matches.includes('*://*.cosplaytele.com/*')
+        );
+        assert.ok(
+          webRes,
+          'web_accessible_resources must declare resource entry matching *://*.cosplaytele.com/*'
+        );
+      });
+
+      test('CosplayTele script and stylesheet exist on disk with valid syntax and non-zero size', () => {
+        const platformPath = path.join(PROJECT_ROOT, 'content/platforms/cosplaytele.js');
+        const stylePath = path.join(PROJECT_ROOT, 'content/styles/cosplaytele.css');
+
+        assert.ok(fs.existsSync(platformPath), 'cosplaytele.js must exist on disk');
+        assert.ok(fs.existsSync(stylePath), 'cosplaytele.css must exist on disk');
+
+        const platformStat = fs.statSync(platformPath);
+        const styleStat = fs.statSync(stylePath);
+
+        assert.ok(platformStat.size > 1000, 'cosplaytele.js must have substantial content (>1KB)');
+        assert.ok(styleStat.size > 1000, 'cosplaytele.css must have substantial content (>1KB)');
+
+        const checkRes = spawnSync(process.execPath, ['--check', platformPath], {
+          encoding: 'utf8'
+        });
+        assert.strictEqual(
+          checkRes.status,
+          0,
+          'cosplaytele.js must pass node --check syntax validation'
+        );
+      });
+
+      test('Service Worker registers DeclarativeNetRequest Rule 61 for CosplayTele Anti-Hotlinking', () => {
+        const sw = require('./background/service_worker.js');
+        assert.ok(
+          Array.isArray(sw.COSPLAYTELE_CDN_RULES),
+          'service_worker.js must export COSPLAYTELE_CDN_RULES array'
+        );
+        const rule61 = sw.COSPLAYTELE_CDN_RULES.find((r) => r.id === 61);
+        assert.ok(rule61, 'Rule 61 must exist in COSPLAYTELE_CDN_RULES');
+        assert.strictEqual(
+          rule61.condition.urlFilter,
+          '*cosplaytele.com*',
+          'Rule 61 must filter *cosplaytele.com*'
+        );
+        assert.ok(
+          rule61.action.requestHeaders.some(
+            (h) => h.header === 'Referer' && h.value === 'https://cosplaytele.com/'
+          ),
+          'Rule 61 must set Referer to https://cosplaytele.com/'
+        );
+        assert.ok(
+          rule61.action.requestHeaders.some(
+            (h) => h.header === 'Origin' && h.value === 'https://cosplaytele.com'
+          ),
+          'Rule 61 must set Origin to https://cosplaytele.com'
+        );
+      });
+
+      test('Windows NTFS Filename Sanitization for CosplayTele posts', () => {
+        const {
+          sanitizeCosplayteleTitle,
+          formatCosplayteleFilename
+        } = require('./content/platforms/cosplaytele.js');
+
+        // Basic entity replacement
+        assert.strictEqual(
+          sanitizeCosplayteleTitle(
+            'Yukina Sakura cosplay Reze &#8211; Chainsaw Man &#8220;63 photos&#8221;'
+          ),
+          'Yukina Sakura cosplay Reze - Chainsaw Man 63 photos'
+        );
+
+        // Win32 forbidden characters (* ? : " < > | / \)
+        assert.strictEqual(
+          sanitizeCosplayteleTitle('Cosplay: Maid*Rem? <Special> "Edition"|One/Two\\Three'),
+          'Cosplay - MaidRem Special Edition - One - Two - Three'
+        );
+
+        // Formatting filename with index padding and extension
+        assert.strictEqual(
+          formatCosplayteleFilename({
+            title: 'Yukina Sakura cosplay Reze',
+            index: 3,
+            ext: 'webp'
+          }),
+          'Yukina Sakura cosplay Reze - 03.webp'
+        );
+
+        assert.strictEqual(
+          formatCosplayteleFilename({
+            title: 'Yukina Sakura cosplay Reze',
+            index: 12,
+            ext: '.jpg'
+          }),
+          'Yukina Sakura cosplay Reze - 12.jpg'
+        );
+
+        // Fallback title on null/undefined
+        assert.strictEqual(
+          formatCosplayteleFilename({ title: null, index: 1 }),
+          'CosplayTele_Photo - 01.webp'
+        );
+      });
+
+      test('CosplayteleQueue concurrency, pacing delay, progress tracking and cancellation', async () => {
+        const { CosplayteleQueue } = require('./content/platforms/cosplaytele.js');
+
+        const queue = new CosplayteleQueue({
+          concurrency: 2,
+          delayMs: 20
+        });
+
+        const completed = [];
+        for (let i = 1; i <= 4; i++) {
+          const itemIdx = i;
+          queue.add({
+            id: itemIdx,
+            task: async () => {
+              await new Promise((r) => setTimeout(r, 10));
+              completed.push(itemIdx);
+            }
+          });
+        }
+
+        const completionPromise = new Promise((resolve) => {
+          queue.onAllComplete = resolve;
+        });
+
+        queue.start();
+        const result = await completionPromise;
+
+        assert.strictEqual(result.total, 4, 'total must be 4');
+        assert.strictEqual(result.completed, 4, 'all 4 items must complete');
+        assert.strictEqual(result.failed, 0, '0 items failed');
+        assert.strictEqual(completed.length, 4, 'completed array must have 4 items');
+      });
+
+      test('Popup UI recognizes CosplayTele tab and renders gallery state container', () => {
+        const popupHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        assert.ok(
+          popupHtml.includes('id="state-cosplaytele"'),
+          'popup.html must declare #state-cosplaytele'
+        );
+        assert.ok(popupHtml.includes('id="ct-title"'), 'popup.html must declare #ct-title');
+        assert.ok(popupHtml.includes('id="ct-desc"'), 'popup.html must declare #ct-desc');
+        assert.ok(
+          popupHtml.includes('id="ct-status-chip"'),
+          'popup.html must declare #ct-status-chip'
+        );
+
+        const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+        assert.ok(popupJs.includes('isCosplaytele'), 'popup.js must detect isCosplaytele');
+        assert.ok(
+          popupJs.includes('cosplaytele.com'),
+          'popup.js must match cosplaytele.com domain'
+        );
+        assert.ok(
+          popupJs.includes('stateCosplaytele'),
+          'popup.js must toggle stateCosplaytele display'
+        );
+
+        const popupCss = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.css'), 'utf8');
+        assert.ok(popupCss.includes('.meta-label-ct'), 'popup.css must style .meta-label-ct');
+      });
+
+      test('Service Worker decryptCossoraVideoUrl and extractCossoraStream decryption pipeline', async () => {
+        const sw = require('./background/service_worker.js');
+        assert.strictEqual(typeof sw.decryptCossoraVideoUrl, 'function');
+        assert.strictEqual(typeof sw.extractCossoraStream, 'function');
+
+        // Test with known vector
+        const key = '07db2ac9b15c77528b85ae53db12847c';
+        // Encrypt test vector with AES-256-CBC
+        const crypto = require('crypto');
+        const iv = crypto.randomBytes(16);
+        const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(key, 'utf8'), iv);
+        const targetUrl = 'https://cossora.stream/api-embed/test-uuid/index.m3u8?token=123';
+        const encrypted = Buffer.concat([cipher.update(targetUrl, 'utf8'), cipher.final()]);
+        const payload = Buffer.concat([iv, encrypted]).toString('base64');
+
+        const decrypted = await sw.decryptCossoraVideoUrl(payload, key);
+        assert.strictEqual(
+          decrypted,
+          targetUrl,
+          'Decrypted stream URL must match original payload'
+        );
+      });
+
+      test('CosplayTele renderFloatingBar strictly enforces conditional media visibility', () => {
+        const { renderFloatingBar } = require('./content/platforms/cosplaytele.js');
+        assert.strictEqual(typeof renderFloatingBar, 'function');
+
+        // Mock document environment
+        const elementStore = new Map();
+        let appendedElement = null;
+
+        global.document = {
+          getElementById: (id) => elementStore.get(id) || null,
+          createElement: (tag) => {
+            const el = {
+              tagName: tag.toUpperCase(),
+              id: '',
+              innerHTML: '',
+              childNodes: [],
+              querySelector: (sel) => {
+                // simple ID / class query
+                if (sel.startsWith('#')) {
+                  const targetId = sel.slice(1);
+                  return el.innerHTML.includes(`id="${targetId}"`)
+                    ? { addEventListener: () => {} }
+                    : null;
+                }
+                return null;
+              },
+              querySelectorAll: () => []
+            };
+            return el;
+          },
+          body: {
+            appendChild: (el) => {
+              appendedElement = el;
+              if (el.id) elementStore.set(el.id, el);
+            }
+          }
+        };
+
+        // 1. Dual Media State: Photos AND Video present
+        renderFloatingBar({
+          title: 'Ganyu Cosplay',
+          photos: ['https://cosplaytele.com/photo1.webp', 'https://cosplaytele.com/photo2.webp'],
+          videoIframe: 'https://cossora.stream/embed/test'
+        });
+        assert.ok(appendedElement, 'Bar must render for dual media');
+        assert.ok(
+          appendedElement.innerHTML.includes('ct-btn-download-all'),
+          'Must have download all'
+        );
+        assert.ok(
+          appendedElement.innerHTML.includes('ct-btn-select-modal'),
+          'Must have select modal'
+        );
+        assert.ok(
+          appendedElement.innerHTML.includes('ct-btn-download-video'),
+          'Must have download video'
+        );
+        assert.ok(
+          appendedElement.innerHTML.includes('Unduh Semua (3)'),
+          'Count must be photos + video (2+1)'
+        );
+        assert.ok(
+          appendedElement.innerHTML.includes('Unduh Video Saja'),
+          'Must display video only button'
+        );
+
+        // 2. Photo-Only State: Photos present, NO video
+        elementStore.clear();
+        appendedElement = null;
+        renderFloatingBar({
+          title: 'Hu Tao Cosplay',
+          photos: ['https://cosplaytele.com/photo1.webp'],
+          videoIframe: null
+        });
+        assert.ok(appendedElement, 'Bar must render for photo-only');
+        assert.ok(
+          appendedElement.innerHTML.includes('ct-btn-download-all'),
+          'Must have download all'
+        );
+        assert.ok(
+          appendedElement.innerHTML.includes('ct-btn-select-modal'),
+          'Must have select modal'
+        );
+        assert.ok(
+          !appendedElement.innerHTML.includes('ct-btn-download-video'),
+          'Video button must NOT be present when no video'
+        );
+        assert.ok(
+          !appendedElement.innerHTML.includes('Unduh Video Saja'),
+          'Video text must NOT be present when no video'
+        );
+
+        // 3. Video-Only State: Video present, NO photos
+        elementStore.clear();
+        appendedElement = null;
+        renderFloatingBar({
+          title: 'Raiden Video Teaser',
+          photos: [],
+          videoIframe: 'https://cossora.stream/embed/test-raiden'
+        });
+        assert.ok(appendedElement, 'Bar must render for video-only');
+        assert.ok(
+          appendedElement.innerHTML.includes('ct-btn-download-video'),
+          'Must have video button'
+        );
+        assert.ok(
+          !appendedElement.innerHTML.includes('ct-btn-download-all'),
+          'Must NOT have download all photos'
+        );
+        assert.ok(
+          !appendedElement.innerHTML.includes('ct-btn-select-modal'),
+          'Must NOT have select photos modal button'
+        );
+
+        // 4. Empty State: Neither photos nor video
+        elementStore.clear();
+        appendedElement = null;
+        renderFloatingBar({
+          title: 'Empty Post',
+          photos: [],
+          videoIframe: null
+        });
+        assert.strictEqual(
+          appendedElement,
+          null,
+          'Bar must NOT render when neither photos nor video are found'
+        );
+      });
+
+      test('Bento Grid layout architecture and dynamic spans declared in cosplaytele.css', () => {
+        const styleContent = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/styles/cosplaytele.css'),
+          'utf8'
+        );
+
+        // Bento Grid structure
+        assert.ok(
+          styleContent.includes('grid-template-columns: repeat(auto-fill, minmax(170px, 1fr))')
+        );
+        assert.ok(styleContent.includes('grid-auto-flow: dense'));
+        assert.ok(styleContent.includes('.ct-bento-card'));
+        assert.ok(styleContent.includes('.ct-bento-gradient-overlay'));
+
+        // Dynamic span variations (Hero 2x2, Wide 2x1, Tall 1x2)
+        assert.ok(
+          styleContent.includes('.bento-hero') || styleContent.includes(':nth-child(8n+1)')
+        );
+        assert.ok(
+          styleContent.includes('.bento-wide') || styleContent.includes(':nth-child(8n+4)')
+        );
+        assert.ok(
+          styleContent.includes('.bento-tall') || styleContent.includes(':nth-child(8n+6)')
+        );
+
+        // Video toggle inside Bento modal
+        assert.ok(styleContent.includes('.ct-video-toggle-label'));
+      });
+
+      test('Service Worker registers DeclarativeNetRequest Rule 62 with CORS response headers & downloadCossoraHlsStream handler', () => {
+        const sw = require('./background/service_worker.js');
+        const rule62 = sw.COSPLAYTELE_CDN_RULES.find((r) => r.id === 62);
+        assert.ok(rule62, 'Rule 62 must exist for *cossora.stream*');
+        assert.strictEqual(rule62.condition.urlFilter, '*cossora.stream*');
+
+        // Verify request headers
+        assert.ok(
+          rule62.action.requestHeaders.some(
+            (h) => h.header === 'Referer' && h.value === 'https://cossora.stream/'
+          ),
+          'Rule 62 must inject Referer: https://cossora.stream/'
+        );
+
+        // Verify CORS response headers
+        assert.ok(
+          Array.isArray(rule62.action.responseHeaders),
+          'Rule 62 must declare responseHeaders for CORS bypass'
+        );
+        assert.ok(
+          rule62.action.responseHeaders.some(
+            (h) => h.header === 'Access-Control-Allow-Origin' && h.value === '*'
+          ),
+          'Rule 62 must set Access-Control-Allow-Origin: *'
+        );
+
+        // Verify downloadCossoraHlsStream export
+        assert.strictEqual(
+          typeof sw.downloadCossoraHlsStream,
+          'function',
+          'service_worker.js must export downloadCossoraHlsStream'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 28: Pinterest Platform Registration, NTFS Sanitization & Media Pipeline
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 28: Pinterest Platform Registration, NTFS Sanitization & Media Pipeline',
+    ({ test }) => {
+      const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+      test('Manifest V3 registers pinterest.com, pin.it & pinimg.com in host_permissions & content_scripts', () => {
+        assert.ok(
+          manifest.host_permissions.includes('*://*.pinterest.com/*'),
+          'host_permissions must include *://*.pinterest.com/*'
+        );
+        assert.ok(
+          manifest.host_permissions.includes('*://*.pinimg.com/*'),
+          'host_permissions must include *://*.pinimg.com/*'
+        );
+        assert.ok(
+          manifest.host_permissions.includes('*://pin.it/*'),
+          'host_permissions must include *://pin.it/*'
+        );
+
+        const contentEntry = manifest.content_scripts.find(
+          (s) => Array.isArray(s.js) && s.js.includes('content/platforms/pinterest.js')
+        );
+        assert.ok(contentEntry, 'content_scripts must have entry for pinterest.js');
+        assert.ok(
+          contentEntry.matches.includes('*://*.pinterest.com/*'),
+          'pinterest.js matches must include *://*.pinterest.com/*'
+        );
+        assert.ok(
+          contentEntry.matches.includes('*://pin.it/*'),
+          'pinterest.js matches must include *://pin.it/*'
+        );
+        assert.deepStrictEqual(
+          contentEntry.css,
+          ['content/styles/pinterest.css'],
+          'pinterest.js must declare content/styles/pinterest.css'
+        );
+        assert.strictEqual(
+          contentEntry.run_at,
+          'document_idle',
+          'pinterest.js must run at document_idle'
+        );
+      });
+
+      test('Pinterest script and stylesheet exist on disk with valid syntax and non-zero size', () => {
+        const platformPath = path.join(PROJECT_ROOT, 'content/platforms/pinterest.js');
+        const stylePath = path.join(PROJECT_ROOT, 'content/styles/pinterest.css');
+
+        assert.ok(fs.existsSync(platformPath), 'pinterest.js must exist on disk');
+        assert.ok(fs.existsSync(stylePath), 'pinterest.css must exist on disk');
+
+        const platformStat = fs.statSync(platformPath);
+        const styleStat = fs.statSync(stylePath);
+
+        assert.ok(platformStat.size > 1000, 'pinterest.js must have substantial content (>1KB)');
+        assert.ok(styleStat.size > 500, 'pinterest.css must have substantial content (>500B)');
+
+        const checkRes = spawnSync(process.execPath, ['--check', platformPath], {
+          encoding: 'utf8'
+        });
+        assert.strictEqual(
+          checkRes.status,
+          0,
+          'pinterest.js must pass node --check syntax validation'
+        );
+      });
+
+      test('Service Worker registers DeclarativeNetRequest Rule 71 for Pinterest (*.pinimg.com)', () => {
+        const sw = require('./background/service_worker.js');
+        assert.ok(Array.isArray(sw.PINTEREST_CDN_RULES), 'PINTEREST_CDN_RULES must be an array');
+        const rule71 = sw.PINTEREST_CDN_RULES.find((r) => r.id === 71);
+        assert.ok(rule71, 'Rule 71 must exist in PINTEREST_CDN_RULES');
+        assert.strictEqual(rule71.condition.urlFilter, '*pinimg.com*');
+
+        assert.ok(
+          rule71.action.requestHeaders.some(
+            (h) => h.header === 'Referer' && h.value === 'https://www.pinterest.com/'
+          ),
+          'Rule 71 must set Referer: https://www.pinterest.com/'
+        );
+        assert.ok(
+          rule71.action.requestHeaders.some(
+            (h) => h.header === 'Origin' && h.value === 'https://www.pinterest.com'
+          ),
+          'Rule 71 must set Origin: https://www.pinterest.com'
+        );
+        assert.ok(
+          rule71.action.responseHeaders.some(
+            (h) => h.header === 'Access-Control-Allow-Origin' && h.value === '*'
+          ),
+          'Rule 71 must set Access-Control-Allow-Origin: * for CORS bypass'
+        );
+      });
+
+      test('Windows NTFS Filename Sanitization for Pinterest pins', () => {
+        const {
+          sanitizePinterestTitle,
+          sanitizePinterestAuthor,
+          formatPinterestFilename
+        } = require('./content/platforms/pinterest.js');
+
+        // Title sanitization with forbidden Win32 chars and colons
+        assert.strictEqual(
+          sanitizePinterestTitle('Cyberpunk: Edgerunners | Lucy & Rebecca <HD>'),
+          'Cyberpunk - Edgerunners - Lucy & Rebecca HD'
+        );
+
+        // Win32 reserved device name
+        assert.strictEqual(sanitizePinterestTitle('CON'), 'Pin_CON');
+        assert.strictEqual(sanitizePinterestTitle('NUL'), 'Pin_NUL');
+
+        // Length truncation ceiling (120 chars)
+        const longTitle = 'A'.repeat(200);
+        assert.strictEqual(sanitizePinterestTitle(longTitle).length, 120);
+
+        // Author sanitization
+        assert.strictEqual(sanitizePinterestAuthor('@artist_studio?*'), 'artist_studio');
+        assert.strictEqual(sanitizePinterestAuthor('AUX'), 'user_AUX');
+
+        // Complete formatted filename
+        const formatted = formatPinterestFilename({
+          author: 'CyberArtist',
+          title: 'Neon Tokyo 2077',
+          pinId: '1092837465',
+          ext: 'jpg'
+        });
+        assert.strictEqual(formatted, '[Pinterest] CyberArtist - Neon Tokyo 2077 (1092837465).jpg');
+
+        // Slide format for carousel
+        const slideFormatted = formatPinterestFilename({
+          author: 'StudioGhibli',
+          title: 'Concept Art',
+          pinId: '987654321',
+          index: 3,
+          ext: 'mp4'
+        });
+        assert.strictEqual(
+          slideFormatted,
+          '[Pinterest] StudioGhibli - Concept Art (987654321)_slide03.mp4'
+        );
+      });
+
+      test('elevateToOriginalImageUrl escalates preview image paths to /originals/', () => {
+        const { elevateToOriginalImageUrl } = require('./content/platforms/pinterest.js');
+
+        const preview236 =
+          'https://i.pinimg.com/236x/e8/5a/0c/e85a0c974e72f36af99d01b9b713b3e4.jpg';
+        assert.strictEqual(
+          elevateToOriginalImageUrl(preview236),
+          'https://i.pinimg.com/originals/e8/5a/0c/e85a0c974e72f36af99d01b9b713b3e4.jpg'
+        );
+
+        const preview736 = 'https://i.pinimg.com/736x/ab/cd/ef/abcdef0123456789.png';
+        assert.strictEqual(
+          elevateToOriginalImageUrl(preview736),
+          'https://i.pinimg.com/originals/ab/cd/ef/abcdef0123456789.png'
+        );
+
+        const alreadyOriginal = 'https://i.pinimg.com/originals/12/34/56/123456.jpg';
+        assert.strictEqual(elevateToOriginalImageUrl(alreadyOriginal), alreadyOriginal);
+      });
+
+      test('extractPwsPinData correctly parses #__PWS_DATA__ Redux JSON structure', () => {
+        const { extractPwsPinData } = require('./content/platforms/pinterest.js');
+
+        const originalDoc = global.document;
+        try {
+          const mockPinPayload = {
+            props: {
+              initialReduxState: {
+                pins: {
+                  '1124351863225567517': {
+                    id: '1124351863225567517',
+                    title: 'Anime Aesthetic Wallpaper',
+                    pinner: { username: 'AestheticGuru' },
+                    images: {
+                      orig: {
+                        url: 'https://i.pinimg.com/originals/99/88/77/9988776655.jpg'
+                      }
+                    },
+                    videos: {
+                      video_list: {
+                        V_720P: {
+                          url: 'https://v.pinimg.com/videos/mc/720p/test.mp4',
+                          width: 720,
+                          height: 1280
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          };
+
+          global.document = {
+            getElementById: (id) => {
+              if (id === '__PWS_DATA__') {
+                return { textContent: JSON.stringify(mockPinPayload) };
+              }
+              return null;
+            }
+          };
+
+          const pinData = extractPwsPinData('1124351863225567517');
+          assert.ok(pinData, 'Must extract pin data from mock #__PWS_DATA__');
+          assert.strictEqual(pinData.title, 'Anime Aesthetic Wallpaper');
+          assert.strictEqual(pinData.pinner.username, 'AestheticGuru');
+          assert.strictEqual(
+            pinData.videos.video_list.V_720P.url,
+            'https://v.pinimg.com/videos/mc/720p/test.mp4'
+          );
+        } finally {
+          global.document = originalDoc;
+        }
+      });
+
+      test('renderFloatingBar correctly renders in-page badges and button labels', () => {
+        const { renderFloatingBar } = require('./content/platforms/pinterest.js');
+
+        const originalDoc = global.document;
+        let createdElement = null;
+
+        try {
+          global.document = {
+            getElementById: () => null,
+            createElement: (tag) => {
+              const el = {
+                tagName: tag.toUpperCase(),
+                id: '',
+                innerHTML: '',
+                querySelector: () => ({ addEventListener: () => {} }),
+                remove: () => {}
+              };
+              createdElement = el;
+              return el;
+            },
+            body: {
+              appendChild: () => {}
+            }
+          };
+
+          // 1. Image Pin rendering
+          renderFloatingBar({
+            title: 'Gothic Castle',
+            author: 'Architect',
+            mediaType: 'image',
+            originalImageUrl: 'https://i.pinimg.com/originals/castle.jpg',
+            slides: []
+          });
+          assert.ok(createdElement, 'Bar must be created');
+          assert.ok(createdElement.innerHTML.includes('FOTO HD'));
+          assert.ok(createdElement.innerHTML.includes('Unduh Gambar (HD)'));
+
+          // 2. Video Pin rendering
+          renderFloatingBar({
+            title: 'Speed Paint Video',
+            author: 'Artist',
+            mediaType: 'video',
+            videoUrl: 'https://v.pinimg.com/videos/mc/720p/speed.mp4',
+            videoQuality: '720P',
+            slides: []
+          });
+          assert.ok(createdElement.innerHTML.includes('VIDEO 720P'));
+          assert.ok(createdElement.innerHTML.includes('Unduh Video (.mp4)'));
+
+          // 3. Carousel Pin rendering
+          renderFloatingBar({
+            title: 'Character Design Sheets',
+            author: 'Studio',
+            mediaType: 'carousel',
+            slides: [
+              { index: 1, url: 'https://i.pinimg.com/originals/1.jpg' },
+              { index: 2, url: 'https://i.pinimg.com/originals/2.jpg' }
+            ]
+          });
+          assert.ok(createdElement.innerHTML.includes('CAROUSEL (2)'));
+          assert.ok(createdElement.innerHTML.includes('Unduh Semua (2)'));
+        } finally {
+          global.document = originalDoc;
+        }
+      });
+
+      test('Popup UI recognizes Pinterest tab and renders state-pinterest', () => {
+        const popupHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+
+        assert.ok(
+          popupHtml.includes('id="state-pinterest"'),
+          'popup.html must contain #state-pinterest'
+        );
+        assert.ok(
+          popupHtml.includes('id="pt-status-chip"'),
+          'popup.html must contain #pt-status-chip'
+        );
+        assert.ok(popupHtml.includes('id="pt-title"'), 'popup.html must contain #pt-title');
+        assert.ok(popupHtml.includes('id="pt-desc"'), 'popup.html must contain #pt-desc');
+
+        assert.ok(popupJs.includes('isPinterest ='), 'popup.js must declare isPinterest');
+        assert.ok(popupJs.includes('statePinterest'), 'popup.js must bind statePinterest');
+        assert.ok(
+          popupJs.includes(
+            "host === 'pinterest.com' || host.endsWith('.pinterest.com') || host === 'pin.it'"
+          ),
+          'popup.js must detect pinterest.com and pin.it hostnames'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 29: AnoBoy Anime Platform Registration, NTFS Auto-Folder & Batch Scheduler
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 29: AnoBoy Anime Platform Registration, NTFS Auto-Folder & Batch Scheduler',
+    ({ test }) => {
+      const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+      test('Manifest V3 registers anoboy domains and blogger.com in host_permissions & content_scripts', () => {
+        assert.ok(
+          manifest.host_permissions.includes('*://*.anoboy.quest/*'),
+          'host_permissions must include *://*.anoboy.quest/*'
+        );
+        assert.ok(
+          manifest.host_permissions.includes('*://*.blogger.com/*'),
+          'host_permissions must include *://*.blogger.com/*'
+        );
+
+        const contentEntry = manifest.content_scripts.find(
+          (s) => Array.isArray(s.js) && s.js.includes('content/platforms/anoboy.js')
+        );
+        assert.ok(contentEntry, 'content_scripts must have entry for anoboy.js');
+        assert.ok(
+          contentEntry.matches.includes('*://*.anoboy.quest/*'),
+          'anoboy.js matches must include *://*.anoboy.quest/*'
+        );
+        assert.deepStrictEqual(
+          contentEntry.css,
+          ['content/styles/anoboy.css'],
+          'anoboy.js must declare content/styles/anoboy.css'
+        );
+        assert.strictEqual(
+          contentEntry.run_at,
+          'document_idle',
+          'anoboy.js must run at document_idle'
+        );
+      });
+
+      test('AnoBoy script and stylesheet exist on disk with valid syntax and non-zero size', () => {
+        const platformPath = path.join(PROJECT_ROOT, 'content/platforms/anoboy.js');
+        const stylePath = path.join(PROJECT_ROOT, 'content/styles/anoboy.css');
+
+        assert.ok(fs.existsSync(platformPath), 'anoboy.js must exist on disk');
+        assert.ok(fs.existsSync(stylePath), 'anoboy.css must exist on disk');
+
+        const platformStat = fs.statSync(platformPath);
+        const styleStat = fs.statSync(stylePath);
+
+        assert.ok(platformStat.size > 1000, 'anoboy.js must have substantial content (>1KB)');
+        assert.ok(styleStat.size > 500, 'anoboy.css must have substantial content (>500B)');
+
+        const checkRes = spawnSync(process.execPath, ['--check', platformPath], {
+          encoding: 'utf8'
+        });
+        assert.strictEqual(
+          checkRes.status,
+          0,
+          'anoboy.js must pass node --check syntax validation'
+        );
+      });
+
+      test('Service Worker registers DeclarativeNetRequest Rule 81 for Blogger Video (*.blogger.com/video.g*)', () => {
+        const sw = require('./background/service_worker.js');
+        assert.ok(Array.isArray(sw.ANOBOY_CDN_RULES), 'ANOBOY_CDN_RULES must be an array');
+        const rule81 = sw.ANOBOY_CDN_RULES.find((r) => r.id === 81);
+        assert.ok(rule81, 'Rule 81 must exist in ANOBOY_CDN_RULES');
+        assert.strictEqual(rule81.condition.urlFilter, '*blogger.com/video.g*');
+
+        assert.ok(
+          rule81.action.requestHeaders.some(
+            (h) => h.header === 'Referer' && h.value === 'https://anoboy.quest/'
+          ),
+          'Rule 81 must set Referer: https://anoboy.quest/'
+        );
+        assert.ok(
+          rule81.action.responseHeaders.some(
+            (h) => h.header === 'Access-Control-Allow-Origin' && h.value === '*'
+          ),
+          'Rule 81 must set Access-Control-Allow-Origin: * for CORS bypass'
+        );
+      });
+
+      test('Windows NTFS Filename Sanitization for AnoBoy anime & auto-folder formatting', () => {
+        const {
+          sanitizeAnoboyTitle,
+          formatAnoboyFilename
+        } = require('./content/platforms/anoboy.js');
+
+        // Title sanitization with forbidden Win32 chars and colons
+        assert.strictEqual(
+          sanitizeAnoboyTitle('Sekai Saikyou no Majo: Hajimemashita / Special <HD>'),
+          'Sekai Saikyou no Majo - Hajimemashita - Special HD'
+        );
+
+        // Win32 reserved device name
+        assert.strictEqual(sanitizeAnoboyTitle('CON'), 'Anime_CON');
+        assert.strictEqual(sanitizeAnoboyTitle('AUX'), 'Anime_AUX');
+
+        // Length truncation ceiling (120 chars)
+        const longTitle = 'B'.repeat(200);
+        assert.strictEqual(sanitizeAnoboyTitle(longTitle).length, 120);
+
+        // Formatted {ANIMETITLE}_{EPISODENUMBER}.mp4 filename
+        const standardFile = formatAnoboyFilename({
+          animeTitle: 'Sekai Saikyou no Majo, Hajimemashita',
+          episodeNum: 4
+        });
+        assert.strictEqual(standardFile, 'Sekai Saikyou no Majo, Hajimemashita_04.mp4');
+
+        // Multi-season formatted filename
+        const s2File = formatAnoboyFilename({
+          animeTitle: 'Yasei no Last Boss ga Arawareta! Season 2',
+          episodeNum: 1
+        });
+        assert.strictEqual(s2File, 'Yasei no Last Boss ga Arawareta! Season 2_01.mp4');
+      });
+
+      test('extractEpisodeNumber accurately parses episode digits from various string patterns', () => {
+        const { extractEpisodeNumber } = require('./content/platforms/anoboy.js');
+
+        assert.strictEqual(
+          extractEpisodeNumber('Sekai Saikyou no Majo Episode 4 Subtitle Indonesia'),
+          4
+        );
+        assert.strictEqual(extractEpisodeNumber('/2026/10/anime-episode-12/'), 12);
+        assert.strictEqual(extractEpisodeNumber('One Piece eps 1120'), 1120);
+        assert.strictEqual(extractEpisodeNumber('Anime_Name_-_08.720.mp4_links'), 8);
+        assert.strictEqual(extractEpisodeNumber('Invalid String Without Numbers'), 1);
+      });
+
+      test('extractAnoboyPageData extracts anime metadata, series URL, and stream servers from DOM mock', () => {
+        const { extractAnoboyPageData } = require('./content/platforms/anoboy.js');
+
+        const originalDoc = global.document;
+        const originalWin = global.window;
+
+        try {
+          global.window = {
+            location: {
+              href: 'https://anoboy.quest/2026/10/test-anime-episode-5/',
+              origin: 'https://anoboy.quest',
+              pathname: '/2026/10/test-anime-episode-5/'
+            }
+          };
+
+          global.document = {
+            title: 'Test Anime Episode 5 Subtitle Indonesia - anoBoy',
+            querySelectorAll: (sel) => {
+              if (sel === 'th') {
+                return [
+                  {
+                    textContent: 'Semua Episode',
+                    nextElementSibling: {
+                      querySelector: () => ({
+                        href: 'https://anoboy.quest/test-anime/',
+                        textContent: 'Test Anime'
+                      })
+                    }
+                  }
+                ];
+              }
+              if (sel === 'a#allmiror') {
+                return [
+                  {
+                    textContent: 'PC 720',
+                    getAttribute: (attr) =>
+                      attr === 'data-video' ? '/uploads/adsbatch720.php?url=TOKEN_TEST_720' : null
+                  }
+                ];
+              }
+              if (sel === 'a.udl') {
+                return [
+                  {
+                    getAttribute: (attr) =>
+                      attr === 'href' ? 'https://www.mp4upload.com/test1234' : null,
+                    textContent: '720P',
+                    closest: () => ({ querySelector: () => ({ textContent: 'Mp4Upload' }) })
+                  }
+                ];
+              }
+              return [];
+            },
+            querySelector: (sel) => {
+              if (sel === 'h1, .pagetitle h1') {
+                return { textContent: 'Test Anime Episode 5 Subtitle Indonesia' };
+              }
+              return null;
+            }
+          };
+
+          const data = extractAnoboyPageData();
+          assert.ok(data, 'Must extract page data');
+          assert.strictEqual(data.animeTitle, 'Test Anime');
+          assert.strictEqual(data.episodeNum, 5);
+          assert.strictEqual(data.seriesUrl, 'https://anoboy.quest/test-anime/');
+          assert.strictEqual(data.servers.length, 1);
+          assert.strictEqual(data.servers[0].bloggerToken, 'TOKEN_TEST_720');
+          assert.strictEqual(data.downloadMirrors.length, 1);
+          assert.strictEqual(data.downloadMirrors[0].provider, 'Mp4Upload');
+        } finally {
+          global.document = originalDoc;
+          global.window = originalWin;
+        }
+      });
+
+      test('renderFloatingBar correctly renders in-page badge and buttons', () => {
+        const { renderFloatingBar } = require('./content/platforms/anoboy.js');
+
+        const originalDoc = global.document;
+        let createdElement = null;
+
+        try {
+          global.document = {
+            getElementById: () => null,
+            createElement: (tag) => {
+              const el = {
+                tagName: tag.toUpperCase(),
+                id: '',
+                innerHTML: '',
+                querySelector: () => ({ addEventListener: () => {} }),
+                remove: () => {}
+              };
+              createdElement = el;
+              return el;
+            },
+            body: {
+              appendChild: () => {}
+            }
+          };
+
+          renderFloatingBar({
+            animeTitle: "Frieren: Beyond Journey's End",
+            episodeNum: 28,
+            seriesUrl: 'https://anoboy.quest/frieren/',
+            servers: []
+          });
+
+          assert.ok(createdElement, 'Floating bar must be created');
+          assert.ok(createdElement.innerHTML.includes('EPS 28'), 'Must display episode badge');
+          assert.ok(
+            createdElement.innerHTML.includes('Unduh Eps Ini'),
+            'Must display single episode button'
+          );
+          assert.ok(
+            createdElement.innerHTML.includes('Batch Download'),
+            'Must display batch download button'
+          );
+        } finally {
+          global.document = originalDoc;
+        }
+      });
+
+      test('Popup UI recognizes AnoBoy tab and renders state-anoboy', () => {
+        const popupHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        const popupJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+
+        assert.ok(popupHtml.includes('id="state-anoboy"'), 'popup.html must contain #state-anoboy');
+        assert.ok(
+          popupHtml.includes('id="ab-status-chip"'),
+          'popup.html must contain #ab-status-chip'
+        );
+        assert.ok(popupHtml.includes('id="ab-title"'), 'popup.html must contain #ab-title');
+        assert.ok(popupHtml.includes('id="ab-desc"'), 'popup.html must contain #ab-desc');
+
+        assert.ok(popupJs.includes('isAnoboy ='), 'popup.js must declare isAnoboy');
+        assert.ok(popupJs.includes('stateAnoboy'), 'popup.js must bind stateAnoboy');
+        assert.ok(
+          popupJs.includes("host.includes('anoboy.')"),
+          'popup.js must detect anoboy hostnames'
+        );
+      });
+
+      test('parseEpisodesFromHtml strictly scopes to active anime season and filters sidebar leaks and duplicates', () => {
+        const { parseEpisodesFromHtml } = require('./content/platforms/anoboy.js');
+
+        const mockHtml = `
+          <div class="column-three-fourth">
+            <!-- Season 1 -->
+            <a href="https://anoboy.quest/2025/12/yasei-no-last-boss-ga-arawareta-episode-12-selesai/" title="Yasei no Last Boss ga Arawareta! Episode 12 Selesai">Episode 12</a>
+            <a href="https://anoboy.quest/2025/11/yasei-no-last-boss-ga-arawareta-episode-5/" title="Yasei no Last Boss ga Arawareta! Episode 5">Episode 5</a>
+            <!-- Season 2 -->
+            <a href="https://anoboy.quest/2026/10/yasei-no-last-boss-ga-arawareta-season-2-episode-6/" title="Yasei no Last Boss ga Arawareta! Season 2 Episode 6">Season 2 Episode 6</a>
+            <a href="https://anoboy.quest/2026/10/yasei-no-last-boss-ga-arawareta-season-2-episode-5/" title="Yasei no Last Boss ga Arawareta! Season 2 Episode 5">Season 2 Episode 5</a>
+            <a href="https://anoboy.quest/2026/10/yasei-no-last-boss-ga-arawareta-season-2-episode-4/" title="Yasei no Last Boss ga Arawareta! Season 2 Episode 4">Season 2 Episode 4</a>
+            <a href="https://anoboy.quest/2026/10/yasei-no-last-boss-ga-arawareta-season-2-episode-3/" title="Yasei no Last Boss ga Arawareta! Season 2 Episode 3">Season 2 Episode 3</a>
+            <a href="https://anoboy.quest/2026/10/yasei-no-last-boss-ga-arawareta-season-2-episode-2/" title="Yasei no Last Boss ga Arawareta! Season 2 Episode 2">Season 2 Episode 2</a>
+            <a href="https://anoboy.quest/2026/09/yasei-no-last-boss-ga-arawareta-season-2-episode-1/" title="Yasei no Last Boss ga Arawareta! Season 2 Episode 1">Season 2 Episode 1</a>
+          </div>
+          <!-- Leaked sidebar widgets with recent releases -->
+          <div id="sidebar">
+            <a href="https://anoboy.quest/2026/11/kanata-kara-episode-5/">Kanata kara Episode 5</a>
+            <a href="https://anoboy.quest/2026/11/hotel-inhumans-season-2-episode-5/">Hotel Inhumans Season 2 Episode 5</a>
+            <a href="https://anoboy.quest/2026/11/mezametara-saikyou-soubi-to-uchuusenmochi-datta-node-episode-5/">Mezametara Episode 5</a>
+          </div>
+        `;
+
+        const s2Episodes = parseEpisodesFromHtml(
+          mockHtml,
+          'Yasei no Last Boss ga Arawareta! Season 2 Episode 5 Subtitle Indonesia',
+          'https://anoboy.quest/2026/10/yasei-no-last-boss-ga-arawareta-season-2-episode-5/'
+        );
+
+        assert.strictEqual(s2Episodes.length, 6, 'Season 2 must detect exactly 6 episodes');
+        assert.strictEqual(s2Episodes[0].episodeNum, 1, 'First episode must be 1');
+        assert.strictEqual(s2Episodes[5].episodeNum, 6, 'Last episode must be 6');
+        assert.ok(
+          !s2Episodes.some((e) => e.title.includes('Kanata kara')),
+          'Must not leak Kanata kara from sidebar'
+        );
+        assert.ok(
+          !s2Episodes.some((e) => e.title.includes('Hotel Inhumans')),
+          'Must not leak Hotel Inhumans from sidebar'
+        );
+        assert.ok(
+          !s2Episodes.some((e) => e.episodeNum === 12),
+          'Must not leak Season 1 Episode 12 into Season 2'
+        );
+
+        // Test Season 1 filtering
+        const s1Episodes = parseEpisodesFromHtml(
+          mockHtml,
+          'Yasei no Last Boss ga Arawareta! Episode 5 Subtitle Indonesia',
+          'https://anoboy.quest/2025/11/yasei-no-last-boss-ga-arawareta-episode-5/'
+        );
+        assert.strictEqual(
+          s1Episodes.length,
+          2,
+          'Season 1 must detect only Season 1 episodes from mock'
+        );
+        assert.ok(
+          !s1Episodes.some((e) => e.title.includes('Season 2')),
+          'Season 1 must not include Season 2 episodes'
+        );
+      });
+
+      test('extractStreamFromBloggerHtml extracts direct 720p (itag 22) and 360p (itag 18) googlevideo streams', () => {
+        const { extractStreamFromBloggerHtml } = require('./content/platforms/anoboy.js');
+
+        const mockBloggerHtml = `
+          <html><body>
+          <meta property="og:url" content="https://www.blogger.com/video.g?token=AD6v5test" />
+          <script>
+            var data = [[&quot;https://rr2---sn-test.googlevideo.com/videoplayback?expire\\u003d1793609516\\u0026itag\\u003d18\\u0026source\\u003dblogger&quot;,[18]],
+                        [&quot;https://rr2---sn-test.googlevideo.com/videoplayback?expire\\u003d1793609516\\u0026itag\\u003d22\\u0026source\\u003dblogger&quot;,[22]]];
+          </script>
+          </body></html>
+        `;
+
+        const stream720 = extractStreamFromBloggerHtml(mockBloggerHtml, '720p');
+        assert.ok(stream720, '720p stream must be extracted');
+        assert.ok(
+          !stream720.includes('blogger.com'),
+          'Must never match preceding blogger.com as stream'
+        );
+        assert.ok(
+          stream720.startsWith('https://rr2---sn-test.googlevideo.com/'),
+          'Stream must start with googlevideo.com'
+        );
+        assert.ok(stream720.includes('itag=22'), '720p stream must have itag=22');
+        assert.ok(
+          !stream720.includes('\\u0026'),
+          'Decoded stream must not have raw unicode escapes'
+        );
+
+        const stream360 = extractStreamFromBloggerHtml(mockBloggerHtml, '360p');
+        assert.ok(stream360, '360p stream must be extracted');
+        assert.ok(
+          stream360.startsWith('https://rr2---sn-test.googlevideo.com/'),
+          'Stream must start with googlevideo.com'
+        );
+        assert.ok(stream360.includes('itag=18'), '360p stream must have itag=18');
+      });
+    }
+  );
+
+  // ==========================================================================
+  // SUITE 30: Shinigami Comic Platform Registration, NTFS Chapter Packaging & Multi-Format Pipeline
+  // ==========================================================================
+  await runSuite(
+    'Suite 30: Shinigami Comic Platform Registration, NTFS Chapter Packaging & Multi-Format Pipeline',
+    async ({ test, testAsync }) => {
+      await testAsync(
+        'Manifest V3 registers shinigami.asia, shngm.io, and shngm.id in host_permissions & content_scripts',
+        async () => {
+          const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+          assert.ok(
+            manifest.host_permissions.some((p) => p.includes('shinigami.asia')),
+            'host_permissions must include *://*.shinigami.asia/*'
+          );
+          assert.ok(
+            manifest.host_permissions.some((p) => p.includes('shngm.io')),
+            'host_permissions must include *://*.shngm.io/*'
+          );
+          assert.ok(
+            manifest.host_permissions.some((p) => p.includes('shngm.id')),
+            'host_permissions must include *://*.shngm.id/*'
+          );
+
+          const shinigamiCs = manifest.content_scripts.find((cs) =>
+            cs.matches.some((m) => m.includes('shinigami.asia'))
+          );
+          assert.ok(shinigamiCs, 'content_scripts must declare shinigami.asia matches');
+          assert.ok(
+            shinigamiCs.js.includes('content/platforms/shinigami.js'),
+            'Shinigami content script must register content/platforms/shinigami.js'
+          );
+          assert.ok(
+            shinigamiCs.css.includes('content/styles/shinigami.css'),
+            'Shinigami content script must register content/styles/shinigami.css'
+          );
+        }
+      );
+
+      await testAsync(
+        'Shinigami script and stylesheet exist on disk with valid syntax and non-zero size',
+        async () => {
+          const jsPath = path.join(PROJECT_ROOT, 'content/platforms/shinigami.js');
+          const cssPath = path.join(PROJECT_ROOT, 'content/styles/shinigami.css');
+
+          assert.ok(fs.existsSync(jsPath), 'content/platforms/shinigami.js must exist');
+          assert.ok(fs.existsSync(cssPath), 'content/styles/shinigami.css must exist');
+
+          const jsStat = fs.statSync(jsPath);
+          const cssStat = fs.statSync(cssPath);
+
+          assert.ok(jsStat.size > 1000, 'shinigami.js must be larger than 1KB');
+          assert.ok(cssStat.size > 200, 'shinigami.css must be larger than 200B');
+
+          // Ensure strict DOM button type="button" hygiene
+          const jsContent = fs.readFileSync(jsPath, 'utf8');
+          const buttonCreations = (jsContent.match(/createElement\(['"]button['"]\)/g) || [])
+            .length;
+          const typeEnforcements = (jsContent.match(/\.type\s*=\s*['"]button['"]/g) || []).length;
+          assert.strictEqual(
+            buttonCreations,
+            typeEnforcements,
+            'All document.createElement("button") in shinigami.js must set type="button"'
+          );
+        }
+      );
+
+      await testAsync(
+        'Service Worker registers DeclarativeNetRequest Rules 91 & 92 for Shinigami API & CDN headers',
+        async () => {
+          const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+          assert.ok(Array.isArray(sw.SHINIGAMI_CDN_RULES), 'SHINIGAMI_CDN_RULES must be an array');
+          assert.strictEqual(
+            sw.SHINIGAMI_CDN_RULES.length,
+            2,
+            'Must register 2 rules for Shinigami'
+          );
+
+          const rule91 = sw.SHINIGAMI_CDN_RULES.find((r) => r.id === 91);
+          assert.ok(rule91, 'Rule 91 must exist for API');
+          assert.strictEqual(rule91.condition.urlFilter, '*shngm.io*');
+          const refererMod91 = rule91.action.requestHeaders.find((h) => h.header === 'Referer');
+          assert.strictEqual(refererMod91.value, 'https://11.shinigami.asia/');
+
+          const rule92 = sw.SHINIGAMI_CDN_RULES.find((r) => r.id === 92);
+          assert.ok(rule92, 'Rule 92 must exist for CDN');
+          assert.strictEqual(rule92.condition.urlFilter, '*shngm.id*');
+          const originMod92 = rule92.action.requestHeaders.find((h) => h.header === 'Origin');
+          assert.strictEqual(originMod92.value, 'https://11.shinigami.asia');
+        }
+      );
+
+      await testAsync(
+        'Windows NTFS Filename Sanitization for Shinigami manga & chapter packaging',
+        async () => {
+          const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+
+          // Standard formatting
+          const name1 = sw.formatShinigamiFilename('Solo Leveling: Ragnarok', 15, 'pdf');
+          assert.strictEqual(name1, 'Solo_Leveling_Ragnarok_Chapter_15.pdf');
+
+          // Win32 reserved characters and control characters
+          const name2 = sw.formatShinigamiFilename(
+            'Martial Peak: Chapter <Special>? *Epic* | v1.0',
+            500,
+            'cbz'
+          );
+          assert.strictEqual(name2, 'Martial_Peak_Chapter_Special_Epic_v1.0_Chapter_500.cbz');
+
+          // Win32 reserved device name
+          const name3 = sw.formatShinigamiFilename('CON', 1, 'webp');
+          assert.strictEqual(name3, 'Manga_CON_Chapter_1.webp');
+
+          // Empty / missing fallbacks
+          const name4 = sw.formatShinigamiFilename('', null, 'pdf');
+          assert.strictEqual(name4, 'Shinigami_Comic_Chapter_1.pdf');
+        }
+      );
+
+      await testAsync(
+        'extractShinigamiPageInfo accurately parses manga and chapter UUIDs from URL and DOM mock',
+        async () => {
+          const shinigami = require(path.join(PROJECT_ROOT, 'content/platforms/shinigami.js'));
+
+          const mockChapterUrl =
+            'https://11.shinigami.asia/chapter/8d5e57ab-372d-4be2-af6f-f5cba4c92239';
+          const mockDoc = {
+            title: 'I Thought It Was a Common Possession - Chapter 78 - Shinigami ID',
+            querySelector: (sel) => {
+              if (sel.includes('h1') || sel.includes('chapter-title')) {
+                return { textContent: 'I Thought It Was a Common Possession Chapter 78' };
+              }
+              if (sel.includes('series')) {
+                return { getAttribute: () => '/series/a1b2c3d4-e5f6-7890-abcd-ef1234567890' };
+              }
+              return null;
+            }
+          };
+
+          const info = shinigami.extractShinigamiPageInfo(mockChapterUrl, mockDoc);
+          assert.strictEqual(info.chapterId, '8d5e57ab-372d-4be2-af6f-f5cba4c92239');
+          assert.strictEqual(info.chapterNumber, 78);
+          assert.strictEqual(info.mangaId, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+          assert.strictEqual(info.title, 'I_Thought_It_Was_a_Common_Possession');
+        }
+      );
+
+      await testAsync(
+        'renderFloatingBar correctly renders in-page widget with buttons and strict type="button"',
+        async () => {
+          const shinigami = require(path.join(PROJECT_ROOT, 'content/platforms/shinigami.js'));
+
+          const createdButtons = [];
+          const mockBody = new MockElement('body');
+          const mockDoc = {
+            body: mockBody,
+            getElementById: () => null,
+            createElement: (tag) => {
+              const el = new MockElement(tag);
+              if (tag.toLowerCase() === 'button') {
+                createdButtons.push(el);
+              }
+              return el;
+            }
+          };
+
+          const bar = shinigami.renderFloatingBar(
+            { title: 'Test Manga', chapterNumber: 10, chapterId: 'ch-123', mangaId: 'm-456' },
+            mockDoc
+          );
+
+          assert.ok(bar, 'renderFloatingBar must return container element');
+          assert.strictEqual(bar.id, 'mungil-shinigami-bar');
+          assert.ok(
+            bar.innerHTML.includes('id="mungil-sn-btn-single"'),
+            'Must contain single download button'
+          );
+          assert.ok(
+            bar.innerHTML.includes('id="mungil-sn-btn-batch"'),
+            'Must contain batch download button'
+          );
+          assert.ok(
+            bar.innerHTML.includes('type="button"'),
+            'All buttons inside floating bar must enforce type="button"'
+          );
+        }
+      );
+
+      await testAsync(
+        'Popup UI markup includes state-shinigami container and meta nodes',
+        async () => {
+          const htmlPath = path.join(PROJECT_ROOT, 'popup/popup.html');
+          const html = fs.readFileSync(htmlPath, 'utf8');
+
+          assert.ok(html.includes('id="state-shinigami"'), 'popup.html must have #state-shinigami');
+          assert.ok(html.includes('id="sn-title"'), 'popup.html must have #sn-title');
+          assert.ok(html.includes('id="sn-desc"'), 'popup.html must have #sn-desc');
+          assert.ok(html.includes('id="sn-status-chip"'), 'popup.html must have #sn-status-chip');
+          assert.ok(
+            html.includes('Shinigami Comic'),
+            'popup.html must display Shinigami Comic badge'
+          );
+        }
+      );
+
+      await testAsync(
+        'API Client parses chapter detail and series chapters with sorted ascending order',
+        async () => {
+          const shinigami = require(path.join(PROJECT_ROOT, 'content/platforms/shinigami.js'));
+
+          const originalFetch = global.fetch;
+          try {
+            global.fetch = async (url) => {
+              if (url.includes('/chapter/detail/')) {
+                return {
+                  ok: true,
+                  json: async () => ({
+                    retcode: 0,
+                    data: {
+                      chapter_id: 'ch-test',
+                      chapter_number: 5,
+                      chapter: {
+                        chapter_number: 5,
+                        chapter_title: 'Episode 5',
+                        path: 'https://assets.shngm.id/manga/test/ch5/',
+                        data: ['01.webp', '02.webp', '03.webp']
+                      },
+                      manga: {
+                        manga_id: 'm-test-123',
+                        title: 'Super Webtoon'
+                      }
+                    }
+                  })
+                };
+              }
+
+              if (url.includes('/list?')) {
+                return {
+                  ok: true,
+                  json: async () => ({
+                    retcode: 0,
+                    data: [
+                      { chapter_id: 'c2', chapter_number: 2, chapter_title: 'Ch 2' },
+                      { chapter_id: 'c1', chapter_number: 1, chapter_title: 'Ch 1' },
+                      { chapter_id: 'c3', chapter_number: 3, chapter_title: 'Ch 3' }
+                    ]
+                  })
+                };
+              }
+
+              return { ok: false, status: 404 };
+            };
+
+            const detail = await shinigami.fetchChapterDetail('ch-test');
+            assert.ok(detail, 'fetchChapterDetail must return detail object');
+            assert.strictEqual(detail.chapterNumber, 5);
+            assert.strictEqual(detail.imageUrls.length, 3);
+            assert.strictEqual(
+              detail.imageUrls[0],
+              'https://assets.shngm.id/manga/test/ch5/01.webp'
+            );
+
+            const chapters = await shinigami.fetchSeriesChapters('m-test');
+            assert.strictEqual(chapters.length, 3);
+            assert.strictEqual(
+              chapters[0].chapterNumber,
+              1,
+              'Chapters must be sorted ascending by chapterNumber'
+            );
+            assert.strictEqual(chapters[1].chapterNumber, 2);
+            assert.strictEqual(chapters[2].chapterNumber, 3);
+          } finally {
+            global.fetch = originalFetch;
+          }
+        }
+      );
+
+      await testAsync(
+        'Multi-format packaging functions (PDF, Long Image, CBZ) are exported and callable',
+        async () => {
+          const shinigami = require(path.join(PROJECT_ROOT, 'content/platforms/shinigami.js'));
+
+          assert.strictEqual(typeof shinigami.generateChapterPdf, 'function');
+          assert.strictEqual(typeof shinigami.generateLongImage, 'function');
+          assert.strictEqual(typeof shinigami.generateCbzArchive, 'function');
+        }
+      );
     }
   );
 

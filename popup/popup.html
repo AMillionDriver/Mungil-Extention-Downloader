@@ -1,407 +1,381 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok, Bstation &amp; JWPlyr Downloader</title>
-    <link rel="stylesheet" href="popup.css">
-  </head>
 
-  <body>
-    <div class="popup-container">
-      <!-- Header: Sleek Linear/Raycast Header -->
-      <header class="popup-header">
-        <div class="header-branding">
-          <div class="header-icon" aria-hidden="true">
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M8 2.5v7m0 0l-2.5-2.5m2.5 2.5l2.5-2.5" />
-              <path d="M3 11.5v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1" />
-            </svg>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TikTok, Bstation &amp; JWPlyr Downloader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div class="popup-container">
+    <!-- Header: Sleek Linear/Raycast Header -->
+    <header class="popup-header">
+      <div class="header-branding">
+        <div class="header-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            stroke-linejoin="round">
+            <path d="M8 2.5v7m0 0l-2.5-2.5m2.5 2.5l2.5-2.5" />
+            <path d="M3 11.5v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1" />
+          </svg>
+        </div>
+        <div class="header-title-group">
+          <h1>Direct Downloader</h1>
+          <span class="version-badge">v1.1.0</span>
+        </div>
+      </div>
+      <div class="header-status" title="Connection Status">
+        <span class="status-dot" id="status-dot"></span>
+      </div>
+    </header>
+
+    <!-- Main Content: Active Context Section -->
+    <main class="popup-content">
+      <!-- Active Background Downloads Queue (Live feedback for background yt-dlp tasks) -->
+      <section class="active-tasks-card" id="active-tasks-card" style="display: none">
+        <div class="active-tasks-header">
+          <div class="active-tasks-title-group">
+            <span class="active-pulse-dot" aria-hidden="true"></span>
+            <span class="active-tasks-heading">Sedang Diproses (<span id="active-tasks-count">0</span>)</span>
           </div>
-          <div class="header-title-group">
-            <h1>Direct Downloader</h1>
-            <span class="version-badge">v1.1.0</span>
+          <span class="active-tasks-badge" id="active-tasks-badge">yt-dlp active</span>
+        </div>
+        <div class="active-tasks-list" id="active-tasks-list">
+          <!-- Populated dynamically with active task items -->
+        </div>
+      </section>
+
+      <section class="context-card" id="context-card">
+        <!-- State 1: Active TikTok Video Detected -->
+        <div class="state-container" id="state-tiktok" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label">TikTok Video</span>
+              <span class="status-chip" id="video-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="video-author">@creator</span>
+              <p class="video-desc" id="video-desc">Direct stream ready for download</p>
+            </div>
           </div>
         </div>
-        <div class="header-status" title="Connection Status">
-          <span class="status-dot" id="status-dot"></span>
+
+        <!-- State 2: Active Bstation Anime / Video Detected -->
+        <div class="state-container" id="state-bstation" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label">Bstation Anime</span>
+              <span class="status-chip" id="bstation-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="bstation-title">Anime Title</span>
+              <p class="video-desc" id="bstation-ep-badge">EP 01 • 720p</p>
+            </div>
+            <div class="bs-quality-box" id="bs-quality-box">
+              <div class="bs-quality-header">
+                <span class="bs-quality-title">Kualitas Unduhan</span>
+                <span class="bs-quality-est-badge" id="bs-quality-est-badge">~120 MB</span>
+              </div>
+              <select id="bs-quality-select" class="bs-quality-select" aria-label="Pilih Kualitas Video Bstation">
+                <option value="1080p">1080p (Full HD)</option>
+                <option value="720p">720p (HD)</option>
+                <option value="480p">480p (Standar)</option>
+                <option value="360p">360p (Hemat Kuota)</option>
+              </select>
+            </div>
+          </div>
         </div>
-      </header>
 
-      <!-- Main Content: Active Context Section -->
-      <main class="popup-content">
-        <!-- Active Background Downloads Queue (Live feedback for background yt-dlp tasks) -->
-        <section class="active-tasks-card" id="active-tasks-card" style="display: none">
-          <div class="active-tasks-header">
-            <div class="active-tasks-title-group">
-              <span class="active-pulse-dot" aria-hidden="true"></span>
-              <span class="active-tasks-heading"
-                >Sedang Diproses (<span id="active-tasks-count">0</span>)</span
-              >
+        <!-- State 3: Active JWPlyr Video / Folder Detected -->
+        <div class="state-container" id="state-jwplyr" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label">JWPlyr Video</span>
+              <span class="status-chip" id="jwplyr-status-chip">Ready</span>
             </div>
-            <span class="active-tasks-badge" id="active-tasks-badge">yt-dlp active</span>
-          </div>
-          <div class="active-tasks-list" id="active-tasks-list">
-            <!-- Populated dynamically with active task items -->
-          </div>
-        </section>
-
-        <section class="context-card" id="context-card">
-          <!-- State 1: Active TikTok Video Detected -->
-          <div class="state-container" id="state-tiktok" style="display: none">
-            <div class="video-meta">
-              <div class="video-meta-header">
-                <span class="meta-label">TikTok Video</span>
-                <span class="status-chip" id="video-status-chip">Ready</span>
-              </div>
-              <div class="video-author-group">
-                <span class="author-handle" id="video-author">@creator</span>
-                <p class="video-desc" id="video-desc">Direct stream ready for download</p>
-              </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="jwplyr-title">Video / Folder</span>
+              <p class="video-desc" id="jwplyr-desc">Direct stream ready for download</p>
             </div>
           </div>
+        </div>
 
-          <!-- State 2: Active Bstation Anime / Video Detected -->
-          <div class="state-container" id="state-bstation" style="display: none">
-            <div class="video-meta">
-              <div class="video-meta-header">
-                <span class="meta-label">Bstation Anime</span>
-                <span class="status-chip" id="bstation-status-chip">Ready</span>
+        <!-- State 5: Active YouTube Video Detected -->
+        <div class="state-container" id="state-youtube" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label meta-label-yt">YouTube Video</span>
+              <span class="status-chip" id="yt-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="yt-title">YouTube Title</span>
+              <p class="video-desc" id="yt-author">Channel Name</p>
+            </div>
+            <div class="yt-quality-box" id="yt-quality-box">
+              <div class="yt-quality-header">
+                <span class="yt-quality-title">Kualitas Unduhan</span>
+                <span class="yt-quality-est-badge" id="yt-quality-est-badge">~45 MB</span>
               </div>
-              <div class="video-author-group">
-                <span class="author-handle" id="bstation-title">Anime Title</span>
-                <p class="video-desc" id="bstation-ep-badge">EP 01 • 720p</p>
-              </div>
-              <div class="bs-quality-box" id="bs-quality-box">
-                <div class="bs-quality-header">
-                  <span class="bs-quality-title">Kualitas Unduhan</span>
-                  <span class="bs-quality-est-badge" id="bs-quality-est-badge">~120 MB</span>
-                </div>
-                <select
-                  id="bs-quality-select"
-                  class="bs-quality-select"
-                  aria-label="Pilih Kualitas Video Bstation"
-                >
-                  <option value="1080p">1080p (Full HD)</option>
-                  <option value="720p">720p (HD)</option>
-                  <option value="480p">480p (Standar)</option>
-                  <option value="360p">360p (Hemat Kuota)</option>
-                </select>
-              </div>
+              <select id="yt-quality-select" class="yt-quality-select" aria-label="Pilih Kualitas Video">
+                <option value="1080p">1080p (Full HD)</option>
+                <option value="720p">720p (HD)</option>
+                <option value="480p">480p (Standar)</option>
+                <option value="360p">360p (Hemat Kuota)</option>
+              </select>
             </div>
           </div>
+        </div>
 
-          <!-- State 3: Active JWPlyr Video / Folder Detected -->
-          <div class="state-container" id="state-jwplyr" style="display: none">
-            <div class="video-meta">
-              <div class="video-meta-header">
-                <span class="meta-label">JWPlyr Video</span>
-                <span class="status-chip" id="jwplyr-status-chip">Ready</span>
+        <!-- State 6: Active TeraBox File / Folder Detected -->
+        <div class="state-container" id="state-terabox" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label meta-label-tb">TeraBox Cloud</span>
+              <span class="status-chip" id="tb-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="tb-title">TeraBox File</span>
+              <p class="video-desc" id="tb-desc">Direct stream ready for download</p>
+            </div>
+            <div class="tb-quality-box" id="tb-quality-box" style="display: none">
+              <div class="tb-quality-header">
+                <span class="tb-quality-title">Kualitas Unduhan</span>
+                <span class="tb-quality-est-badge" id="tb-quality-est-badge">Original</span>
               </div>
-              <div class="video-author-group">
-                <span class="author-handle" id="jwplyr-title">Video / Folder</span>
-                <p class="video-desc" id="jwplyr-desc">Direct stream ready for download</p>
-              </div>
+              <select id="tb-quality-select" class="tb-quality-select" aria-label="Pilih Kualitas Video">
+                <option value="original" selected>Original (Kualitas Asli)</option>
+                <option value="1080p">1080p (Full HD)</option>
+                <option value="720p">720p (HD)</option>
+                <option value="480p">480p (Standar)</option>
+                <option value="360p">360p (Hemat Kuota)</option>
+              </select>
             </div>
           </div>
+        </div>
 
-          <!-- State 5: Active YouTube Video Detected -->
-          <div class="state-container" id="state-youtube" style="display: none">
-            <div class="video-meta">
-              <div class="video-meta-header">
-                <span class="meta-label meta-label-yt">YouTube Video</span>
-                <span class="status-chip" id="yt-status-chip">Ready</span>
-              </div>
-              <div class="video-author-group">
-                <span class="author-handle" id="yt-title">YouTube Title</span>
-                <p class="video-desc" id="yt-author">Channel Name</p>
-              </div>
-              <div class="yt-quality-box" id="yt-quality-box">
-                <div class="yt-quality-header">
-                  <span class="yt-quality-title">Kualitas Unduhan</span>
-                  <span class="yt-quality-est-badge" id="yt-quality-est-badge">~45 MB</span>
-                </div>
-                <select
-                  id="yt-quality-select"
-                  class="yt-quality-select"
-                  aria-label="Pilih Kualitas Video"
-                >
-                  <option value="1080p">1080p (Full HD)</option>
-                  <option value="720p">720p (HD)</option>
-                  <option value="480p">480p (Standar)</option>
-                  <option value="360p">360p (Hemat Kuota)</option>
-                </select>
-              </div>
+        <!-- State 7: Active CosplayTele Post Detected -->
+        <div class="state-container" id="state-cosplaytele" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label meta-label-ct">CosplayTele Gallery</span>
+              <span class="status-chip" id="ct-status-chip">Ready</span>
             </div>
-          </div>
-
-          <!-- State 6: Active TeraBox File / Folder Detected -->
-          <div class="state-container" id="state-terabox" style="display: none">
-            <div class="video-meta">
-              <div class="video-meta-header">
-                <span class="meta-label meta-label-tb">TeraBox Cloud</span>
-                <span class="status-chip" id="tb-status-chip">Ready</span>
-              </div>
-              <div class="video-author-group">
-                <span class="author-handle" id="tb-title">TeraBox File</span>
-                <p class="video-desc" id="tb-desc">Direct stream ready for download</p>
-              </div>
-              <div class="tb-quality-box" id="tb-quality-box" style="display: none">
-                <div class="tb-quality-header">
-                  <span class="tb-quality-title">Kualitas Unduhan</span>
-                  <span class="tb-quality-est-badge" id="tb-quality-est-badge">Original</span>
-                </div>
-                <select
-                  id="tb-quality-select"
-                  class="tb-quality-select"
-                  aria-label="Pilih Kualitas Video"
-                >
-                  <option value="original" selected>Original (Kualitas Asli)</option>
-                  <option value="1080p">1080p (Full HD)</option>
-                  <option value="720p">720p (HD)</option>
-                  <option value="480p">480p (Standar)</option>
-                  <option value="360p">360p (Hemat Kuota)</option>
-                </select>
-              </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="ct-title">Cosplay Title</span>
+              <p class="video-desc" id="ct-desc">0 Foto Siap Unduh</p>
             </div>
-          </div>
-
-          <!-- Universal Primary Action Button -->
-          <button
-            type="button"
-            class="btn btn-primary"
-            id="btn-download-active"
-            style="display: none"
-          >
-            <svg
-              class="btn-icon"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M8 2.5v7m0 0l-2.5-2.5M8 9.5l2.5-2.5" />
-              <path d="M3 12.5h10" />
-            </svg>
-            <span id="btn-download-text">Download Video</span>
-          </button>
-
-          <!-- State 4: Non-Supported / Idle Tab -->
-          <div class="state-container" id="state-empty">
-            <div class="empty-content">
-              <div class="empty-icon" aria-hidden="true">
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <circle cx="10" cy="10" r="8" />
-                  <line x1="2" y1="10" x2="18" y2="10" />
-                  <path
-                    d="M10 2a13 13 0 0 1 4 8 13 13 0 0 1-4 8 13 13 0 0 1-4-8 13 13 0 0 1 4-8z"
-                  />
+            <div class="ct-action-options" id="ct-action-options">
+              <button type="button" class="btn btn-secondary" id="ct-popup-btn-video">
+                <svg class="btn-icon-sm" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 13 8 5 13 5 3" />
                 </svg>
-              </div>
-              <h2 class="empty-title" id="platform-title">Not on Supported Platform</h2>
-              <p class="empty-desc" id="platform-desc">
-                Open TikTok, Bstation, JWPlyr, or YouTube Web to start downloading videos directly.
-              </p>
-            </div>
-            <div class="empty-action-group">
-              <button type="button" class="btn btn-secondary" id="btn-open-tiktok">
-                <span>Open TikTok Web</span>
-                <svg
-                  class="btn-icon-sm"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M3 11L11 3m0 0H5m6 0v6" />
-                </svg>
-              </button>
-              <button type="button" class="btn btn-secondary" id="btn-open-bstation">
-                <span>Open Bstation Web</span>
-                <svg
-                  class="btn-icon-sm"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M3 11L11 3m0 0H5m6 0v6" />
-                </svg>
-              </button>
-              <button type="button" class="btn btn-secondary" id="btn-open-jwplyr">
-                <span>Open JWPlyr</span>
-                <svg
-                  class="btn-icon-sm"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M3 11L11 3m0 0H5m6 0v6" />
-                </svg>
-              </button>
-              <button type="button" class="btn btn-secondary" id="btn-open-youtube">
-                <span>Open YouTube Web</span>
-                <svg
-                  class="btn-icon-sm"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M3 11L11 3m0 0H5m6 0v6" />
-                </svg>
+                <span>Unduh Video Saja</span>
               </button>
             </div>
           </div>
+        </div>
 
-          <!-- Dynamic Feedback Pill -->
-          <div id="popup-status-msg" class="feedback-pill" style="display: none"></div>
-        </section>
+        <!-- State 8: Active Pinterest Pin Detected -->
+        <div class="state-container" id="state-pinterest" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label" style="background: rgba(230, 0, 35, 0.15); color: #FF334B; border: 1px solid rgba(230, 0, 35, 0.35);">Pinterest Pin</span>
+              <span class="status-chip" id="pt-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="pt-title">Pin Title</span>
+              <p class="video-desc" id="pt-desc">Pinner: @creator</p>
+            </div>
+          </div>
+        </div>
 
-        <!-- Codec & Data Saver Preference Control -->
-        <section class="preference-card">
-          <div class="preference-row">
-            <div class="pref-icon" aria-hidden="true">
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M2.5 8a5.5 5.5 0 0 1 10.2-2.8M13.5 8a5.5 5.5 0 0 1-10.2 2.8" />
-                <path d="M8 5v3l2 2" />
+        <!-- State 9: Active AnoBoy Anime Detected -->
+        <div class="state-container" id="state-anoboy" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label" style="background: rgba(255, 193, 7, 0.15); color: #FFC107; border: 1px solid rgba(255, 193, 7, 0.35);">AnoBoy Anime</span>
+              <span class="status-chip" id="ab-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="ab-title">Anime Title</span>
+              <p class="video-desc" id="ab-desc">Episode 1 • 720p HD</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- State 10: Active Shinigami Comic Detected -->
+        <div class="state-container" id="state-shinigami" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label" style="background: rgba(168, 85, 247, 0.15); color: #C084FC; border: 1px solid rgba(168, 85, 247, 0.35);">Shinigami Comic</span>
+              <span class="status-chip" id="sn-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="sn-title">Manga Title</span>
+              <p class="video-desc" id="sn-desc">Chapter 1 • PDF / Long Image / CBZ</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Universal Primary Action Button -->
+        <button type="button" class="btn btn-primary" id="btn-download-active" style="display: none">
+          <svg class="btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 2.5v7m0 0l-2.5-2.5M8 9.5l2.5-2.5" />
+            <path d="M3 12.5h10" />
+          </svg>
+          <span id="btn-download-text">Download Video</span>
+        </button>
+
+        <!-- State 4: Non-Supported / Idle Tab -->
+        <div class="state-container" id="state-empty">
+          <div class="empty-content">
+            <div class="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                stroke-linejoin="round">
+                <circle cx="10" cy="10" r="8" />
+                <line x1="2" y1="10" x2="18" y2="10" />
+                <path d="M10 2a13 13 0 0 1 4 8 13 13 0 0 1-4 8 13 13 0 0 1-4-8 13 13 0 0 1 4-8z" />
               </svg>
             </div>
-            <div class="pref-info">
-              <div class="pref-title-line">
-                <span class="pref-title">Mode Hemat Kuota</span>
-                <span class="pref-badge" id="pref-badge">Hemat ~60%</span>
-              </div>
-              <p class="pref-subtitle" id="pref-desc">
-                Prioritas HEVC / AV1 (Ukuran lebih kecil, kualitas sama)
-              </p>
-            </div>
-            <label class="toggle-switch" title="Aktifkan kompresi HEVC/AV1 untuk menghemat kuota">
-              <input type="checkbox" id="toggle-data-saver" checked>
-              <span class="toggle-slider"></span>
-            </label>
+            <h2 class="empty-title" id="platform-title">Not on Supported Platform</h2>
+            <p class="empty-desc" id="platform-desc">
+              Open TikTok, Bstation, JWPlyr, or YouTube Web to start downloading videos directly.
+            </p>
           </div>
-        </section>
-
-        <!-- Perisai Pengaman / Security Shield Section -->
-        <section class="preference-card shield-card" id="shield-card">
-          <div class="shield-card-header">
-            <div class="shield-header-left">
-              <div class="pref-icon shield-icon-box" aria-hidden="true">
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M8 1.5l5.5 2.5v4.5c0 3.5-2.5 6-5.5 7-3-1-5.5-3.5-5.5-7V4l5.5-2.5z" />
-                  <path d="M6 8l1.5 1.5 3-3" />
-                </svg>
-              </div>
-              <div class="shield-title-group">
-                <span class="pref-title">Perisai Pengaman</span>
-                <span class="shield-status-pill" id="shield-overall-status">Mati</span>
-              </div>
-            </div>
+          <div class="empty-action-group">
+            <button type="button" class="btn btn-secondary" id="btn-open-tiktok">
+              <span>Open TikTok Web</span>
+              <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 11L11 3m0 0H5m6 0v6" />
+              </svg>
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-open-bstation">
+              <span>Open Bstation Web</span>
+              <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 11L11 3m0 0H5m6 0v6" />
+              </svg>
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-open-jwplyr">
+              <span>Open JWPlyr</span>
+              <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 11L11 3m0 0H5m6 0v6" />
+              </svg>
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-open-youtube">
+              <span>Open YouTube Web</span>
+              <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 11L11 3m0 0H5m6 0v6" />
+              </svg>
+            </button>
           </div>
-
-          <!-- Feature 1: Anti-Clickjack & Popunder -->
-          <div class="preference-row shield-row">
-            <div class="pref-info">
-              <div class="pref-title-line">
-                <span class="pref-title">Anti-Clickjack &amp; Popunder</span>
-              </div>
-              <p class="pref-subtitle">
-                Cegah klik jebakan &amp; auto-buka tab liar saat klik play
-              </p>
-            </div>
-            <label class="toggle-switch" title="Blokir pembajakan klik dan tab popunder liar">
-              <input type="checkbox" id="toggle-shield-clickjack">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-
-          <!-- Feature 2: Pemblokir Iklan & Auto-Skip YouTube -->
-          <div class="preference-row shield-row">
-            <div class="pref-info">
-              <div class="pref-title-line">
-                <span class="pref-title">Blokir &amp; Auto-Skip Iklan YT</span>
-              </div>
-              <p class="pref-subtitle">
-                Auto-skip iklan video YouTube &amp; sembunyikan banner iklan
-              </p>
-            </div>
-            <label class="toggle-switch" title="Blokir iklan YouTube dan banner mirror">
-              <input type="checkbox" id="toggle-shield-adblock">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-        </section>
-      </main>
-
-      <!-- Footer: Compact Utility Metrics & Actions -->
-      <footer class="popup-footer">
-        <div class="footer-metrics">
-          <span class="metric-number" id="download-count">0</span>
-          <span class="metric-label">downloads</span>
         </div>
-        <button
-          type="button"
-          class="btn-icon-action"
-          id="btn-open-downloads"
-          title="Open Downloads Folder"
-          aria-label="Open Downloads Folder"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M1.5 3.5a1 1 0 0 1 1-1h3.5l1.5 2h6.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-12.5a1 1 0 0 1-1-1v-9z"
-            />
-          </svg>
-        </button>
-      </footer>
-    </div>
 
-    <script src="popup.js"></script>
-  </body>
+        <!-- Dynamic Feedback Pill -->
+        <div id="popup-status-msg" class="feedback-pill" style="display: none"></div>
+      </section>
+
+      <!-- Codec & Data Saver Preference Control -->
+      <section class="preference-card">
+        <div class="preference-row">
+          <div class="pref-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M2.5 8a5.5 5.5 0 0 1 10.2-2.8M13.5 8a5.5 5.5 0 0 1-10.2 2.8" />
+              <path d="M8 5v3l2 2" />
+            </svg>
+          </div>
+          <div class="pref-info">
+            <div class="pref-title-line">
+              <span class="pref-title">Mode Hemat Kuota</span>
+              <span class="pref-badge" id="pref-badge">Hemat ~60%</span>
+            </div>
+            <p class="pref-subtitle" id="pref-desc">
+              Prioritas HEVC / AV1 (Ukuran lebih kecil, kualitas sama)
+            </p>
+          </div>
+          <label class="toggle-switch" title="Aktifkan kompresi HEVC/AV1 untuk menghemat kuota">
+            <input type="checkbox" id="toggle-data-saver" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Perisai Pengaman / Security Shield Section -->
+      <section class="preference-card shield-card" id="shield-card">
+        <div class="shield-card-header">
+          <div class="shield-header-left">
+            <div class="pref-icon shield-icon-box" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                stroke-linejoin="round">
+                <path d="M8 1.5l5.5 2.5v4.5c0 3.5-2.5 6-5.5 7-3-1-5.5-3.5-5.5-7V4l5.5-2.5z" />
+                <path d="M6 8l1.5 1.5 3-3" />
+              </svg>
+            </div>
+            <div class="shield-title-group">
+              <span class="pref-title">Perisai Pengaman</span>
+              <span class="shield-status-pill" id="shield-overall-status">Mati</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 1: Anti-Clickjack & Popunder -->
+        <div class="preference-row shield-row">
+          <div class="pref-info">
+            <div class="pref-title-line">
+              <span class="pref-title">Anti-Clickjack &amp; Popunder</span>
+            </div>
+            <p class="pref-subtitle">
+              Cegah klik jebakan &amp; auto-buka tab liar saat klik play
+            </p>
+          </div>
+          <label class="toggle-switch" title="Blokir pembajakan klik dan tab popunder liar">
+            <input type="checkbox" id="toggle-shield-clickjack">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Feature 2: Pemblokir Iklan & Auto-Skip YouTube -->
+        <div class="preference-row shield-row">
+          <div class="pref-info">
+            <div class="pref-title-line">
+              <span class="pref-title">Blokir &amp; Auto-Skip Iklan YT</span>
+            </div>
+            <p class="pref-subtitle">
+              Auto-skip iklan video YouTube &amp; sembunyikan banner iklan
+            </p>
+          </div>
+          <label class="toggle-switch" title="Blokir iklan YouTube dan banner mirror">
+            <input type="checkbox" id="toggle-shield-adblock">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer: Compact Utility Metrics & Actions -->
+    <footer class="popup-footer">
+      <div class="footer-metrics">
+        <span class="metric-number" id="download-count">0</span>
+        <span class="metric-label">downloads</span>
+      </div>
+      <button type="button" class="btn-icon-action" id="btn-open-downloads" title="Open Downloads Folder"
+        aria-label="Open Downloads Folder">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M1.5 3.5a1 1 0 0 1 1-1h3.5l1.5 2h6.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-12.5a1 1 0 0 1-1-1v-9z" />
+        </svg>
+      </button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
 </html>

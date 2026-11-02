@@ -1,0 +1,376 @@
+/**
+ * AnoBoy Platform Stylesheet (content/styles/anoboy.css)
+ * Floating bar & interactive batch selection modal styling for anoboy.quest / anoboy.*
+ */
+
+/* ==========================================================================
+   1. Floating Action Bar (#mungil-anoboy-bar)
+   ========================================================================== */
+
+#mungil-anoboy-bar {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483640;
+  display: flex;
+  align-items: center;
+  background: rgba(18, 20, 26, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  border-radius: 9999px;
+  padding: 8px 14px;
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.5),
+    0 0 15px rgba(255, 193, 7, 0.15);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #ffffff;
+  max-width: 520px;
+  animation: mungil-ab-slide-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: auto;
+}
+
+@keyframes mungil-ab-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mungil-ab-bar-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.mungil-ab-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  max-width: 200px;
+}
+
+.mungil-ab-bar-badge {
+  background: #ffc107;
+  color: #12141a;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 7px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.mungil-ab-bar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f3f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mungil-ab-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mungil-ab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  cursor: pointer;
+  border-radius: 9999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.mungil-ab-btn-primary {
+  background: #ffc107;
+  color: #12141a;
+}
+
+.mungil-ab-btn-primary:hover:not(:disabled) {
+  background: #ffb300;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 193, 7, 0.4);
+}
+
+.mungil-ab-btn-batch {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mungil-ab-btn-batch:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.mungil-ab-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   2. Batch Modal (#mungil-anoboy-modal)
+   ========================================================================== */
+
+#mungil-anoboy-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #ffffff;
+}
+
+.mungil-ab-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.mungil-ab-dialog {
+  position: relative;
+  z-index: 2;
+  background: #14171f;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 580px;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.7),
+    0 0 25px rgba(255, 193, 7, 0.12);
+  animation: mungil-ab-dialog-pop 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes mungil-ab-dialog-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.mungil-ab-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mungil-ab-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #f8f9fa;
+  line-height: 1.3;
+}
+
+.mungil-ab-subtitle {
+  font-size: 12px;
+  color: #ffc107;
+  font-weight: 500;
+  margin-top: 4px;
+  display: block;
+}
+
+.mungil-ab-close {
+  background: transparent;
+  border: none;
+  color: #adb5bd;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.15s;
+}
+
+.mungil-ab-close:hover {
+  color: #ffffff;
+}
+
+.mungil-ab-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #0e1015;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mungil-ab-filter-chips {
+  display: flex;
+  gap: 6px;
+}
+
+.mungil-ab-chip {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ced4da;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mungil-ab-chip.active {
+  background: rgba(255, 193, 7, 0.2);
+  border-color: #ffc107;
+  color: #ffc107;
+}
+
+.mungil-ab-res-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #adb5bd;
+}
+
+.mungil-ab-res-picker select {
+  background: #1c202a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+.mungil-ab-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 48vh;
+}
+
+.mungil-ab-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.mungil-ab-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 193, 7, 0.3);
+}
+
+.mungil-ab-checkbox {
+  accent-color: #ffc107;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.mungil-ab-item-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.mungil-ab-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e9ecef;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mungil-ab-item-status {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6c757d;
+}
+
+.mungil-ab-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0e1015;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+
+.mungil-ab-summary {
+  font-size: 13px;
+  color: #ced4da;
+}
+
+.mungil-ab-summary span {
+  font-weight: 700;
+  color: #ffc107;
+}
+
+.mungil-ab-footer-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.mungil-ab-btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ced4da;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.mungil-ab-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+}

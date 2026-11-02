@@ -7,6 +7,17 @@
 (function initShieldListener() {
   'use strict';
 
+  // Do not run on YouTube Creator Studio, Video Upload backend, or Auth pages
+  const host = (window.location && window.location.hostname) || '';
+  if (
+    host === 'studio.youtube.com' ||
+    host.endsWith('.studio.youtube.com') ||
+    host === 'upload.youtube.com' ||
+    host === 'accounts.youtube.com'
+  ) {
+    return;
+  }
+
   function applyConfigToDOM(clickjack, adblock) {
     const root = document.documentElement || document.body;
     if (root) {

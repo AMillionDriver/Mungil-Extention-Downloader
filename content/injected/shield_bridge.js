@@ -15,6 +15,17 @@
 (function initMungilShield() {
   'use strict';
 
+  // Do not run on YouTube Creator Studio, Video Upload backend, or Auth pages
+  const host = (window.location && window.location.hostname) || '';
+  if (
+    host === 'studio.youtube.com' ||
+    host.endsWith('.studio.youtube.com') ||
+    host === 'upload.youtube.com' ||
+    host === 'accounts.youtube.com'
+  ) {
+    return;
+  }
+
   // Prevent multiple injections
   if (window.__MUNGIL_SHIELD_INITIALIZED__) return;
   window.__MUNGIL_SHIELD_INITIALIZED__ = true;
@@ -453,7 +464,12 @@
         this.hasAttribute('download') ||
         this.download ||
         this.classList.contains('mungil-terabox-btn') ||
-        this.classList.contains('mungil-terabox-row-btn')
+        this.classList.contains('mungil-terabox-row-btn') ||
+        (this.id && this.id.includes('mungil-')) ||
+        (this.className &&
+          typeof this.className === 'string' &&
+          this.className.includes('mungil-')) ||
+        (typeof this.closest === 'function' && this.closest('[id*="mungil-"], [class*="mungil-"]'))
       ) {
         return nativeAnchorClick.apply(this, arguments);
       }
@@ -486,7 +502,13 @@
           link.hasAttribute('download') ||
           link.download ||
           link.classList.contains('mungil-terabox-btn') ||
-          link.classList.contains('mungil-terabox-row-btn')
+          link.classList.contains('mungil-terabox-row-btn') ||
+          (link.id && link.id.includes('mungil-')) ||
+          (link.className &&
+            typeof link.className === 'string' &&
+            link.className.includes('mungil-')) ||
+          (typeof link.closest === 'function' &&
+            link.closest('[id*="mungil-"], [class*="mungil-"]'))
         ) {
           return;
         }
@@ -564,7 +586,7 @@
   function neutralizeOverlayElement(el) {
     if (!el || !(el instanceof HTMLElement)) return;
 
-    // Do not touch images (comic readers), video, audio, or form controls
+    // Do not touch images (comic readers), video, audio, form controls, or extension UI
     const tagName = el.tagName.toLowerCase();
     if (
       tagName === 'img' ||
@@ -575,8 +597,9 @@
       tagName === 'button' ||
       tagName === 'input' ||
       tagName === 'select' ||
-      el.id === 'mungil-batch-modal' ||
-      el.closest('#mungil-batch-modal')
+      (el.id && el.id.includes('mungil-')) ||
+      (el.className && typeof el.className === 'string' && el.className.includes('mungil-')) ||
+      (typeof el.closest === 'function' && el.closest('[id*="mungil-"], [class*="mungil-"]'))
     ) {
       return;
     }
@@ -779,7 +802,9 @@
     if (
       typeof window === 'undefined' ||
       !window.location ||
-      !window.location.hostname.includes('youtube.com')
+      !window.location.hostname.includes('youtube.com') ||
+      window.location.hostname.includes('studio.youtube.com') ||
+      window.location.hostname.includes('upload.youtube.com')
     ) {
       return;
     }

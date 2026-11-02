@@ -12,6 +12,17 @@
 (function () {
   'use strict';
 
+  // Do not run on YouTube Creator Studio, Video Upload backend, or Auth pages
+  const host = (window.location && window.location.hostname) || '';
+  if (
+    host === 'studio.youtube.com' ||
+    host.endsWith('.studio.youtube.com') ||
+    host === 'upload.youtube.com' ||
+    host === 'accounts.youtube.com'
+  ) {
+    return;
+  }
+
   // Prevent multiple executions in same frame
   if (window.__YT_DIRECT_PLATFORM_INITIALIZED__) return;
   window.__YT_DIRECT_PLATFORM_INITIALIZED__ = true;

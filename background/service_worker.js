@@ -154,6 +154,7 @@ const YOUTUBE_CDN_RULES = [
     },
     condition: {
       urlFilter: '*googlevideo.com*',
+      excludedInitiatorDomains: ['studio.youtube.com', 'upload.youtube.com'],
       resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
     }
   },
@@ -169,7 +170,152 @@ const YOUTUBE_CDN_RULES = [
     },
     condition: {
       urlFilter: '*youtube.com*',
+      excludedRequestDomains: [
+        'studio.youtube.com',
+        'upload.youtube.com',
+        'accounts.youtube.com',
+        'admin.youtube.com',
+        'analytics.youtube.com'
+      ],
+      excludedInitiatorDomains: [
+        'studio.youtube.com',
+        'upload.youtube.com',
+        'accounts.youtube.com',
+        'admin.youtube.com',
+        'analytics.youtube.com'
+      ],
+      resourceTypes: ['xmlhttprequest', 'media', 'other']
+    }
+  }
+];
+
+// Dynamic declarativeNetRequest rules for CosplayTele & Cossora stream CDNs
+const COSPLAYTELE_CDN_RULES = [
+  {
+    id: 61,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://cosplaytele.com/' },
+        { header: 'Origin', operation: 'set', value: 'https://cosplaytele.com' }
+      ]
+    },
+    condition: {
+      urlFilter: '*cosplaytele.com*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'image', 'other']
+    }
+  },
+  {
+    id: 62,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://cossora.stream/' },
+        { header: 'Origin', operation: 'set', value: 'https://cossora.stream' }
+      ],
+      responseHeaders: [
+        { header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' },
+        { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+        { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' }
+      ]
+    },
+    condition: {
+      urlFilter: '*cossora.stream*',
       resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  }
+];
+
+// Dynamic declarativeNetRequest rules for Pinterest (*.pinimg.com) CDNs
+const PINTEREST_CDN_RULES = [
+  {
+    id: 71,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://www.pinterest.com/' },
+        { header: 'Origin', operation: 'set', value: 'https://www.pinterest.com' }
+      ],
+      responseHeaders: [
+        { header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' },
+        { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+        { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' }
+      ]
+    },
+    condition: {
+      urlFilter: '*pinimg.com*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'image', 'other']
+    }
+  }
+];
+
+// Dynamic declarativeNetRequest rules for Blogger Video (*.blogger.com) CDNs used by Anoboy
+const ANOBOY_CDN_RULES = [
+  {
+    id: 81,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://anoboy.quest/' },
+        { header: 'Origin', operation: 'set', value: 'https://anoboy.quest' }
+      ],
+      responseHeaders: [
+        { header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' },
+        { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+        { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' }
+      ]
+    },
+    condition: {
+      urlFilter: '*blogger.com/video.g*',
+      resourceTypes: ['sub_frame', 'xmlhttprequest', 'media', 'other']
+    }
+  }
+];
+
+// Dynamic declarativeNetRequest rules for Shinigami Comics (*.shngm.io / *.shngm.id)
+const SHINIGAMI_CDN_RULES = [
+  {
+    id: 91,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://11.shinigami.asia/' },
+        { header: 'Origin', operation: 'set', value: 'https://11.shinigami.asia' }
+      ],
+      responseHeaders: [
+        { header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' },
+        { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+        { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' }
+      ]
+    },
+    condition: {
+      urlFilter: '*shngm.io*',
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'image', 'media', 'other']
+    }
+  },
+  {
+    id: 92,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://11.shinigami.asia/' },
+        { header: 'Origin', operation: 'set', value: 'https://11.shinigami.asia' }
+      ],
+      responseHeaders: [
+        { header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' },
+        { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+        { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' }
+      ]
+    },
+    condition: {
+      urlFilter: '*shngm.id*',
+      resourceTypes: ['main_frame', 'sub_frame', 'image', 'xmlhttprequest', 'media', 'other']
     }
   }
 ];
@@ -456,6 +602,506 @@ function formatYoutubeFilename(params = {}) {
 }
 
 /**
+ * Sanitizes CosplayTele post title / filename for Windows NTFS compatibility.
+ * Replaces illegal colons, slashes, quotes, and control codes.
+ *
+ * @param {string} title
+ * @returns {string} Sanitized title
+ */
+function sanitizeCosplayteleTitle(title) {
+  if (title === null || title === undefined) return 'CosplayTele_Photo';
+  let str = String(title).trim();
+  if (!str) return 'CosplayTele_Photo';
+
+  // Decode basic HTML entities (e.g. &#8211; -> -, &#8220; / &#8221; -> ")
+  str = str.replace(/&#8211;|&#8212;/g, '-');
+  str = str.replace(/&#8220;|&#8221;|&quot;/g, '');
+  str = str.replace(/&amp;/g, '&');
+  str = str.replace(/&lt;/g, '<');
+  str = str.replace(/&gt;/g, '>');
+
+  // Normalize colons and slashes to dashes/spaces
+  str = str.replace(/[:：]/g, ' - ');
+  str = str.replace(/[/\\|]/g, '-');
+
+  // Strip remaining Win32 forbidden characters (* ? " < >) and control codes
+  str = str.replace(/[*?"<>|\x00-\x1f\x7f-\x9f]/g, '');
+
+  // Collapse consecutive whitespace and dashes
+  str = str.replace(/\s+/g, ' ');
+  str = str.replace(/-{2,}/g, '-');
+  str = str.replace(/\s*-\s*/g, ' - ');
+
+  // Trim leading/trailing dots, spaces, underscores, and hyphens
+  str = str.replace(/^[.\s_-]+|[.\s_-]+$/g, '');
+
+  // Truncate to maximum safe length (120 chars)
+  str = str.slice(0, 120).trim();
+  str = str.replace(/[.\s_-]+$/, '');
+
+  return str || 'CosplayTele_Photo';
+}
+
+/**
+ * Formats CosplayTele image/video filename: {Title} - {Index}.{ext}
+ *
+ * @param {object} params
+ * @param {string} params.title
+ * @param {number|string} [params.index]
+ * @param {string} [params.ext]
+ * @returns {string} Windows NTFS safe filename
+ */
+function formatCosplayteleFilename(params = {}) {
+  const p = params && typeof params === 'object' ? params : {};
+  const safeTitle = sanitizeCosplayteleTitle(p.title);
+  const idx = p.index !== undefined && p.index !== null ? String(p.index).padStart(2, '0') : '';
+  const ext = p.ext ? String(p.ext).replace(/^\./, '') : 'webp';
+
+  if (idx) {
+    return `${safeTitle} - ${idx}.${ext}`;
+  }
+  return `${safeTitle}.${ext}`;
+}
+
+/**
+ * Sanitizes Pinterest Pin title / description for Windows NTFS compatibility.
+ * Strips Win32 forbidden characters (\ / : * ? " < > |), control codes, and truncates to 120 chars.
+ *
+ * @param {string} title
+ * @returns {string} Sanitized title
+ */
+function sanitizePinterestTitle(title) {
+  if (title === null || title === undefined) return 'Pin';
+  let str = String(title).trim();
+  if (!str) return 'Pin';
+
+  // Decode basic HTML entities
+  str = str.replace(/&#8211;|&#8212;/g, '-');
+  str = str.replace(/&#8220;|&#8221;|&quot;/g, '');
+  str = str.replace(/&amp;/g, '&');
+  str = str.replace(/&lt;/g, '<');
+  str = str.replace(/&gt;/g, '>');
+
+  // Normalize colons and slashes to dashes/spaces
+  str = str.replace(/[:：]/g, ' - ');
+  str = str.replace(/[/\\|]/g, '-');
+
+  // Strip Win32 forbidden characters (* ? " < >) and control codes
+  str = str.replace(/[*?"<>|\x00-\x1f\x7f-\x9f]/g, '');
+
+  // Collapse consecutive whitespace and dashes
+  str = str.replace(/\s+/g, ' ');
+  str = str.replace(/-{2,}/g, '-');
+  str = str.replace(/\s*-\s*/g, ' - ');
+
+  // Trim leading/trailing dots, spaces, underscores, and hyphens
+  str = str.replace(/^[.\s_-]+|[.\s_-]+$/g, '');
+
+  // Truncate to maximum safe length (120 chars)
+  str = str.slice(0, 120).trim();
+  str = str.replace(/[.\s_-]+$/, '');
+
+  const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  if (reserved.test(str)) {
+    str = `Pin_${str}`;
+  }
+
+  return str || 'Pin';
+}
+
+/**
+ * Sanitizes Pinterest pinner username / handle.
+ *
+ * @param {string} author
+ * @returns {string} Sanitized author
+ */
+function sanitizePinterestAuthor(author) {
+  if (author === null || author === undefined) return 'pinner';
+  let str = String(author).trim();
+  if (!str) return 'pinner';
+
+  str = str.replace(/^[@.\s]+/, '');
+  str = str.replace(/[/\\:*?"<>|\x00-\x1f\x7f-\x9f]/g, '_');
+  str = str.replace(/\s+/g, '_');
+  str = str.replace(/[.\s_]+$/, '');
+  str = str.slice(0, 50);
+
+  const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+  if (reserved.test(str)) {
+    str = `user_${str}`;
+  }
+
+  return str || 'pinner';
+}
+
+/**
+ * Formats Pinterest image or video filename: [Pinterest] {Author} - {Title} ({pinId}).{ext}
+ *
+ * @param {object} params
+ * @param {string} [params.author]
+ * @param {string} [params.title]
+ * @param {string|number} [params.pinId]
+ * @param {number|string} [params.index]
+ * @param {string} [params.ext]
+ * @returns {string} Windows NTFS safe filename
+ */
+function formatPinterestFilename(params = {}) {
+  const p = params && typeof params === 'object' ? params : {};
+  const safeAuthor = sanitizePinterestAuthor(p.author);
+  const safeTitle = sanitizePinterestTitle(p.title);
+  const safeId = p.pinId ? String(p.pinId).replace(/[^0-9a-zA-Z_-]/g, '') : '';
+  const idx =
+    p.index !== undefined && p.index !== null ? `_slide${String(p.index).padStart(2, '0')}` : '';
+  const ext = p.ext ? String(p.ext).replace(/^\./, '') : 'jpg';
+
+  const idSuffix = safeId ? ` (${safeId})` : '';
+  return `[Pinterest] ${safeAuthor} - ${safeTitle}${idSuffix}${idx}.${ext}`;
+}
+
+/**
+ * Sanitizes AnoBoy anime title / episode name for Windows NTFS compatibility.
+ * Strips Win32 forbidden characters (\ / : * ? " < > |), control codes, and truncates to 120 chars.
+ *
+ * @param {string} title
+ * @returns {string} Sanitized title
+ */
+function sanitizeAnoboyTitle(title) {
+  if (title === null || title === undefined) return 'Anime';
+  let str = String(title).trim();
+  if (!str) return 'Anime';
+
+  // Decode basic HTML entities
+  str = str.replace(/&#8211;|&#8212;/g, '-');
+  str = str.replace(/&#8220;|&#8221;|&quot;/g, '');
+  str = str.replace(/&amp;/g, '&');
+  str = str.replace(/&lt;/g, '<');
+  str = str.replace(/&gt;/g, '>');
+
+  // Normalize colons and slashes to dashes/spaces
+  str = str.replace(/[:：]/g, ' - ');
+  str = str.replace(/[/\\|]/g, '-');
+
+  // Strip Win32 forbidden characters (* ? " < >) and control codes
+  str = str.replace(/[*?"<>|\x00-\x1f\x7f-\x9f]/g, '');
+
+  // Collapse consecutive whitespace and dashes
+  str = str.replace(/\s+/g, ' ');
+  str = str.replace(/-{2,}/g, '-');
+  str = str.replace(/\s*-\s*/g, ' - ');
+
+  // Trim leading/trailing dots, spaces, underscores, and hyphens
+  str = str.replace(/^[.\s_-]+|[.\s_-]+$/g, '');
+
+  // Truncate to maximum safe length (120 chars)
+  str = str.slice(0, 120).trim();
+  str = str.replace(/[.\s_-]+$/, '');
+
+  const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  if (reserved.test(str)) {
+    str = `Anime_${str}`;
+  }
+
+  return str || 'Anime';
+}
+
+/**
+ * Formats AnoBoy video download filename.
+ * Pattern: {ANIMETITLE}_{EPISODENUMBER}.mp4
+ *
+ * @param {object} params
+ * @param {string} [params.animeTitle]
+ * @param {string|number} [params.episodeNum]
+ * @param {string} [params.ext]
+ * @returns {string} Windows NTFS safe filename
+ */
+function formatAnoboyFilename(params = {}) {
+  const p = params && typeof params === 'object' ? params : {};
+  const safeAnime = sanitizeAnoboyTitle(p.animeTitle || 'Anime');
+  const epsRaw =
+    p.episodeNum !== undefined && p.episodeNum !== null ? String(p.episodeNum).trim() : '01';
+  const safeEps = epsRaw.padStart(2, '0');
+  const ext = p.ext ? String(p.ext).replace(/^\./, '') : 'mp4';
+
+  return `${safeAnime}_${safeEps}.${ext}`;
+}
+
+/**
+ * Sanitizes Shinigami comic / manga title for Windows NTFS compatibility.
+ *
+ * @param {string} title
+ * @returns {string} Safe title
+ */
+function sanitizeShinigamiTitle(title) {
+  if (title === null || title === undefined) return 'Manga';
+  let str = String(title).trim();
+  if (!str) return 'Manga';
+
+  str = str.replace(/&#8211;|&#8212;/g, '-');
+  str = str.replace(/&#8220;|&#8221;|&quot;/g, '');
+  str = str.replace(/&amp;/g, '&');
+  str = str.replace(/&lt;/g, '<');
+  str = str.replace(/&gt;/g, '>');
+
+  str = str.replace(/[:：]/g, ' - ');
+  str = str.replace(/[/\\|]/g, '-');
+  str = str.replace(/[*?"<>|\x00-\x1f\x7f-\x9f]/g, '');
+  str = str.replace(/\s+/g, ' ');
+  str = str.replace(/-{2,}/g, '-');
+  str = str.replace(/\s*-\s*/g, ' - ');
+  str = str.replace(/^[.\s_-]+|[.\s_-]+$/g, '');
+  str = str.slice(0, 120).trim();
+  str = str.replace(/[.\s_-]+$/, '');
+
+  const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  if (reserved.test(str)) {
+    str = `Manga_${str}`;
+  }
+
+  return str || 'Manga';
+}
+
+/**
+ * Formats Shinigami comic download filename.
+ * Pattern: {MANGATITLE}_Chapter_{CHAPTERNUMBER}.{ext}
+ *
+ * @param {object} params
+ * @param {string} [params.mangaTitle]
+ * @param {string} [params.title]
+ * @param {string|number} [params.chapterNumber]
+ * @param {string} [params.ext]
+ * @returns {string} Windows NTFS safe filename
+ */
+function formatShinigamiFilename(titleOrParams, chapterNumber, ext) {
+  let mangaTitle = '';
+  let ch = chapterNumber;
+  let fileExt = ext;
+
+  if (typeof titleOrParams === 'object' && titleOrParams !== null) {
+    mangaTitle = titleOrParams.mangaTitle || titleOrParams.title || 'Shinigami_Comic';
+    ch = titleOrParams.chapterNumber;
+    fileExt = titleOrParams.ext;
+  } else {
+    mangaTitle = titleOrParams || 'Shinigami_Comic';
+  }
+
+  const safeManga = sanitizeShinigamiTitle(mangaTitle)
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_');
+  const chRaw = ch !== undefined && ch !== null ? String(ch).trim() : '1';
+  const cleanExt = fileExt ? String(fileExt).replace(/^\./, '') : 'pdf';
+
+  return `${safeManga}_Chapter_${chRaw}.${cleanExt}`;
+}
+
+/**
+ * Decrypts Cossora.stream AES-256-CBC cipher link.
+ * First 16 bytes is IV, remaining is ciphertext.
+ *
+ * @param {string} b64Cipher Base64 ciphertext
+ * @param {string} keyStr UTF-8 key string (32 bytes)
+ * @returns {Promise<string>} Decrypted playlist URL
+ */
+async function decryptCossoraVideoUrl(b64Cipher, keyStr) {
+  if (!b64Cipher || !keyStr) throw new Error('Missing cipher or key');
+
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const rawStr = atob(b64Cipher);
+    const rawBytes = new Uint8Array(rawStr.length);
+    for (let i = 0; i < rawStr.length; i++) {
+      rawBytes[i] = rawStr.charCodeAt(i);
+    }
+    const iv = rawBytes.slice(0, 16);
+    const ciphertext = rawBytes.slice(16);
+    const enc = new TextEncoder();
+    const keyData = enc.encode(keyStr);
+
+    const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'AES-CBC' }, false, [
+      'decrypt'
+    ]);
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: 'AES-CBC', iv: iv },
+      cryptoKey,
+      ciphertext
+    );
+
+    return new TextDecoder().decode(decryptedBuffer);
+  } else if (typeof require !== 'undefined') {
+    const nodeCrypto = require('crypto');
+    const raw = Buffer.from(b64Cipher, 'base64');
+    const iv = raw.slice(0, 16);
+    const ct = raw.slice(16);
+    const key = Buffer.from(keyStr, 'utf8');
+    const decipher = nodeCrypto.createDecipheriv('aes-256-cbc', key, iv);
+    return decipher.update(ct, null, 'utf8') + decipher.final('utf8');
+  }
+  throw new Error('No crypto implementation available');
+}
+
+/**
+ * Extracts and decrypts direct stream URL from Cossora embed iframe page.
+ *
+ * @param {string} embedUrl
+ * @returns {Promise<{ streamUrl: string, posterUrl: string }>}
+ */
+async function extractCossoraStream(embedUrl) {
+  if (!embedUrl || typeof embedUrl !== 'string') {
+    throw new Error('Invalid embed URL');
+  }
+
+  const res = await fetch(embedUrl, {
+    headers: {
+      Referer: 'https://cosplaytele.com/',
+      Origin: 'https://cosplaytele.com'
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Cossora embed: HTTP ${res.status}`);
+  }
+
+  const html = await res.text();
+
+  const vMatch = html.match(/const\s+videoURL\s*=\s*['"]([^'"]+)['"]/i);
+  const kMatch = html.match(/decryptLink\(videoURL,\s*['"]([^'"]+)['"]\)/i);
+  const pMatch = html.match(/const\s+portadaURL\s*=\s*['"]([^'"]+)['"]/i);
+
+  if (!vMatch || !kMatch) {
+    throw new Error('Video cipher parameters not found in Cossora embed');
+  }
+
+  const cipher = vMatch[1];
+  const key = kMatch[1];
+  const streamUrl = await decryptCossoraVideoUrl(cipher, key);
+
+  let posterUrl = null;
+  if (pMatch) {
+    try {
+      posterUrl = await decryptCossoraVideoUrl(pMatch[1], key);
+    } catch (_) {}
+  }
+
+  return { streamUrl, posterUrl };
+}
+
+/**
+ * Downloads and concatenates Cossora HLS video segments in the background,
+ * bypassing content-script CORS restrictions, and dispatches to chrome.downloads.
+ *
+ * @param {string} embedUrl
+ * @param {string} title
+ * @param {number|null} [tabId]
+ * @returns {Promise<{ success: boolean, downloadId: number, filename: string }>}
+ */
+async function downloadCossoraHlsStream(embedUrl, title, tabId = null) {
+  const { streamUrl } = await extractCossoraStream(embedUrl);
+  if (!streamUrl) throw new Error('Stream URL tidak ditemukan');
+
+  const masterRes = await fetch(streamUrl);
+  if (!masterRes.ok) throw new Error(`HTTP ${masterRes.status} saat membaca playlist video`);
+  const masterText = await masterRes.text();
+
+  let subM3u8Url = streamUrl;
+  if (masterText.includes('#EXT-X-STREAM-INF')) {
+    const lines = masterText.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        subM3u8Url = trimmed.startsWith('http') ? trimmed : new URL(trimmed, streamUrl).href;
+        break;
+      }
+    }
+  }
+
+  let segmentsText = masterText;
+  if (subM3u8Url !== streamUrl) {
+    const subRes = await fetch(subM3u8Url);
+    if (!subRes.ok) throw new Error(`HTTP ${subRes.status} saat membaca sub-playlist video`);
+    segmentsText = await subRes.text();
+  }
+
+  const segmentUrls = [];
+  const lines = segmentsText.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      const fullUrl = trimmed.startsWith('http') ? trimmed : new URL(trimmed, subM3u8Url).href;
+      segmentUrls.push(fullUrl);
+    }
+  }
+
+  if (segmentUrls.length === 0) {
+    throw new Error('Tidak ada segmen video Cossora yang ditemukan');
+  }
+
+  const buffers = new Array(segmentUrls.length);
+  let completed = 0;
+  const concurrency = 3;
+  let nextIdx = 0;
+
+  async function worker() {
+    while (nextIdx < segmentUrls.length) {
+      const idx = nextIdx++;
+      const segUrl = segmentUrls[idx];
+      const res = await fetch(segUrl);
+      if (!res.ok) throw new Error(`Gagal mengunduh segmen video ${idx + 1}`);
+      buffers[idx] = await res.arrayBuffer();
+      completed++;
+      const pct = Math.round((completed / segmentUrls.length) * 100);
+      if (tabId && typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
+        chrome.tabs
+          .sendMessage(tabId, {
+            type: 'COSSORA_DOWNLOAD_PROGRESS',
+            completed,
+            total: segmentUrls.length,
+            percent: pct
+          })
+          .catch(() => {});
+      }
+    }
+  }
+
+  const workers = [];
+  for (let w = 0; w < Math.min(concurrency, segmentUrls.length); w++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+
+  const mergedBlob = new Blob(buffers, { type: 'video/mp4' });
+  const filename = `${sanitizeCosplayteleTitle(title)}.mp4`;
+
+  let downloadUrl;
+  if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+    downloadUrl = URL.createObjectURL(mergedBlob);
+  } else {
+    downloadUrl = await blobToDataUrl(mergedBlob);
+  }
+
+  return new Promise((resolve, reject) => {
+    if (typeof chrome === 'undefined' || !chrome.downloads || !chrome.downloads.download) {
+      recordDownloadTelemetry({ platform: 'cosplaytele' });
+      resolve({ success: true, downloadId: 9999, filename });
+      return;
+    }
+    chrome.downloads.download(
+      {
+        url: downloadUrl,
+        filename: filename,
+        conflictAction: 'uniquify'
+      },
+      (downloadId) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          recordDownloadTelemetry({ platform: 'cosplaytele' });
+          resolve({ success: true, downloadId, filename });
+        }
+      }
+    );
+  });
+}
+
+/**
  * Fetches video stream from URL with authentic Referer & Origin headers,
  * returning a Blob object.
  *
@@ -465,6 +1111,8 @@ function formatYoutubeFilename(params = {}) {
  */
 async function fetchVideoBlob(url, options = {}) {
   const cleanUrl = typeof url === 'string' ? url.trim() : '';
+  const isCosplaytele =
+    cleanUrl.includes('cosplaytele.com') || (options && options.platform === 'cosplaytele');
   const isYoutube =
     cleanUrl.includes('googlevideo.com') ||
     cleanUrl.includes('youtube.com') ||
@@ -486,24 +1134,28 @@ async function fetchVideoBlob(url, options = {}) {
     cleanUrl.includes('baidupcs') ||
     (options && options.platform === 'terabox');
 
-  const defaultReferer = isTeraBox
-    ? 'https://www.terabox.app/'
-    : isYoutube
-      ? 'https://www.youtube.com/'
-      : isJwplyr
-        ? 'https://jwplyr.com/'
-        : isBstation
-          ? 'https://www.bilibili.tv/'
-          : 'https://www.tiktok.com/';
-  const defaultOrigin = isTeraBox
-    ? 'https://www.terabox.app'
-    : isYoutube
-      ? 'https://www.youtube.com'
-      : isJwplyr
-        ? 'https://jwplyr.com'
-        : isBstation
-          ? 'https://www.bilibili.tv'
-          : 'https://www.tiktok.com';
+  const defaultReferer = isCosplaytele
+    ? 'https://cosplaytele.com/'
+    : isTeraBox
+      ? 'https://www.terabox.app/'
+      : isYoutube
+        ? 'https://www.youtube.com/'
+        : isJwplyr
+          ? 'https://jwplyr.com/'
+          : isBstation
+            ? 'https://www.bilibili.tv/'
+            : 'https://www.tiktok.com/';
+  const defaultOrigin = isCosplaytele
+    ? 'https://cosplaytele.com'
+    : isTeraBox
+      ? 'https://www.terabox.app'
+      : isYoutube
+        ? 'https://www.youtube.com'
+        : isJwplyr
+          ? 'https://jwplyr.com'
+          : isBstation
+            ? 'https://www.bilibili.tv'
+            : 'https://www.tiktok.com';
 
   const referer = options && options.referer ? options.referer : defaultReferer;
   const origin = options && options.origin ? options.origin : defaultOrigin;
@@ -744,6 +1396,16 @@ async function executeDownload(params) {
     cleanUrl.includes('1024tera.com') ||
     cleanUrl.includes('baidupcs.com') ||
     cleanUrl.includes('terabox.com');
+  const isCosplaytele = params.platform === 'cosplaytele' || cleanUrl.includes('cosplaytele.com');
+  const isAnoboy =
+    params.platform === 'anoboy' ||
+    cleanUrl.includes('googlevideo.com') ||
+    cleanUrl.includes('blogger.com') ||
+    cleanUrl.includes('anoboy.');
+  const isShinigami =
+    params.platform === 'shinigami' ||
+    cleanUrl.includes('shinigami.') ||
+    cleanUrl.includes('shngm.');
 
   const videoId = params.videoId || params.id;
   const filename =
@@ -762,20 +1424,42 @@ async function executeDownload(params) {
               episode: params.episode || params.epIndex,
               quality: params.quality
             })
-          : formatFilename(params.author, videoId));
+          : isCosplaytele
+            ? formatCosplayteleFilename({
+                title: params.title,
+                index: params.index,
+                ext: params.ext
+              })
+            : isAnoboy
+              ? formatAnoboyFilename({
+                  animeTitle: params.title,
+                  episodeNum: params.episode
+                })
+              : isShinigami
+                ? formatShinigamiFilename({
+                    mangaTitle: params.title,
+                    chapterNumber: params.episode || params.chapter,
+                    ext: params.ext
+                  })
+                : formatFilename(params.author, videoId));
 
   if (typeof chrome === 'undefined' || !chrome.downloads || !chrome.downloads.download) {
     throw new Error('chrome.downloads API is unavailable in this context');
   }
 
-  // For YouTube and TeraBox (large files), bypass in-memory Blob buffering
+  // Register desired filename for onDeterminingFilename override
+  if (filename) {
+    pendingFilenames.set(cleanUrl, filename);
+  }
+
+  // For YouTube, TeraBox, AnoBoy, and Shinigami (large files), bypass in-memory Blob buffering
   // (which causes OOM crashes or connection drops on large files)
   // and pass the authentic stream URL directly to Chrome's native download manager.
   // For other platforms (TikTok), fetch to Blob to bypass anti-hotlinking protections.
   let downloadUrl = cleanUrl;
   let isBlobUrl = false;
 
-  if (!isYoutube && !isTerabox) {
+  if (!isYoutube && !isTerabox && !isAnoboy && !isShinigami) {
     try {
       const blob = await fetchVideoBlob(cleanUrl);
       if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
@@ -790,6 +1474,9 @@ async function executeDownload(params) {
   }
 
   return new Promise((resolve, reject) => {
+    if (downloadUrl && filename) {
+      pendingFilenames.set(downloadUrl, filename);
+    }
     chrome.downloads.download(
       {
         url: downloadUrl,
@@ -886,7 +1573,17 @@ async function ensureDnrRules() {
       chrome.declarativeNetRequest &&
       chrome.declarativeNetRequest.updateDynamicRules
     ) {
-      const neededIds = [1, 2, 3, 11, 12, 13, 21, 22, 31, 32];
+      const allRules = [
+        ...TIKTOK_CDN_RULES,
+        ...BSTATION_CDN_RULES,
+        ...JWPLYR_CDN_RULES,
+        ...YOUTUBE_CDN_RULES,
+        ...COSPLAYTELE_CDN_RULES,
+        ...PINTEREST_CDN_RULES,
+        ...ANOBOY_CDN_RULES,
+        ...SHINIGAMI_CDN_RULES
+      ];
+      const neededIds = allRules.map((r) => r.id);
 
       // Fast check: Skip disk I/O if all dynamic rules are already active
       if (typeof chrome.declarativeNetRequest.getDynamicRules === 'function') {
@@ -904,15 +1601,10 @@ async function ensureDnrRules() {
 
       await chrome.declarativeNetRequest.updateDynamicRules({
         removeRuleIds: neededIds,
-        addRules: [
-          ...TIKTOK_CDN_RULES,
-          ...BSTATION_CDN_RULES,
-          ...JWPLYR_CDN_RULES,
-          ...YOUTUBE_CDN_RULES
-        ]
+        addRules: allRules
       });
       console.log(
-        '[Downloader SW] Dynamic DNR rules registered for ByteDance, Bstation, JWPlyr & YouTube CDNs'
+        '[Downloader SW] Dynamic DNR rules registered for ByteDance, Bstation, JWPlyr, YouTube, CosplayTele, Pinterest, AnoBoy & Shinigami CDNs'
       );
     }
   } catch (err) {
@@ -931,10 +1623,29 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
   ensureDnrRules();
 }
 
+// Pending custom filenames registry for downloads where server Content-Disposition headers attempt to override
+const pendingFilenames = new Map();
+
 // Strict Filename Extension Guard: Prevent Chrome from renaming .mp4 downloads to .txt on server warnings
 if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.onDeterminingFilename) {
   chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-    if (item && item.filename) {
+    if (!item) return;
+
+    // Check if we registered an authentic custom filename for this download URL
+    const desiredName =
+      pendingFilenames.get(item.url) ||
+      (item.finalUrl ? pendingFilenames.get(item.finalUrl) : null);
+
+    if (desiredName) {
+      suggest({ filename: desiredName, conflictAction: 'uniquify' });
+      setTimeout(() => {
+        pendingFilenames.delete(item.url);
+        if (item.finalUrl) pendingFilenames.delete(item.finalUrl);
+      }, 30000);
+      return true;
+    }
+
+    if (item.filename) {
       let finalName = item.filename;
       // Suppress any corrupt videoplayback.txt or error text dumps from googlevideo
       if (
@@ -954,6 +1665,8 @@ if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.onDete
         suggest({ filename: finalName, conflictAction: 'uniquify' });
         return true;
       }
+      suggest({ filename: finalName, conflictAction: 'uniquify' });
+      return true;
     }
   });
 }
@@ -1542,6 +2255,116 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
   });
 }
 
+// =========================================================================
+// AnoBoy / Blogger Video Direct Stream Resolvers
+// =========================================================================
+
+function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
+  if (!bloggerHtml || typeof bloggerHtml !== 'string') return null;
+
+  // Strict regex: domain must directly be *.googlevideo.com
+  const re = /https?:\/\/[a-zA-Z0-9.\-_]+?\.googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
+  let match;
+  const streams = [];
+
+  while ((match = re.exec(bloggerHtml)) !== null) {
+    const raw = match[0];
+    let decoded = raw
+      .replace(/\\\\u0026|\\u0026/g, '&')
+      .replace(/\\\\u003d|\\u003d/g, '=')
+      .replace(/\\\\\//g, '/')
+      .replace(/\\\//g, '/');
+
+    const itagMatch = decoded.match(/itag=(\d+)/);
+    const itag = itagMatch ? parseInt(itagMatch[1], 10) : 0;
+    if (itag > 0) {
+      streams.push({ itag, url: decoded });
+    }
+  }
+
+  if (streams.length === 0) return null;
+
+  if (preferredRes && preferredRes.includes('720')) {
+    const s720 = streams.find((s) => s.itag === 22);
+    if (s720) return s720.url;
+  }
+  if (preferredRes && preferredRes.includes('360')) {
+    const s360 = streams.find((s) => s.itag === 18);
+    if (s360) return s360.url;
+  }
+
+  // Fallback to highest available itag (22 > 18)
+  streams.sort((a, b) => b.itag - a.itag);
+  return streams[0].url;
+}
+
+async function resolveAnoboyStream(payload = {}) {
+  const targetUrl = payload.url || '';
+  let token =
+    payload.bloggerToken ||
+    (targetUrl.match(/token=([a-zA-Z0-9_-]+)/)
+      ? targetUrl.match(/token=([a-zA-Z0-9_-]+)/)[1]
+      : null);
+  const preferredRes = payload.preferredRes || payload.resolution || '720p';
+
+  // If targetUrl is an episode web page, fetch page to locate adsbatch token or mirror
+  if (
+    !token &&
+    targetUrl &&
+    (targetUrl.includes('anoboy.quest') || targetUrl.includes('anoboy.'))
+  ) {
+    try {
+      const pageRes = await fetch(targetUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      if (pageRes.ok) {
+        const pageHtml = await pageRes.text();
+        const tokenMatch =
+          pageHtml.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
+          pageHtml.match(/data-video=["'][^"']*url=([^&"'>\s]+)/) ||
+          pageHtml.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
+        if (tokenMatch && tokenMatch[1]) {
+          token = tokenMatch[1];
+        } else {
+          // Check udl mirrors
+          const mirrorMatch = pageHtml.match(
+            /href=["'](https?:\/\/[^"']*(?:mp4upload\.com|gofile\.io)[^"']*)["']/i
+          );
+          if (mirrorMatch && mirrorMatch[1]) {
+            return { success: true, streamUrl: mirrorMatch[1], isMirror: true };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[SW] resolveAnoboyStream page fetch error:', e.message);
+    }
+  }
+
+  if (token) {
+    try {
+      const bloggerUrl = `https://www.blogger.com/video.g?token=${token}`;
+      const res = await fetch(bloggerUrl, {
+        headers: { Referer: 'https://anoboy.quest/' }
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const directUrl = extractStreamFromBloggerHtml(html, preferredRes);
+        if (directUrl) {
+          return {
+            success: true,
+            streamUrl: directUrl,
+            itag: directUrl.includes('itag=22') ? 22 : 18
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[SW] resolveAnoboyStream Blogger fetch error:', e.message);
+    }
+  }
+
+  return { success: false, error: 'Could not resolve playable stream for episode' };
+}
+
 // Primary IPC Listener
 function handleMessage(message, sender, sendResponse) {
   if (!message || typeof message !== 'object') {
@@ -1616,6 +2439,32 @@ function handleMessage(message, sender, sendResponse) {
     }
   }
 
+  // Handle EXTRACT_COSSORA_STREAM
+  if (actionType === 'EXTRACT_COSSORA_STREAM') {
+    extractCossoraStream(message.embedUrl)
+      .then((result) => {
+        sendResponse({ success: true, ...result });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  // Handle DOWNLOAD_COSSORA_VIDEO
+  if (actionType === 'DOWNLOAD_COSSORA_VIDEO') {
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+    downloadCossoraHlsStream(message.embedUrl, message.title, tabId)
+      .then((res) => {
+        sendResponse(res);
+      })
+      .catch((err) => {
+        console.error('[SW] Cossora HLS download error:', err);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
   // Handle RECORD_DOWNLOAD (Telemetry from in-page content script downloads)
   if (actionType === 'RECORD_DOWNLOAD') {
     const payload =
@@ -1642,11 +2491,51 @@ function handleMessage(message, sender, sendResponse) {
     return true; // Keep IPC channel open for asynchronous response
   }
 
+  // Handle RESOLVE_ANOBOY_STREAM
+  if (actionType === 'RESOLVE_ANOBOY_STREAM') {
+    const payload =
+      message.payload && typeof message.payload === 'object' ? message.payload : message;
+    resolveAnoboyStream(payload)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   // Handle DOWNLOAD_VIDEO (Fallback and direct downloads)
   if (actionType === 'DOWNLOAD_VIDEO') {
     const payload =
       message.payload && typeof message.payload === 'object' ? message.payload : message;
     const tabId = sender && sender.tab ? sender.tab.id : null;
+
+    // Auto-resolve Blogger HTML embeds to Google Video MP4 stream
+    if (payload.url && payload.url.includes('blogger.com/video.g?token=')) {
+      resolveAnoboyStream({ url: payload.url, preferredRes: payload.quality || '720p' })
+        .then((resolved) => {
+          if (resolved.success && resolved.streamUrl) {
+            payload.url = resolved.streamUrl;
+          }
+          return executeDownload({
+            url: payload.url,
+            author: payload.author,
+            videoId: payload.videoId || payload.id,
+            title: payload.title || payload.desc,
+            platform: payload.platform,
+            episode: payload.episode || payload.epIndex,
+            quality: payload.quality,
+            filename: payload.filename
+          });
+        })
+        .then((result) => sendResponse(result))
+        .catch((err) => {
+          console.error('[TikTok Downloader SW] DOWNLOAD_VIDEO error:', err);
+          sendResponse({
+            success: false,
+            error: err.message || 'Download failed',
+            details: err.stack || undefined
+          });
+        });
+      return true;
+    }
 
     // If downloading from YouTube or Bstation, prioritize native yt-dlp host
     if (
@@ -1723,6 +2612,36 @@ function handleMessage(message, sender, sendResponse) {
       sendResponse({ success: false, error: 'Invalid URL or chrome.tabs unavailable' });
       return false;
     }
+  }
+
+  // Handle FETCH_IMAGE_DATA (Background bypass for CORS-restricted image CDNs like assets.shngm.id)
+  if (actionType === 'FETCH_IMAGE_DATA') {
+    const imgUrl = message.url;
+    if (!imgUrl) {
+      sendResponse({ success: false, error: 'Missing image URL' });
+      return false;
+    }
+    const referer = message.referer || 'https://11.shinigami.asia/';
+    const origin = message.origin || 'https://11.shinigami.asia';
+
+    fetch(imgUrl, {
+      headers: {
+        Referer: referer,
+        Origin: origin
+      }
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then(blobToDataUrl)
+      .then((dataUrl) => {
+        sendResponse({ success: true, dataUrl });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
   }
 
   // Handle PING
@@ -2096,7 +3015,25 @@ if (typeof module !== 'undefined' && module.exports) {
     sanitizeYoutubeAuthor,
     formatYoutubeFilename,
     sanitizeTeraBoxFilename,
+    COSPLAYTELE_CDN_RULES,
+    sanitizeCosplayteleTitle,
+    formatCosplayteleFilename,
+    decryptCossoraVideoUrl,
+    extractCossoraStream,
+    downloadCossoraHlsStream,
     ADBLOCK_DYNAMIC_RULES,
-    syncShieldAdblockRules
+    syncShieldAdblockRules,
+    PINTEREST_CDN_RULES,
+    sanitizePinterestTitle,
+    sanitizePinterestAuthor,
+    formatPinterestFilename,
+    ANOBOY_CDN_RULES,
+    sanitizeAnoboyTitle,
+    formatAnoboyFilename,
+    extractStreamFromBloggerHtml,
+    resolveAnoboyStream,
+    SHINIGAMI_CDN_RULES,
+    sanitizeShinigamiTitle,
+    formatShinigamiFilename
   };
 }

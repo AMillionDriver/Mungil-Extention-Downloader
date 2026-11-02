@@ -38,3 +38,9 @@ desktop.ini
 *.zip
 *.crx
 *.pem
+
+# Local Research Dumps & Network Traces
+*-Research/
+*.har
+download/
+
