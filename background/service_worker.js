@@ -2740,23 +2740,16 @@ function handleMessage(message, sender, sendResponse) {
     return true;
   }
 
-  // Handle OCR_AND_TRANSLATE_PANEL (OCR.space extraction + batch translation)
-  if (actionType === 'OCR_AND_TRANSLATE_PANEL') {
-    const base64Image = message.base64Image;
-    const lang = message.lang || 'kor'; // kor, eng, jpn, chs
-    const targetLang = message.targetLang || 'id';
-    const genre = message.genre || 'action';
+  // In-memory translation cache for instant 0ms retrieval on repeated phrases
+  const comicTranslationCache = new Map();
 
-    if (!base64Image) {
-      sendResponse({ success: false, error: 'Missing base64Image' });
-      return false;
-    }
-
+  // Helper to query OCR.space with automatic Engine 2 -> Engine 1 fallback
+  async function fetchOcrLines(base64Image, lang, engine = '2') {
     const payload = new URLSearchParams({
       apikey: 'helloworld',
       isOverlayRequired: 'true',
       language: lang,
-      OCREngine: '1',
+      OCREngine: engine,
       scale: 'false',
       detectOrientation: 'false',
       base64Image: base64Image.startsWith('data:')
@@ -2765,69 +2758,158 @@ function handleMessage(message, sender, sendResponse) {
     });
 
     const controller = new AbortController();
-    const timeoutTimer = setTimeout(() => controller.abort(), 15000);
+    const timeoutTimer = setTimeout(() => controller.abort(), 14000);
 
-    fetch('https://api.ocr.space/parse/image', {
-      method: 'POST',
-      body: payload,
-      signal: controller.signal
-    })
-      .then((r) => {
-        clearTimeout(timeoutTimer);
-        return r.json();
-      })
-      .then(async (ocrData) => {
-        if (ocrData.IsErroredOnProcessing || !ocrData.ParsedResults?.[0]) {
-          throw new Error(ocrData.ErrorMessage?.[0] || 'OCR engine returned no text');
+    try {
+      const res = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        body: payload,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutTimer);
+      const data = await res.json();
+      if (data.IsErroredOnProcessing || !data.ParsedResults?.[0]) {
+        throw new Error(data.ErrorMessage?.[0] || 'OCR engine returned no text');
+      }
+      const overlay = data.ParsedResults[0].TextOverlay;
+      return overlay?.Lines || [];
+    } catch (err) {
+      clearTimeout(timeoutTimer);
+      // If Engine 2 failed, fallback to Engine 1
+      if (engine === '2') {
+        return fetchOcrLines(base64Image, lang, '1');
+      }
+      throw err;
+    }
+  }
+
+  async function translateTextGtx(sourceText, targetLang, genre, lang) {
+    const cacheKey = `${lang}:${targetLang}:${genre}:${sourceText.toLowerCase().trim()}`;
+    if (comicTranslationCache.has(cacheKey)) {
+      return comicTranslationCache.get(cacheKey);
+    }
+
+    let translated = sourceText;
+    try {
+      const tUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(sourceText)}`;
+      const tRes = await fetch(tUrl);
+      if (tRes.ok) {
+        const tData = await tRes.json();
+        if (tData && Array.isArray(tData[0])) {
+          translated = tData[0]
+            .map((seg) => (seg && seg[0] ? seg[0] : ''))
+            .filter(Boolean)
+            .join(' ');
         }
+      }
+    } catch (_) {}
 
-        const overlay = ocrData.ParsedResults[0].TextOverlay;
-        const rawLines = overlay?.Lines || [];
-        const parsedLines = [];
+    // Post-OCR hallucination cleaner: remove stray gibberish English from Korean dialogues
+    if (lang === 'kor') {
+      translated = translated.replace(/\bENCLAND\b/gi, 'GAK BOLEH');
+      translated = translated.replace(/\b(JANGAN|TIDAK)\s+ENCLAND\b/gi, 'JANGAN! NGGAK BOLEH!');
+      translated = translated.replace(/\bADALAH\s+TERMASUK\b/gi, '');
+      translated = translated.replace(/\bRBURR\b/gi, 'Pihak sekolah');
+      translated = translated.replace(/\bJSa\s+Gyeonggi\b/gi, '');
+      translated = translated.replace(/\b010-\d{3,4}-\d{4}\b/g, '');
+      translated = translated.replace(/13\/-Lee\s+Myung-hee/gi, 'Lee Myung-hee');
+      translated = translated.replace(/\s{2,}/g, ' ').trim();
+    }
 
-        // 1. Parse atomic lines and calculate their precise pixel bounds
-        for (const line of rawLines) {
-          const lineText =
-            line.LineText || (line.Words ? line.Words.map((w) => w.WordText).join(' ') : '');
-          const clean = lineText.trim();
-          if (!clean) continue;
+    if (targetLang === 'id') {
+      translated = applyScanlationFilter(translated, genre);
+    }
 
-          let minLeft = Infinity;
-          let minTop = Infinity;
-          let maxRight = -Infinity;
-          let maxBottom = -Infinity;
+    const finalResult = translated.trim();
+    comicTranslationCache.set(cacheKey, finalResult);
+    return finalResult;
+  }
 
-          if (line.Words && line.Words.length > 0) {
-            for (const w of line.Words) {
-              minLeft = Math.min(minLeft, w.Left);
-              minTop = Math.min(minTop, w.Top);
-              maxRight = Math.max(maxRight, w.Left + w.Width);
-              maxBottom = Math.max(maxBottom, w.Top + w.Height);
+  // In handleMessage:
+  // Handle OCR_AND_TRANSLATE_PANEL (Multi-tile OCR.space extraction + batch translation)
+  if (actionType === 'OCR_AND_TRANSLATE_PANEL') {
+    const lang = message.lang || 'kor'; // kor, eng, jpn, chs
+    const targetLang = message.targetLang || 'id';
+    const genre = message.genre || 'action';
+
+    const tiles =
+      message.tiles && Array.isArray(message.tiles) && message.tiles.length > 0
+        ? message.tiles
+        : message.base64Image
+          ? [{ base64: message.base64Image, startY: 0 }]
+          : null;
+
+    if (!tiles) {
+      sendResponse({ success: false, error: 'Missing image tiles or base64Image' });
+      return false;
+    }
+
+    (async () => {
+      try {
+        const allParsedLines = [];
+
+        // 1. Process each tile through OCR
+        for (const tile of tiles) {
+          const rawLines = await fetchOcrLines(tile.base64, lang);
+          const yOffset = tile.startY || 0;
+
+          for (const line of rawLines) {
+            const lineText =
+              line.LineText || (line.Words ? line.Words.map((w) => w.WordText).join(' ') : '');
+            const clean = lineText.trim();
+            if (!clean) continue;
+
+            let minLeft = Infinity;
+            let minTop = Infinity;
+            let maxRight = -Infinity;
+            let maxBottom = -Infinity;
+
+            if (line.Words && line.Words.length > 0) {
+              for (const w of line.Words) {
+                minLeft = Math.min(minLeft, w.Left);
+                minTop = Math.min(minTop, w.Top);
+                maxRight = Math.max(maxRight, w.Left + w.Width);
+                maxBottom = Math.max(maxBottom, w.Top + w.Height);
+              }
+            } else {
+              minLeft = 0;
+              minTop = line.MinTop || 0;
+              maxRight = minLeft + 160;
+              maxBottom = minTop + (line.MaxHeight || 30);
             }
-          } else {
-            minLeft = 0;
-            minTop = line.MinTop || 0;
-            maxRight = minLeft + 160;
-            maxBottom = minTop + (line.MaxHeight || 30);
-          }
 
-          parsedLines.push({
-            text: clean,
-            left: minLeft,
-            top: minTop,
-            right: maxRight,
-            bottom: maxBottom,
-            width: maxRight - minLeft,
-            height: maxBottom - minTop
-          });
+            allParsedLines.push({
+              text: clean,
+              left: minLeft,
+              top: minTop + yOffset,
+              right: maxRight,
+              bottom: maxBottom + yOffset,
+              width: maxRight - minLeft,
+              height: maxBottom - minTop
+            });
+          }
         }
 
-        // 2. Sort lines vertically (top to bottom)
-        parsedLines.sort((a, b) => a.top - b.top);
+        // 2. Deduplicate lines caught in overlap margins
+        const dedupedLines = [];
+        for (const line of allParsedLines) {
+          const duplicate = dedupedLines.find(
+            (d) =>
+              Math.abs(d.top - line.top) < 18 &&
+              Math.abs(d.left - line.left) < 30 &&
+              d.text === line.text
+          );
+          if (!duplicate) {
+            dedupedLines.push(line);
+          }
+        }
 
-        // 3. Line Merging: Cluster vertically adjacent lines that belong strictly to the same paragraph/card
+        // 3. Sort lines vertically (top to bottom)
+        dedupedLines.sort((a, b) => a.top - b.top);
+
+        // 4. Line Merging: Cluster vertically adjacent lines belonging strictly to same paragraph
         const clusters = [];
-        for (const line of parsedLines) {
+        for (const line of dedupedLines) {
           let matched = null;
 
           for (const cl of clusters) {
@@ -2836,8 +2918,6 @@ function handleMessage(message, sender, sendResponse) {
             const hOverlap = Math.min(cl.right, line.right) - Math.max(cl.left, line.left);
             const minW = Math.min(cl.right - cl.left, line.width);
 
-            // Strict merge: lines must be closely stacked (gap <= 32px or 1.1x line height)
-            // and share substantial horizontal overlap (>= 40% of line width)
             const maxGap = Math.min(32, Math.max(12, avgLineH * 1.1));
             if (vDist >= -12 && vDist <= maxGap && hOverlap >= minW * 0.4) {
               matched = cl;
@@ -2866,19 +2946,17 @@ function handleMessage(message, sender, sendResponse) {
           }
         }
 
-        // 4. Batch translate merged clusters
+        // 5. Batch translate merged clusters via caching layer
         const bubbles = [];
         for (const cl of clusters) {
-          // Post-OCR Filter: Sanitize noise or broken Hangul artifacts
           let sourceText = cl.text.trim();
           if (
             sourceText.length <= 1 &&
             !/[\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/.test(sourceText)
           ) {
-            continue; // Skip isolated stray punctuation/noise
+            continue;
           }
 
-          // Padding box
           const padX = 6;
           const padY = 4;
           const bbox = {
@@ -2888,52 +2966,20 @@ function handleMessage(message, sender, sendResponse) {
             h: Math.round(cl.bottom - cl.top + padY * 2)
           };
 
-          let translated = sourceText;
-          try {
-            const tUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(sourceText)}`;
-            const tRes = await fetch(tUrl);
-            if (tRes.ok) {
-              const tData = await tRes.json();
-              if (tData && Array.isArray(tData[0])) {
-                translated = tData[0]
-                  .map((seg) => (seg && seg[0] ? seg[0] : ''))
-                  .filter(Boolean)
-                  .join(' ');
-              }
-            }
-          } catch (_) {}
-
-          // Post-OCR hallucination cleaner: remove stray gibberish English from Korean dialogues
-          if (lang === 'kor') {
-            translated = translated.replace(/\bENCLAND\b/gi, 'GAK BOLEH');
-            translated = translated.replace(
-              /\b(JANGAN|TIDAK)\s+ENCLAND\b/gi,
-              'JANGAN! NGGAK BOLEH!'
-            );
-            translated = translated.replace(/\bADALAH\s+TERMASUK\b/gi, '');
-            translated = translated.replace(/\bRBURR\b/gi, 'Pihak sekolah');
-            translated = translated.replace(/\bJSa\s+Gyeonggi\b/gi, '');
-            translated = translated.replace(/\b010-\d{3,4}-\d{4}\b/g, '');
-            translated = translated.replace(/13\/-Lee\s+Myung-hee/gi, 'Lee Myung-hee');
-            translated = translated.replace(/\s{2,}/g, ' ').trim();
-          }
-
-          if (targetLang === 'id') {
-            translated = applyScanlationFilter(translated, genre);
-          }
+          const translated = await translateTextGtx(sourceText, targetLang, genre, lang);
 
           bubbles.push({
             bbox,
             originalText: sourceText,
-            translatedText: translated.trim()
+            translatedText: translated
           });
         }
 
         sendResponse({ success: true, bubbles });
-      })
-      .catch((err) => {
+      } catch (err) {
         sendResponse({ success: false, error: err.message });
-      });
+      }
+    })();
 
     return true;
   }

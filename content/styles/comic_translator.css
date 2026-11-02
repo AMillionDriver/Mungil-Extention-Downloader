@@ -189,6 +189,19 @@
   z-index: 100;
 }
 
+/* Subtle instant translation veil while pre-loading */
+.mungil-trans-cover {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0.85;
+  transition: opacity 0.25s ease;
+  z-index: 90;
+}
+
 /* Individual Translated Speech Bubble (Flat blend, zero heavy border/shadow) */
 .mungil-trans-bubble {
   position: absolute;

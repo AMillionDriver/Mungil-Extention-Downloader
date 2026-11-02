@@ -18,6 +18,7 @@
   let currentGenre = 'action'; // action, fantasy, romance, formal
 
   const translatedPanelsSet = new WeakSet();
+  const panelCache = new WeakMap();
   const activeQueue = [];
   let isProcessingQueue = false;
   let scrollObserver = null;
@@ -101,64 +102,51 @@
   }
 
   /**
-   * Captures a viewport-aligned vertical slice of the comic panel at 100% native width.
-   * Eliminates the 294px resolution squash bug while keeping upload payload < 150KB.
+   * Captures full panel sliced into vertical tiles with overlap to guarantee zero missed headers or memos.
+   * Eliminates the 294px resolution squash and viewport-crop misses.
    *
    * @param {HTMLImageElement} imgEl
-   * @returns {Promise<{base64: string, sliceStartY: number, sliceWidth: number, sliceHeight: number, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}>}
+   * @returns {Promise<Array<{base64: string, startY: number, height: number, width: number, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}>>}
    */
-  async function getImageSlice(imgEl) {
+  async function getFullPanelTiles(imgEl) {
     const naturalW = imgEl.naturalWidth || imgEl.width || 800;
     const naturalH = imgEl.naturalHeight || imgEl.height || 1200;
 
-    // Viewport-aligned slice calculation
-    const rect = imgEl.getBoundingClientRect();
-    const visibleTopDom = Math.max(0, -rect.top);
-    const visibleBottomDom = Math.min(imgEl.clientHeight, window.innerHeight - rect.top);
+    function buildTiles(srcImg) {
+      const tileH = 1200;
+      const overlap = 180;
+      const step = tileH - overlap;
+      const tiles = [];
 
-    const scaleDomToNaturalY = naturalH / (imgEl.clientHeight || naturalH);
-    const paddingNaturalY = 140 * scaleDomToNaturalY;
+      for (let y = 0; y < naturalH; y += step) {
+        const h = Math.min(tileH, naturalH - y);
+        const canvas = document.createElement('canvas');
+        canvas.width = naturalW;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(srcImg, 0, y, naturalW, h, 0, 0, naturalW, h);
 
-    let sliceStartY = Math.max(0, Math.floor(visibleTopDom * scaleDomToNaturalY - paddingNaturalY));
-    let sliceEndY = Math.min(
-      naturalH,
-      Math.ceil(visibleBottomDom * scaleDomToNaturalY + paddingNaturalY)
-    );
-    let sliceH = sliceEndY - sliceStartY;
+        tiles.push({
+          startY: y,
+          height: h,
+          width: naturalW,
+          base64: canvas.toDataURL('image/jpeg', 0.84),
+          canvas,
+          ctx
+        });
 
-    // Guard: if image is mostly off-screen or small, capture up to first 1400px at native width
-    if (sliceH < 250 || isNaN(sliceH)) {
-      sliceStartY = 0;
-      sliceH = Math.min(naturalH, 1400);
+        if (y + h >= naturalH) break;
+      }
+      return tiles;
     }
 
-    function createSliceFromSource(srcImg) {
-      const canvas = document.createElement('canvas');
-      canvas.width = naturalW; // 100% Native Width (e.g. 800px)
-      canvas.height = sliceH;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(srcImg, 0, sliceStartY, naturalW, sliceH, 0, 0, naturalW, sliceH);
-      return {
-        base64: canvas.toDataURL('image/jpeg', 0.85),
-        sliceStartY,
-        sliceWidth: naturalW,
-        sliceHeight: sliceH,
-        canvas,
-        ctx
-      };
-    }
-
-    // 1. Direct in-page canvas slice
     try {
-      const direct = createSliceFromSource(imgEl);
-      if (direct && direct.base64 && direct.base64.length > 200) {
+      const direct = buildTiles(imgEl);
+      if (direct && direct.length > 0 && direct[0].base64.length > 200) {
         return direct;
       }
-    } catch (_) {
-      // Canvas tainted due to cross-origin CDN - fetch via service worker
-    }
+    } catch (_) {}
 
-    // 2. Background proxy fallback
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
         {
@@ -172,19 +160,27 @@
             const temp = new Image();
             temp.onload = () => {
               try {
-                resolve(createSliceFromSource(temp));
+                resolve(buildTiles(temp));
               } catch (err) {
                 reject(err);
               }
             };
-            temp.onerror = () => reject(new Error('Failed to render proxied comic slice'));
+            temp.onerror = () => reject(new Error('Gagal render tile panel proxy'));
             temp.src = res.dataUrl;
           } else {
-            reject(new Error(res?.error || 'Failed to fetch panel image slice'));
+            reject(new Error(res?.error || 'Gagal ambil data tile panel'));
           }
         }
       );
     });
+  }
+
+  /**
+   * Backwards-compatible single-slice capture helper.
+   */
+  async function getImageSlice(imgEl) {
+    const tiles = await getFullPanelTiles(imgEl);
+    return tiles[0];
   }
 
   /**
@@ -410,6 +406,49 @@
   }
 
   /**
+   * Renders DOM bubble elements into the panel overlay from unified bubble metadata.
+   */
+  function renderBubblesToOverlay(overlay, imgEl, bubbles) {
+    overlay.innerHTML = '';
+    const naturalW = imgEl.naturalWidth || imgEl.clientWidth || 800;
+    const naturalH = imgEl.naturalHeight || imgEl.clientHeight || 1200;
+    const scaleX = imgEl.clientWidth / naturalW;
+    const scaleY = imgEl.clientHeight / naturalH;
+
+    for (const item of bubbles) {
+      const bubbleDiv = document.createElement('div');
+      bubbleDiv.className = 'mungil-trans-bubble';
+      bubbleDiv.setAttribute('data-original-text', item.originalText);
+      bubbleDiv.title = `Asli: ${item.originalText}\nKlik untuk salin`;
+
+      const bLeft = item.bbox.x * scaleX;
+      const bTop = item.bbox.y * scaleY;
+      const bWidth = Math.max(36, item.bbox.w * scaleX);
+      const bHeight = Math.max(24, item.bbox.h * scaleY);
+
+      bubbleDiv.style.left = `${bLeft}px`;
+      bubbleDiv.style.top = `${bTop}px`;
+      bubbleDiv.style.width = `${bWidth}px`;
+      bubbleDiv.style.height = `${bHeight}px`;
+      bubbleDiv.style.backgroundColor = item.bgColor || '#ffffff';
+      bubbleDiv.style.color = item.textColor || '#000000';
+      bubbleDiv.innerText = item.translatedText;
+
+      bubbleDiv.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(item.translatedText);
+        bubbleDiv.style.outline = '2px solid #ffb800';
+        setTimeout(() => {
+          bubbleDiv.style.outline = 'none';
+        }, 600);
+      });
+
+      autoFitBubbleText(bubbleDiv, bWidth, bHeight);
+      overlay.appendChild(bubbleDiv);
+    }
+  }
+
+  /**
    * Translates an entire comic panel image and renders DOM speech bubbles.
    *
    * @param {HTMLImageElement} imgEl
@@ -422,16 +461,30 @@
     translatedPanelsSet.add(imgEl);
 
     const overlay = ensureOverlayContainer(imgEl);
+
+    // 0ms Cache Hit: If panel was already translated, render instantaneously
+    if (panelCache.has(imgEl) && !force) {
+      const cachedBubbles = panelCache.get(imgEl);
+      renderBubblesToOverlay(overlay, imgEl, cachedBubbles);
+      return cachedBubbles.length;
+    }
+
     if (force) {
       overlay.innerHTML = '';
     }
 
+    // Instant Cover: place gentle non-intrusive veil so user doesn't see raw untranslated text
+    const cover = document.createElement('div');
+    cover.className = 'mungil-trans-cover';
+    overlay.appendChild(cover);
+
     if (statusCallback) statusCallback('Ambil piksel...');
-    let sliceMeta = null;
+    let tiles = null;
     try {
-      sliceMeta = await getImageSlice(imgEl);
+      tiles = await getFullPanelTiles(imgEl);
     } catch (_err) {
       translatedPanelsSet.delete(imgEl);
+      cover.remove();
       if (statusCallback) statusCallback('Gagal baca panel');
       return;
     }
@@ -441,12 +494,14 @@
       chrome.runtime.sendMessage(
         {
           action: 'OCR_AND_TRANSLATE_PANEL',
-          base64Image: sliceMeta.base64,
+          tiles: tiles.map((t) => ({ base64: t.base64, startY: t.startY })),
           lang: currentSourceLang,
           targetLang: 'id',
           genre: currentGenre
         },
         (res) => {
+          cover.remove();
+
           if (!res || !res.success) {
             translatedPanelsSet.delete(imgEl);
             if (statusCallback) statusCallback('OCR gagal');
@@ -459,66 +514,41 @@
             return resolve(0);
           }
 
-          // Snap each bounding box to container contour & detect background color
+          // Contour snap bounding box inside corresponding tile canvas
           const snappedBubbles = rawBubbles.map((item) => {
-            const snapped = snapBboxToContainer(
-              sliceMeta.ctx,
-              item.bbox,
-              sliceMeta.sliceWidth,
-              sliceMeta.sliceHeight
-            );
+            const tile =
+              tiles.find((t) => item.bbox.y >= t.startY && item.bbox.y <= t.startY + t.height) ||
+              tiles[0];
+
+            const localBbox = {
+              x: item.bbox.x,
+              y: Math.max(0, item.bbox.y - tile.startY),
+              w: item.bbox.w,
+              h: item.bbox.h
+            };
+
+            const snapped = snapBboxToContainer(tile.ctx, localBbox, tile.width, tile.height);
+
             return {
               ...item,
-              bbox: snapped,
+              bbox: {
+                x: snapped.x,
+                y: tile.startY + snapped.y,
+                w: snapped.w,
+                h: snapped.h
+              },
               bgColor: snapped.bgColor,
               textColor: snapped.textColor
             };
           });
 
-          // Merge co-located boxes belonging to the same slide card or bubble
+          // Merge co-located boxes belonging to the same slide card or speech bubble
           const unifiedBubbles = mergeOverlappingBubbles(snappedBubbles);
 
-          const naturalW = imgEl.naturalWidth || imgEl.clientWidth || 800;
-          const naturalH = imgEl.naturalHeight || imgEl.clientHeight || 1200;
-          const scaleX = imgEl.clientWidth / naturalW;
-          const scaleY = imgEl.clientHeight / naturalH;
+          // Save to panelCache for 0ms instantaneous future visits
+          panelCache.set(imgEl, unifiedBubbles);
 
-          for (const item of unifiedBubbles) {
-            const bubbleDiv = document.createElement('div');
-            bubbleDiv.className = 'mungil-trans-bubble';
-            bubbleDiv.setAttribute('data-original-text', item.originalText);
-            bubbleDiv.title = `Asli: ${item.originalText}\nKlik untuk salin`;
-
-            // Coordinate mapping: add sliceStartY in native space, then scale to screen DOM
-            const trueNaturalX = item.bbox.x;
-            const trueNaturalY = sliceMeta.sliceStartY + item.bbox.y;
-
-            const bLeft = trueNaturalX * scaleX;
-            const bTop = trueNaturalY * scaleY;
-            const bWidth = Math.max(36, item.bbox.w * scaleX);
-            const bHeight = Math.max(24, item.bbox.h * scaleY);
-
-            bubbleDiv.style.left = `${bLeft}px`;
-            bubbleDiv.style.top = `${bTop}px`;
-            bubbleDiv.style.width = `${bWidth}px`;
-            bubbleDiv.style.height = `${bHeight}px`;
-            bubbleDiv.style.backgroundColor = item.bgColor || '#ffffff';
-            bubbleDiv.style.color = item.textColor || '#000000';
-            bubbleDiv.innerText = item.translatedText;
-
-            // Click to copy translation
-            bubbleDiv.addEventListener('click', (e) => {
-              e.stopPropagation();
-              navigator.clipboard?.writeText(item.translatedText);
-              bubbleDiv.style.outline = '2px solid #ffb800';
-              setTimeout(() => {
-                bubbleDiv.style.outline = 'none';
-              }, 600);
-            });
-
-            autoFitBubbleText(bubbleDiv, bWidth, bHeight);
-            overlay.appendChild(bubbleDiv);
-          }
+          renderBubblesToOverlay(overlay, imgEl, unifiedBubbles);
 
           if (statusCallback) statusCallback(`Selesai (${unifiedBubbles.length} balon)`);
           resolve(unifiedBubbles.length);
@@ -528,19 +558,23 @@
   }
 
   /**
-   * Processes the auto-scroll translation queue sequentially.
+   * Processes the auto-scroll translation queue with concurrency of 2 panels for predictive pre-loading.
    */
   async function processAutoQueue(statusCallback) {
     if (isProcessingQueue || activeQueue.length === 0) return;
     isProcessingQueue = true;
 
     while (activeQueue.length > 0) {
-      const nextPanel = activeQueue.shift();
-      if (nextPanel && !translatedPanelsSet.has(nextPanel)) {
-        try {
-          await translateComicPanel(nextPanel, statusCallback);
-        } catch (_) {}
-      }
+      const batch = activeQueue.splice(0, 2);
+      await Promise.all(
+        batch.map(async (panel) => {
+          if (panel && !translatedPanelsSet.has(panel)) {
+            try {
+              await translateComicPanel(panel, statusCallback);
+            } catch (_) {}
+          }
+        })
+      );
     }
 
     isProcessingQueue = false;
@@ -549,6 +583,7 @@
 
   /**
    * Sets up or teardowns IntersectionObserver for seamless auto-scroll translation.
+   * Uses 1400px forward rootMargin for predictive pre-loading 2-3 viewports ahead.
    *
    * @param {boolean} enable
    * @param {function} statusCallback
@@ -579,7 +614,7 @@
         }
         processAutoQueue(statusCallback);
       },
-      { rootMargin: '300px 0px' }
+      { rootMargin: '1400px 0px' }
     );
 
     const panels = findComicPanels();
@@ -942,7 +977,9 @@
       autoFitBubbleText,
       ensureOverlayContainer,
       snapBboxToContainer,
-      mergeOverlappingBubbles
+      mergeOverlappingBubbles,
+      getFullPanelTiles,
+      renderBubblesToOverlay
     };
   }
 })();
