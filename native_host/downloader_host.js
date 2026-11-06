@@ -482,11 +482,16 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
       const curStart = chunk.start + chunk.written;
       if (curStart > chunk.end) return resolve();
 
-      const reqHeaders = Object.assign({}, headers, {
-        Range: `bytes=${curStart}-${chunk.end}`,
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-      });
+      const reqHeaders = Object.assign(
+        {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+        },
+        headers,
+        {
+          Range: `bytes=${curStart}-${chunk.end}`
+        }
+      );
 
       const req = client.request(
         parsed,
@@ -722,6 +727,7 @@ function downloadWithRangeChunks(msg) {
   }
 
   const customHeaders = Object.assign({}, msg.headers || {});
+  if (msg.userAgent) customHeaders['User-Agent'] = msg.userAgent;
   if (msg.referer) customHeaders['Referer'] = msg.referer;
   if (!customHeaders['Referer'] && targetUrl.includes('googlevideo.com')) {
     customHeaders['Referer'] = 'https://anoboy.at/';

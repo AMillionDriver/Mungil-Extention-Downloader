@@ -225,7 +225,8 @@
     if (!html || typeof html !== 'string') return [];
 
     const contextStr = `${currentTitle} ${currentUrl}`;
-    const sMatch = contextStr.match(/season\s*[-_]?\s*(\d+)/i) || contextStr.match(/\bs(\d+)\b/i);
+    const sMatch =
+      contextStr.match(/(?:season|part)\s*[-_]?\s*(\d+)/i) || contextStr.match(/\bs(\d+)\b/i);
     const activeSeason = sMatch ? parseInt(sMatch[1], 10) : 1;
     const isMultiSeason = Boolean(sMatch);
 
@@ -233,7 +234,7 @@
       currentTitle
         .replace(/subtitle indonesia/gi, '')
         .replace(/episode\s*\d+/gi, '')
-        .replace(/season\s*\d+/gi, '')
+        .replace(/(?:season|part)\s*\d+/gi, '')
         .replace(/anoboy/gi, '')
     );
     const titleTokens = baseTitleClean.split(' ').filter((t) => t.length > 2);
@@ -283,7 +284,9 @@
       if (titleTokens.length > 0 && matchedTokenCount === 0) continue;
 
       // Season verification: prevent mixing S1 into S2 or S2 into S1
-      const candSeasonMatch = (title + ' ' + href).match(/season\s*[-_]?\s*(\d+)/i);
+      const candSeasonMatch =
+        (title + ' ' + href).match(/(?:season|part)\s*[-_]?\s*(\d+)/i) ||
+        (title + ' ' + href).match(/\bs(\d+)\b/i);
       const candSeason = candSeasonMatch ? parseInt(candSeasonMatch[1], 10) : 1;
 
       if (isMultiSeason && candSeason !== activeSeason) continue;
@@ -812,7 +815,8 @@
               url: streamUrl,
               filename,
               title: `${animeTitle} - Episode ${item.episodeNum}`,
-              referer: 'https://anoboy.at/'
+              referer: 'https://anoboy.at/',
+              userAgent: navigator.userAgent
             },
             (res) => {
               if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
@@ -1071,7 +1075,8 @@
                 url: streamUrl,
                 filename,
                 title: `${data.animeTitle} - Episode ${data.episodeNum}`,
-                referer: 'https://anoboy.at/'
+                referer: 'https://anoboy.at/',
+                userAgent: navigator.userAgent
               },
               (res) => {
                 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
