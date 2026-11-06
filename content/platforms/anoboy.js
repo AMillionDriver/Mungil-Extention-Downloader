@@ -387,9 +387,15 @@
             <button type="button" class="mungil-ab-chip" data-filter="none">Batal Pilih</button>
           </div>
           <div class="mungil-ab-res-picker">
+            <label for="mungil-ab-modal-server-select">Server:</label>
+            <select id="mungil-ab-modal-server-select" style="background:#1c202a;border:1px solid rgba(255,193,7,0.3);color:#ffc107;font-weight:700;padding:4px 8px;border-radius:6px;outline:none;cursor:pointer;">
+              <option value="gofile" selected>⚡ Gofile (High Speed 1K/720p)</option>
+              <option value="blogger">🌐 Blogger (Auto-Folder MP4)</option>
+            </select>
             <label for="mungil-ab-res-select">Resolusi:</label>
             <select id="mungil-ab-res-select">
-              <option value="720p" selected>720p HD (Google Video/Blogger)</option>
+              <option value="1080p">1080p (1K)</option>
+              <option value="720p" selected>720p HD</option>
               <option value="480p">480p Standar</option>
               <option value="360p">360p Hemat Kuota</option>
             </select>
@@ -417,6 +423,9 @@
           </div>
           <div class="mungil-ab-footer-btns">
             <button type="button" class="mungil-ab-btn mungil-ab-btn-secondary" id="mungil-ab-cancel-btn">Tutup</button>
+            <button type="button" class="mungil-ab-btn mungil-ab-btn-secondary" id="mungil-ab-copy-gofile-btn">
+              <span>📋 Salin Link Gofile</span>
+            </button>
             <button type="button" class="mungil-ab-btn mungil-ab-btn-primary" id="mungil-ab-start-btn">
               ${SVG_DOWNLOAD}
               <span>Unduh Batch Terpilih</span>
@@ -470,10 +479,86 @@
 
     checkboxes.forEach((cb) => cb.addEventListener('change', updateCount));
 
-    // Start Download Queue
+    // Dynamic Server Selector Mode
+    const serverSelect = modal.querySelector('#mungil-ab-modal-server-select');
     const startBtn = modal.querySelector('#mungil-ab-start-btn');
+    const copyGofileBtn = modal.querySelector('#mungil-ab-copy-gofile-btn');
+
+    function updateServerMode() {
+      const mode = serverSelect ? serverSelect.value : 'gofile';
+      if (mode === 'gofile') {
+        if (startBtn) startBtn.innerHTML = `<span>⚡ Buka Gofile Terpilih</span>`;
+        if (copyGofileBtn) copyGofileBtn.style.display = 'inline-flex';
+      } else {
+        if (startBtn) startBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Batch Terpilih</span>`;
+        if (copyGofileBtn) copyGofileBtn.style.display = 'none';
+      }
+    }
+    if (serverSelect) {
+      serverSelect.addEventListener('change', updateServerMode);
+      updateServerMode();
+    }
+
+    // Copy Gofile Links
+    if (copyGofileBtn) {
+      copyGofileBtn.addEventListener('click', async () => {
+        const selected = Array.from(modal.querySelectorAll('.mungil-ab-checkbox:checked')).map(
+          (cb) => ({
+            episodeNum: parseInt(cb.getAttribute('data-eps'), 10),
+            url: cb.getAttribute('data-url')
+          })
+        );
+        if (selected.length === 0) return;
+
+        copyGofileBtn.disabled = true;
+        copyGofileBtn.innerHTML = `<span>Mengambil Link...</span>`;
+
+        const resSelect = modal.querySelector('#mungil-ab-res-select');
+        const resolution = resSelect ? resSelect.value : '1080p';
+
+        const links = [];
+        for (const ep of selected) {
+          const statusEl = modal.querySelector(`#ab-status-${ep.episodeNum}`);
+          if (statusEl) {
+            statusEl.textContent = 'Mencari Gofile...';
+            statusEl.style.color = '#FFC107';
+          }
+          const gofileUrl = await resolveGofileUrlForEpisode(ep.url, resolution);
+          if (gofileUrl) {
+            links.push(`Episode ${ep.episodeNum}: ${gofileUrl}`);
+            if (statusEl) {
+              statusEl.textContent = '✓ Gofile OK';
+              statusEl.style.color = '#00E676';
+            }
+          } else if (statusEl) {
+            statusEl.textContent = 'Gofile Nihil';
+            statusEl.style.color = '#FF5252';
+          }
+        }
+
+        if (links.length > 0) {
+          try {
+            await navigator.clipboard.writeText(links.join('\n'));
+            copyGofileBtn.innerHTML = `<span>✓ ${links.length} Link Disalin!</span>`;
+          } catch (_) {
+            copyGofileBtn.innerHTML = `<span>Gagal Salin</span>`;
+          }
+        } else {
+          copyGofileBtn.innerHTML = `<span>Link Tidak Ditemukan</span>`;
+        }
+
+        setTimeout(() => {
+          if (copyGofileBtn) {
+            copyGofileBtn.disabled = false;
+            copyGofileBtn.innerHTML = `<span>📋 Salin Link Gofile</span>`;
+          }
+        }, 3000);
+      });
+    }
+
+    // Start Action (Gofile Open / Blogger Auto-Download)
     if (startBtn) {
-      startBtn.addEventListener('click', () => {
+      startBtn.addEventListener('click', async () => {
         const selected = Array.from(modal.querySelectorAll('.mungil-ab-checkbox:checked')).map(
           (cb) => ({
             episodeNum: parseInt(cb.getAttribute('data-eps'), 10),
@@ -483,13 +568,44 @@
 
         if (selected.length === 0) return;
 
-        startBtn.disabled = true;
-        startBtn.innerHTML = `<span>Memulai Antrean (${selected.length})...</span>`;
-
+        const mode = serverSelect ? serverSelect.value : 'gofile';
         const resSelect = modal.querySelector('#mungil-ab-res-select');
         const resolution = resSelect ? resSelect.value : '720p';
 
-        executeBatchDownload(currentData.animeTitle, selected, resolution, modal);
+        if (mode === 'gofile') {
+          startBtn.disabled = true;
+          startBtn.innerHTML = `<span>Membuka Gofile...</span>`;
+
+          for (const ep of selected) {
+            const statusEl = modal.querySelector(`#ab-status-${ep.episodeNum}`);
+            if (statusEl) {
+              statusEl.textContent = 'Mencari Gofile...';
+              statusEl.style.color = '#FFC107';
+            }
+            const gofileUrl = await resolveGofileUrlForEpisode(ep.url, resolution);
+            if (gofileUrl) {
+              window.open(gofileUrl, '_blank');
+              if (statusEl) {
+                statusEl.textContent = '✓ Terbuka';
+                statusEl.style.color = '#00E676';
+              }
+            } else if (statusEl) {
+              statusEl.textContent = 'Gofile Nihil';
+              statusEl.style.color = '#FF5252';
+            }
+            await new Promise((r) => setTimeout(r, 450));
+          }
+
+          startBtn.disabled = false;
+          startBtn.innerHTML = `<span>✓ Selesai Terbuka</span>`;
+          setTimeout(() => {
+            if (startBtn) updateServerMode();
+          }, 3000);
+        } else {
+          startBtn.disabled = true;
+          startBtn.innerHTML = `<span>Memulai Antrean (${selected.length})...</span>`;
+          executeBatchDownload(currentData.animeTitle, selected, resolution, modal);
+        }
       });
     }
   }
@@ -686,6 +802,43 @@
     runNext();
   }
 
+  /**
+   * Resolves Gofile direct download URL for a given episode web page.
+   * Prioritizes highest quality mirror (1K/1080p -> 720p).
+   *
+   * @param {string} episodeUrl
+   * @param {string} [preferredRes='1080p']
+   * @returns {Promise<string|null>}
+   */
+  async function resolveGofileUrlForEpisode(episodeUrl, preferredRes = '1080p') {
+    try {
+      const res = await fetch(episodeUrl, { credentials: 'include' });
+      if (!res.ok) return null;
+      const html = await res.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const udlLinks = doc.querySelectorAll('a.udl');
+      const gofileCandidates = [];
+      for (const a of udlLinks) {
+        const href = a.getAttribute('href') || '';
+        const text = a.textContent.trim();
+        if (href.includes('gofile.io') && href !== 'none') {
+          gofileCandidates.push({ resolution: text, url: href });
+        }
+      }
+      if (gofileCandidates.length === 0) return null;
+      if (preferredRes.includes('1080') || preferredRes.includes('1k')) {
+        const item1k = gofileCandidates.find((c) => /1k|1080/i.test(c.resolution));
+        if (item1k) return item1k.url;
+      }
+      const item720 = gofileCandidates.find((c) => /720/i.test(c.resolution));
+      if (item720) return item720.url;
+      return gofileCandidates[0].url;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // =========================================================================
   // 6. In-Page Floating Bar
   // =========================================================================
@@ -701,6 +854,12 @@
       document.body.appendChild(floatingBarEl);
     }
 
+    const mirrors = Array.isArray(data.downloadMirrors) ? data.downloadMirrors : [];
+    const gofileItems = mirrors.filter(
+      (m) => m.provider && m.provider.toLowerCase().includes('gofile') && m.url && m.url !== 'none'
+    );
+    const hasGofile = gofileItems.length > 0;
+
     floatingBarEl.innerHTML = `
       <div class="mungil-ab-bar-content">
         <div class="mungil-ab-bar-info">
@@ -708,6 +867,10 @@
           <span class="mungil-ab-bar-title" title="${data.animeTitle}">${data.animeTitle}</span>
         </div>
         <div class="mungil-ab-bar-actions">
+          <select class="mungil-ab-server-select" id="mungil-ab-server-select" title="Pilih server unduhan: Gofile (Kecepatan Tinggi) atau Blogger (Direct)">
+            ${hasGofile ? '<option value="gofile" selected>⚡ Gofile (High Speed)</option>' : ''}
+            <option value="blogger" ${!hasGofile ? 'selected' : ''}>🌐 Blogger Direct</option>
+          </select>
           <button type="button" class="mungil-ab-btn mungil-ab-btn-primary" id="mungil-ab-btn-single">
             ${SVG_DOWNLOAD}
             <span>Unduh Eps Ini</span>
@@ -723,6 +886,26 @@
     const singleBtn = floatingBarEl.querySelector('#mungil-ab-btn-single');
     if (singleBtn) {
       singleBtn.addEventListener('click', async () => {
+        const serverSelect = floatingBarEl.querySelector('#mungil-ab-server-select');
+        const selectedServer = serverSelect ? serverSelect.value : hasGofile ? 'gofile' : 'blogger';
+
+        if (selectedServer === 'gofile') {
+          let targetGofile = gofileItems.find((i) => /1k|1080/i.test(i.resolution));
+          if (!targetGofile) {
+            targetGofile = gofileItems.find((i) => /720/i.test(i.resolution)) || gofileItems[0];
+          }
+
+          if (targetGofile && targetGofile.url) {
+            window.open(targetGofile.url, '_blank');
+            singleBtn.disabled = false;
+            singleBtn.innerHTML = `${SVG_CHECK} <span>Membuka Gofile (${targetGofile.resolution})...</span>`;
+            setTimeout(() => {
+              if (singleBtn) singleBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Eps Ini</span>`;
+            }, 3000);
+            return;
+          }
+        }
+
         singleBtn.disabled = true;
         singleBtn.innerHTML = `<span>Mengunduh...</span>`;
 
@@ -848,6 +1031,7 @@
       fetchSeriesEpisodes,
       extractStreamFromBloggerHtml,
       resolveStreamUrlForEpisode,
+      resolveGofileUrlForEpisode,
       renderFloatingBar
     };
   }
