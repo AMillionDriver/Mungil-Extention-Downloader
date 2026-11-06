@@ -260,8 +260,8 @@ const ANOBOY_CDN_RULES = [
     action: {
       type: 'modifyHeaders',
       requestHeaders: [
-        { header: 'Referer', operation: 'set', value: 'https://anoboy.quest/' },
-        { header: 'Origin', operation: 'set', value: 'https://anoboy.quest' }
+        { header: 'Referer', operation: 'set', value: 'https://anoboy.at/' },
+        { header: 'Origin', operation: 'set', value: 'https://anoboy.at' }
       ],
       responseHeaders: [
         { header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' },
@@ -2308,11 +2308,7 @@ async function resolveAnoboyStream(payload = {}) {
   const preferredRes = payload.preferredRes || payload.resolution || '720p';
 
   // If targetUrl is an episode web page, fetch page to locate adsbatch token or mirror
-  if (
-    !token &&
-    targetUrl &&
-    (targetUrl.includes('anoboy.quest') || targetUrl.includes('anoboy.'))
-  ) {
+  if (!token && targetUrl && (targetUrl.includes('anoboy.at') || targetUrl.includes('anoboy.'))) {
     try {
       const pageRes = await fetch(targetUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -2344,7 +2340,7 @@ async function resolveAnoboyStream(payload = {}) {
     try {
       const bloggerUrl = `https://www.blogger.com/video.g?token=${token}`;
       const res = await fetch(bloggerUrl, {
-        headers: { Referer: 'https://anoboy.quest/' }
+        headers: { Referer: 'https://anoboy.at/' }
       });
       if (res.ok) {
         const html = await res.text();

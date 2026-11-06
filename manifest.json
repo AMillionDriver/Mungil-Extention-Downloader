@@ -38,6 +38,7 @@
     "*://*.pinterest.com/*",
     "*://*.pinimg.com/*",
     "*://pin.it/*",
+    "*://*.anoboy.at/*",
     "*://*.anoboy.quest/*",
     "*://*.anoboy.online/*",
     "*://*.anoboy.ninja/*",
@@ -198,6 +199,7 @@
     },
     {
       "matches": [
+        "*://*.anoboy.at/*",
         "*://*.anoboy.quest/*",
         "*://*.anoboy.online/*",
         "*://*.anoboy.ninja/*"
@@ -387,6 +389,7 @@
         "icons/icon128.png"
       ],
       "matches": [
+        "*://*.anoboy.at/*",
         "*://*.anoboy.quest/*",
         "*://*.anoboy.online/*",
         "*://*.anoboy.ninja/*"

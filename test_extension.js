@@ -7257,8 +7257,8 @@ async function runAllSuites() {
 
       test('Manifest V3 registers anoboy domains and blogger.com in host_permissions & content_scripts', () => {
         assert.ok(
-          manifest.host_permissions.includes('*://*.anoboy.quest/*'),
-          'host_permissions must include *://*.anoboy.quest/*'
+          manifest.host_permissions.includes('*://*.anoboy.at/*'),
+          'host_permissions must include *://*.anoboy.at/*'
         );
         assert.ok(
           manifest.host_permissions.includes('*://*.blogger.com/*'),
@@ -7270,8 +7270,8 @@ async function runAllSuites() {
         );
         assert.ok(contentEntry, 'content_scripts must have entry for anoboy.js');
         assert.ok(
-          contentEntry.matches.includes('*://*.anoboy.quest/*'),
-          'anoboy.js matches must include *://*.anoboy.quest/*'
+          contentEntry.matches.includes('*://*.anoboy.at/*'),
+          'anoboy.js matches must include *://*.anoboy.at/*'
         );
         assert.deepStrictEqual(
           contentEntry.css,
@@ -7317,9 +7317,11 @@ async function runAllSuites() {
 
         assert.ok(
           rule81.action.requestHeaders.some(
-            (h) => h.header === 'Referer' && h.value === 'https://anoboy.quest/'
+            (h) =>
+              h.header === 'Referer' &&
+              (h.value === 'https://anoboy.at/' || h.value === 'https://anoboy.quest/')
           ),
-          'Rule 81 must set Referer: https://anoboy.quest/'
+          'Rule 81 must set Referer: https://anoboy.at/ or https://anoboy.quest/'
         );
         assert.ok(
           rule81.action.responseHeaders.some(
