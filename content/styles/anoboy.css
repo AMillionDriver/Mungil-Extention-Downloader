@@ -25,9 +25,64 @@
     0 0 15px rgba(255, 193, 7, 0.15);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   color: #ffffff;
-  max-width: 520px;
+  max-width: 540px;
   animation: mungil-ab-slide-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   pointer-events: auto;
+  transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#mungil-anoboy-bar.minimized {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.6),
+    0 0 15px rgba(255, 193, 7, 0.4);
+}
+
+#mungil-anoboy-bar.minimized:hover {
+  transform: scale(1.1);
+  border-color: #ffc107;
+}
+
+#mungil-anoboy-bar.minimized .mungil-ab-bar-content {
+  display: none !important;
+}
+
+.mungil-ab-fab-icon {
+  display: none;
+  font-size: 20px;
+  line-height: 1;
+  color: #ffc107;
+  user-select: none;
+}
+
+#mungil-anoboy-bar.minimized .mungil-ab-fab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mungil-ab-btn-min {
+  background: transparent;
+  border: none;
+  color: #adb5bd;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  margin-left: 2px;
+}
+
+.mungil-ab-btn-min:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 @keyframes mungil-ab-slide-up {
@@ -227,6 +282,40 @@
   display: block;
 }
 
+.mungil-ab-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mungil-ab-action-btn {
+  background: transparent;
+  border: none;
+  color: #adb5bd;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.mungil-ab-action-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mungil-ab-action-btn.min {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.mungil-ab-action-btn.close {
+  font-size: 22px;
+}
+
 .mungil-ab-close {
   background: transparent;
   border: none;
@@ -240,6 +329,93 @@
 
 .mungil-ab-close:hover {
   color: #ffffff;
+}
+
+/* ==========================================================================
+   3. Floating Mini Progress Widget (#mungil-ab-mini-widget)
+   ========================================================================== */
+
+#mungil-ab-mini-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483646;
+  background: rgba(18, 20, 26, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 193, 7, 0.45);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.6),
+    0 0 20px rgba(255, 193, 7, 0.2);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 280px;
+  max-width: 340px;
+  animation: mungil-ab-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #ffffff;
+}
+
+#mungil-ab-mini-widget:hover {
+  transform: translateY(-2px);
+  border-color: #ffc107;
+}
+
+.mungil-ab-mini-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mungil-ab-mini-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8f9fa;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mungil-ab-mini-speed {
+  font-size: 11px;
+  font-weight: 700;
+  color: #00e676;
+}
+
+.mungil-ab-mini-bar-bg {
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.mungil-ab-mini-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffc107, #00e676);
+  border-radius: 9999px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.mungil-ab-mini-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #adb5bd;
+}
+
+.mungil-ab-mini-footer span.hint {
+  color: #ffc107;
+  font-weight: 600;
 }
 
 .mungil-ab-controls {

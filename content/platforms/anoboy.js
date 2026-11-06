@@ -350,6 +350,79 @@
   // =========================================================================
 
   let batchModalEl = null;
+  let miniWidgetEl = null;
+  const currentBatchState = {
+    animeTitle: '',
+    total: 0,
+    completed: 0,
+    speed: '',
+    percent: 0,
+    isDownloading: false
+  };
+
+  function updateMiniProgressWidget(data = {}) {
+    if (!miniWidgetEl) return;
+    Object.assign(currentBatchState, data);
+    const pct = Math.min(100, Math.max(0, currentBatchState.percent || 0));
+    const title = currentBatchState.animeTitle || 'AnoBoy Batch';
+    const spd = currentBatchState.speed ? ` • ${currentBatchState.speed}` : '';
+
+    miniWidgetEl.innerHTML = `
+      <div class="mungil-ab-mini-top">
+        <span class="mungil-ab-mini-title">⚡ ${title}</span>
+        <span class="mungil-ab-mini-speed">${currentBatchState.speed || 'Turbo'}</span>
+      </div>
+      <div class="mungil-ab-mini-bar-bg">
+        <div class="mungil-ab-mini-bar-fill" style="width: ${pct}%;"></div>
+      </div>
+      <div class="mungil-ab-mini-footer">
+        <span>${currentBatchState.completed}/${currentBatchState.total} Selesai (${pct}%)${spd}</span>
+        <span class="hint">Buka ↗</span>
+      </div>
+    `;
+  }
+
+  function showMiniProgressWidget(animeTitle, total) {
+    if (!miniWidgetEl) {
+      miniWidgetEl = document.createElement('div');
+      miniWidgetEl.id = 'mungil-ab-mini-widget';
+      document.body.appendChild(miniWidgetEl);
+
+      miniWidgetEl.addEventListener('click', () => {
+        restoreBatchModal();
+      });
+    }
+    currentBatchState.animeTitle = animeTitle;
+    currentBatchState.total = total;
+    currentBatchState.completed = 0;
+    currentBatchState.percent = 0;
+    currentBatchState.isDownloading = true;
+    miniWidgetEl.style.display = 'flex';
+    updateMiniProgressWidget();
+  }
+
+  function hideMiniProgressWidget() {
+    if (miniWidgetEl) {
+      miniWidgetEl.style.display = 'none';
+    }
+    currentBatchState.isDownloading = false;
+  }
+
+  function minimizeBatchModal() {
+    if (batchModalEl) {
+      batchModalEl.style.display = 'none';
+      if (!miniWidgetEl || miniWidgetEl.style.display === 'none') {
+        showMiniProgressWidget(currentBatchState.animeTitle, currentBatchState.total);
+      }
+    }
+  }
+
+  function restoreBatchModal() {
+    if (batchModalEl) {
+      batchModalEl.style.display = 'flex';
+    }
+    hideMiniProgressWidget();
+  }
 
   function openBatchModal(currentData, allEpisodes) {
     if (batchModalEl) {
@@ -379,7 +452,10 @@
             <h2 class="mungil-ab-title">${currentData.animeTitle}</h2>
             <span class="mungil-ab-subtitle">Batch Downloader • ${episodes.length} Episode Terdeteksi</span>
           </div>
-          <button type="button" class="mungil-ab-close" id="mungil-ab-close-btn">&times;</button>
+          <div class="mungil-ab-header-actions">
+            <button type="button" class="mungil-ab-action-btn min" id="mungil-ab-min-btn" title="Minimize ke widget kecil" aria-label="Minimize Modal">🗕</button>
+            <button type="button" class="mungil-ab-action-btn close" id="mungil-ab-close-btn" title="Tutup Modal" aria-label="Tutup Modal">&times;</button>
+          </div>
         </div>
 
         <div class="mungil-ab-controls">
@@ -450,6 +526,7 @@
 
     // Event Listeners
     const closeBtn = modal.querySelector('#mungil-ab-close-btn');
+    const minBtn = modal.querySelector('#mungil-ab-min-btn');
     const cancelBtn = modal.querySelector('#mungil-ab-cancel-btn');
     const backdrop = modal.querySelector('.mungil-ab-backdrop');
     const closeModal = () => {
@@ -457,8 +534,10 @@
         batchModalEl.remove();
         batchModalEl = null;
       }
+      hideMiniProgressWidget();
     };
     if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (minBtn) minBtn.addEventListener('click', minimizeBatchModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
     if (backdrop) backdrop.addEventListener('click', closeModal);
 
@@ -781,6 +860,12 @@
     let idx = 0;
     let completed = 0;
 
+    currentBatchState.animeTitle = animeTitle;
+    currentBatchState.total = items.length;
+    currentBatchState.completed = 0;
+    currentBatchState.percent = 0;
+    currentBatchState.isDownloading = true;
+
     return new Promise((resolveAll) => {
       const runWorker = () => {
         if (completed >= items.length) {
@@ -788,6 +873,7 @@
             startBtn.disabled = false;
             startBtn.innerHTML = `${SVG_CHECK} <span>Selesai Turbo (${completed} File)!</span>`;
           }
+          updateMiniProgressWidget({ completed, percent: 100, speed: 'Selesai!' });
           return resolveAll();
         }
 
@@ -841,6 +927,11 @@
                       const speedText = msg.speed ? ` (${msg.speed})` : '';
                       statusEl.textContent = `⚡ ${msg.percent}%${speedText}`;
                       statusEl.style.color = '#00E676';
+
+                      const overallPct = Math.round(
+                        ((completed + (msg.percent || 0) / 100) / items.length) * 100
+                      );
+                      updateMiniProgressWidget({ speed: msg.speed || '', percent: overallPct });
                     }
                   }
                 }
@@ -904,6 +995,8 @@
               }
               active--;
               completed++;
+              const overallPct = Math.round((completed / items.length) * 100);
+              updateMiniProgressWidget({ completed, percent: overallPct });
               setTimeout(runWorker, 100);
             }
           })();
@@ -1047,7 +1140,14 @@
     );
     const hasGofile = gofileItems.length > 0;
 
+    const isMin =
+      typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mungil_ab_bar_min') === '1';
+    if (isMin && floatingBarEl.classList && floatingBarEl.classList.add) {
+      floatingBarEl.classList.add('minimized');
+    }
+
     floatingBarEl.innerHTML = `
+      <div class="mungil-ab-fab-icon" title="Buka Mungil Downloader">⚡</div>
       <div class="mungil-ab-bar-content">
         <div class="mungil-ab-bar-info">
           <span class="mungil-ab-bar-badge">EPS ${data.episodeNum}</span>
@@ -1067,9 +1167,34 @@
             ${SVG_LAYERS}
             <span>Batch Download</span>
           </button>
+          <button type="button" class="mungil-ab-btn-min" id="mungil-ab-bar-min-btn" title="Sembunyikan / Minimize bar" aria-label="Minimize Bar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </button>
         </div>
       </div>
     `;
+
+    const minBarBtn = floatingBarEl.querySelector('#mungil-ab-bar-min-btn');
+    if (minBarBtn && minBarBtn.addEventListener) {
+      minBarBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        floatingBarEl.classList.add('minimized');
+        try {
+          sessionStorage.setItem('mungil_ab_bar_min', '1');
+        } catch (_) {}
+      });
+    }
+
+    if (floatingBarEl.addEventListener) {
+      floatingBarEl.addEventListener('click', () => {
+        if (floatingBarEl.classList.contains('minimized')) {
+          floatingBarEl.classList.remove('minimized');
+          try {
+            sessionStorage.setItem('mungil_ab_bar_min', '0');
+          } catch (_) {}
+        }
+      });
+    }
 
     const singleBtn = floatingBarEl.querySelector('#mungil-ab-btn-single');
     if (singleBtn) {
