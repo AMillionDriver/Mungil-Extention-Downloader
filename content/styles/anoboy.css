@@ -239,17 +239,20 @@
 .mungil-ab-dialog {
   position: relative;
   z-index: 2;
-  background: #14171f;
-  border: 1px solid rgba(255, 193, 7, 0.3);
-  border-radius: 16px;
-  width: 90%;
-  max-width: 580px;
-  max-height: 82vh;
+  background: rgba(18, 21, 28, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  border-radius: 18px;
+  width: 92%;
+  max-width: 680px;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   box-shadow:
-    0 20px 50px rgba(0, 0, 0, 0.7),
-    0 0 25px rgba(255, 193, 7, 0.12);
+    0 24px 60px rgba(0, 0, 0, 0.8),
+    0 0 30px rgba(255, 193, 7, 0.15);
   animation: mungil-ab-dialog-pop 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -268,8 +271,30 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 18px 20px 14px;
+  padding: 16px 22px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mungil-ab-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 540px;
+}
+
+.mungil-ab-header-badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: #ffc107;
+  background: rgba(255, 193, 7, 0.12);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 9999px;
+  padding: 2px 8px;
+  display: inline-flex;
+  width: fit-content;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
 }
 
 .mungil-ab-title {
@@ -278,20 +303,51 @@
   font-weight: 700;
   color: #f8f9fa;
   line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mungil-ab-subtitle {
   font-size: 12px;
-  color: #ffc107;
+  color: #adb5bd;
   font-weight: 500;
-  margin-top: 4px;
+  margin-top: 2px;
   display: block;
 }
 
 .mungil-ab-header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.mungil-ab-ctrl-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #adb5bd;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s ease;
+  line-height: 1;
+}
+
+.mungil-ab-ctrl-btn:hover {
+  color: #12141a;
+  background: #ffc107;
+  border-color: #ffc107;
+  transform: scale(1.08);
+}
+
+.mungil-ab-ctrl-btn.close:hover {
+  color: #ffffff;
+  background: #e53935;
+  border-color: #e53935;
 }
 
 .mungil-ab-action-btn {
@@ -426,36 +482,118 @@
 
 .mungil-ab-controls {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: #0e1015;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 22px;
+  background: rgba(14, 16, 22, 0.96);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  flex-wrap: wrap;
+}
+
+.mungil-ab-filter-row {
+  display: flex;
+  align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mungil-ab-filter-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: #6c757d;
+  letter-spacing: 0.6px;
 }
 
 .mungil-ab-filter-chips {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .mungil-ab-chip {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #ced4da;
   font-size: 11px;
   font-weight: 600;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-radius: 9999px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.15s ease;
+}
+
+.mungil-ab-chip:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .mungil-ab-chip.active {
-  background: rgba(255, 193, 7, 0.2);
+  background: rgba(255, 193, 7, 0.18);
   border-color: #ffc107;
   color: #ffc107;
+  font-weight: 700;
+}
+
+.mungil-ab-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.mungil-ab-config-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.18s ease;
+}
+
+.mungil-ab-config-card:focus-within {
+  border-color: rgba(255, 193, 7, 0.45);
+}
+
+.mungil-ab-config-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: #adb5bd;
+  letter-spacing: 0.5px;
+}
+
+.mungil-ab-select-wrap {
+  width: 100%;
+  position: relative;
+}
+
+.mungil-ab-select {
+  width: 100%;
+  background: #171a21;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f8f9fa;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.mungil-ab-select:hover {
+  border-color: rgba(255, 193, 7, 0.4);
+}
+
+.mungil-ab-select:focus {
+  border-color: #ffc107;
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.2);
+}
+
+.mungil-ab-select.accent-emerald {
+  color: #00e676;
+  border-color: rgba(0, 230, 118, 0.3);
 }
 
 .mungil-ab-res-picker {
@@ -480,11 +618,30 @@
 .mungil-ab-list {
   flex: 1;
   overflow-y: auto;
-  padding: 10px 20px;
+  padding: 14px 22px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 48vh;
+  max-height: 46vh;
+}
+
+.mungil-ab-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mungil-ab-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+
+.mungil-ab-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.mungil-ab-list::-webkit-scrollbar-thumb:hover {
+  background: #ffc107;
 }
 
 .mungil-ab-item {
@@ -492,18 +649,17 @@
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
+  transition: all 0.15s ease;
 }
 
 .mungil-ab-item:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 193, 7, 0.3);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 193, 7, 0.35);
+  transform: translateX(2px);
 }
 
 .mungil-ab-checkbox {
@@ -515,12 +671,13 @@
 
 .mungil-ab-item-badge {
   font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
+  font-weight: 800;
+  padding: 3px 7px;
   background: rgba(255, 193, 7, 0.15);
   color: #ffc107;
-  border-radius: 4px;
+  border-radius: 5px;
   white-space: nowrap;
+  letter-spacing: 0.5px;
 }
 
 .mungil-ab-item-title {
@@ -543,11 +700,24 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px 18px;
+  padding: 14px 22px 18px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0e1015;
-  border-bottom-left-radius: 16px;
-  border-bottom-right-radius: 16px;
+  background: #0d0f14;
+}
+
+.mungil-ab-count-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #adb5bd;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 6px 14px;
+  border-radius: 9999px;
+}
+
+.mungil-ab-count-badge span {
+  font-weight: 800;
+  color: #ffc107;
 }
 
 .mungil-ab-summary {
@@ -562,7 +732,20 @@
 
 .mungil-ab-footer-btns {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.mungil-ab-btn-ghost {
+  background: transparent;
+  color: #adb5bd;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.mungil-ab-btn-ghost:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .mungil-ab-btn-secondary {

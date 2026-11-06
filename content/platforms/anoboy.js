@@ -448,43 +448,74 @@
       <div class="mungil-ab-backdrop"></div>
       <div class="mungil-ab-dialog">
         <div class="mungil-ab-header">
-          <div class="mungil-ab-title-group">
-            <h2 class="mungil-ab-title">${currentData.animeTitle}</h2>
-            <span class="mungil-ab-subtitle">Batch Downloader • ${episodes.length} Episode Terdeteksi</span>
+          <div class="mungil-ab-header-left">
+            <div class="mungil-ab-header-badge">⚡ BATCH DOWNLOADER</div>
+            <h2 class="mungil-ab-title" title="${currentData.animeTitle}">${currentData.animeTitle}</h2>
+            <span class="mungil-ab-subtitle">${episodes.length} Episode Tersedia untuk Diunduh</span>
           </div>
           <div class="mungil-ab-header-actions">
-            <button type="button" class="mungil-ab-action-btn min" id="mungil-ab-min-btn" title="Minimize ke widget kecil" aria-label="Minimize Modal">🗕</button>
-            <button type="button" class="mungil-ab-action-btn close" id="mungil-ab-close-btn" title="Tutup Modal" aria-label="Tutup Modal">&times;</button>
+            <button type="button" class="mungil-ab-ctrl-btn" id="mungil-ab-min-btn" title="Minimize ke widget mini (tetap unduh di background)" aria-label="Minimize Modal">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <button type="button" class="mungil-ab-ctrl-btn close" id="mungil-ab-close-btn" title="Tutup Modal" aria-label="Tutup Modal">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
         </div>
 
         <div class="mungil-ab-controls">
-          <div class="mungil-ab-filter-chips">
-            <button type="button" class="mungil-ab-chip active" data-filter="all">Semua (${episodes.length})</button>
-            <button type="button" class="mungil-ab-chip" data-filter="prev">Eps ≤ ${currentData.episodeNum}</button>
-            <button type="button" class="mungil-ab-chip" data-filter="next">Eps ≥ ${currentData.episodeNum}</button>
-            <button type="button" class="mungil-ab-chip" data-filter="none">Batal Pilih</button>
+          <div class="mungil-ab-filter-row">
+            <span class="mungil-ab-filter-label">PILIH CEPAT:</span>
+            <div class="mungil-ab-filter-chips">
+              <button type="button" class="mungil-ab-chip active" data-filter="all">Semua (${episodes.length})</button>
+              <button type="button" class="mungil-ab-chip" data-filter="odd">Ganjil</button>
+              <button type="button" class="mungil-ab-chip" data-filter="even">Genap</button>
+              ${
+                episodes.length > 4 &&
+                currentData.episodeNum > 1 &&
+                currentData.episodeNum < episodes.length
+                  ? `<button type="button" class="mungil-ab-chip" data-filter="prev">Eps ≤ ${currentData.episodeNum}</button>
+                     <button type="button" class="mungil-ab-chip" data-filter="next">Eps ≥ ${currentData.episodeNum}</button>`
+                  : ''
+              }
+              <button type="button" class="mungil-ab-chip" data-filter="none">Batal Pilih</button>
+            </div>
           </div>
-          <div class="mungil-ab-res-picker">
-            <label for="mungil-ab-modal-server-select">Server:</label>
-            <select id="mungil-ab-modal-server-select" style="background:#1c202a;border:1px solid rgba(255,193,7,0.3);color:#ffc107;font-weight:700;padding:4px 8px;border-radius:6px;outline:none;cursor:pointer;">
-              <option value="turbo" selected>⚡ Turbo Chunker (Native 16x - Tercepat)</option>
-              <option value="gofile">⚡ Gofile (High Speed 1K/720p)</option>
-              <option value="blogger">🌐 Blogger (Auto-Folder MP4)</option>
-            </select>
-            <label for="mungil-ab-concurrency-select" id="mungil-ab-concurrency-label">Simultan:</label>
-            <select id="mungil-ab-concurrency-select" style="background:#1c202a;border:1px solid rgba(0,230,118,0.3);color:#00e676;font-weight:700;padding:4px 8px;border-radius:6px;outline:none;cursor:pointer;">
-              <option value="1">1 File (Stabil)</option>
-              <option value="2" selected>⚡ 2 File (Rekomendasi Cepat)</option>
-              <option value="3">🚀 3 File (Maksimal)</option>
-            </select>
-            <label for="mungil-ab-res-select">Resolusi:</label>
-            <select id="mungil-ab-res-select">
-              <option value="1080p">1080p (1K)</option>
-              <option value="720p" selected>720p HD</option>
-              <option value="480p">480p Standar</option>
-              <option value="360p">360p Hemat Kuota</option>
-            </select>
+
+          <div class="mungil-ab-config-grid">
+            <div class="mungil-ab-config-card" id="mungil-ab-card-server">
+              <label for="mungil-ab-modal-server-select" class="mungil-ab-config-label">SERVER DOWNLOAD</label>
+              <div class="mungil-ab-select-wrap">
+                <select id="mungil-ab-modal-server-select" class="mungil-ab-select">
+                  <option value="turbo" selected>⚡ Turbo Chunker (Native 16x - Tercepat)</option>
+                  <option value="gofile">⚡ Gofile (High Speed 1K/720p)</option>
+                  <option value="blogger">🌐 Blogger (Auto-Folder MP4)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="mungil-ab-config-card" id="mungil-ab-card-concurrency">
+              <label for="mungil-ab-concurrency-select" class="mungil-ab-config-label" id="mungil-ab-concurrency-label">UNDUHAN SIMULTAN</label>
+              <div class="mungil-ab-select-wrap">
+                <select id="mungil-ab-concurrency-select" class="mungil-ab-select accent-emerald">
+                  <option value="1">1 File (Stabil)</option>
+                  <option value="2" selected>⚡ 2 File (Rekomendasi Cepat)</option>
+                  <option value="3">🚀 3 File (Maksimal)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="mungil-ab-config-card" id="mungil-ab-card-resolution">
+              <label for="mungil-ab-res-select" class="mungil-ab-config-label">KUALITAS / RESOLUSI</label>
+              <div class="mungil-ab-select-wrap">
+                <select id="mungil-ab-res-select" class="mungil-ab-select">
+                  <option value="1080p">1080p (1K Ultra HD)</option>
+                  <option value="720p" selected>720p (HD Jernih)</option>
+                  <option value="480p">480p (Standar)</option>
+                  <option value="360p">360p (Hemat Kuota)</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -504,11 +535,11 @@
         </div>
 
         <div class="mungil-ab-footer">
-          <div class="mungil-ab-summary">
-            <span id="mungil-ab-selected-count">${episodes.length}</span> episode dipilih
+          <div class="mungil-ab-count-badge">
+            <span id="mungil-ab-selected-count">${episodes.length}</span> / ${episodes.length} Episode Dipilih
           </div>
           <div class="mungil-ab-footer-btns">
-            <button type="button" class="mungil-ab-btn mungil-ab-btn-secondary" id="mungil-ab-cancel-btn">Tutup</button>
+            <button type="button" class="mungil-ab-btn mungil-ab-btn-ghost" id="mungil-ab-cancel-btn">Tutup</button>
             <button type="button" class="mungil-ab-btn mungil-ab-btn-secondary" id="mungil-ab-copy-gofile-btn">
               <span>📋 Salin Link Gofile</span>
             </button>
@@ -558,6 +589,8 @@
         checkboxes.forEach((cb) => {
           const num = parseInt(cb.getAttribute('data-eps'), 10);
           if (filter === 'all') cb.checked = true;
+          else if (filter === 'odd') cb.checked = num % 2 !== 0;
+          else if (filter === 'even') cb.checked = num % 2 === 0;
           else if (filter === 'prev') cb.checked = num <= currentData.episodeNum;
           else if (filter === 'next') cb.checked = num >= currentData.episodeNum;
           else if (filter === 'none') cb.checked = false;
@@ -572,26 +605,22 @@
     const serverSelect = modal.querySelector('#mungil-ab-modal-server-select');
     const startBtn = modal.querySelector('#mungil-ab-start-btn');
     const copyGofileBtn = modal.querySelector('#mungil-ab-copy-gofile-btn');
+    const concCard = modal.querySelector('#mungil-ab-card-concurrency');
 
     function updateServerMode() {
       const mode = serverSelect ? serverSelect.value : 'turbo';
-      const concSelect = modal.querySelector('#mungil-ab-concurrency-select');
-      const concLabel = modal.querySelector('#mungil-ab-concurrency-label');
       if (mode === 'gofile') {
         if (startBtn) startBtn.innerHTML = `<span>⚡ Buka Gofile Terpilih</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'inline-flex';
-        if (concSelect) concSelect.style.display = 'none';
-        if (concLabel) concLabel.style.display = 'none';
+        if (concCard) concCard.style.display = 'none';
       } else if (mode === 'turbo') {
         if (startBtn) startBtn.innerHTML = `<span>⚡ Mulai Unduh Turbo (Multi-File)</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'none';
-        if (concSelect) concSelect.style.display = 'inline-block';
-        if (concLabel) concLabel.style.display = 'inline-block';
+        if (concCard) concCard.style.display = 'flex';
       } else {
         if (startBtn) startBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Batch Terpilih</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'none';
-        if (concSelect) concSelect.style.display = 'inline-block';
-        if (concLabel) concLabel.style.display = 'inline-block';
+        if (concCard) concCard.style.display = 'flex';
       }
     }
     if (serverSelect) {
