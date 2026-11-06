@@ -2264,7 +2264,7 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
  * @param {number|null} [tabId]
  * @returns {Promise<object>}
  */
-async function downloadViaNativeChunker(params, tabId) {
+async function downloadViaNativeChunker(params, _tabId) {
   const videoId =
     params.videoId ||
     params.id ||
@@ -2501,7 +2501,9 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
       .replace(/\\\\u0026|\\u0026/g, '&')
       .replace(/\\\\u003d|\\u003d/g, '=')
       .replace(/\\\\\//g, '/')
-      .replace(/\\\//g, '/');
+      .replace(/\\\//g, '/')
+      .replace(/\\+$/, '')
+      .trim();
 
     const itagMatch = decoded.match(/itag=(\d+)/);
     const itag = itagMatch ? parseInt(itagMatch[1], 10) : 0;

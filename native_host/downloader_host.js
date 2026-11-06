@@ -564,7 +564,8 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
 
 function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
   return new Promise((resolve, reject) => {
-    const parsed = new URL(urlStr);
+    const cleanUrl = urlStr.replace(/\\+$/, '').trim();
+    const parsed = new URL(cleanUrl);
     const client = parsed.protocol === 'http:' ? http : https;
     const outStream = fs.createWriteStream(destPath);
     activeFilePath = destPath;
@@ -582,6 +583,14 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
         )
       },
       (res) => {
+        if (res.statusCode >= 400) {
+          try {
+            outStream.close();
+            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+          } catch (_) {}
+          return reject(new Error(`Download stream failed with HTTP ${res.statusCode}`));
+        }
+
         let downloaded = 0;
         let lastReport = Date.now();
         let lastBytes = 0;
@@ -613,6 +622,12 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
         res.pipe(outStream);
         outStream.on('finish', () => {
           activeFilePath = null;
+          if (downloaded === 0) {
+            try {
+              if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+            } catch (_) {}
+            return reject(new Error('Downloaded file is empty (0 bytes)'));
+          }
           sendMessage({
             success: true,
             status: 'complete',
@@ -637,7 +652,7 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
 }
 
 function downloadWithRangeChunks(msg) {
-  const targetUrl = msg.url;
+  const targetUrl = (msg.url || '').replace(/\\+$/, '').trim();
   if (!targetUrl) {
     return sendMessage({ success: false, error: 'Missing download URL' });
   }
@@ -719,6 +734,10 @@ function downloadWithRangeChunks(msg) {
     .then(({ res, url: probedUrl }) => {
       let totalSize = 0;
       let supportsRange = false;
+
+      if (res.statusCode >= 400) {
+        throw new Error(`Probe failed with HTTP ${res.statusCode}`);
+      }
 
       const cr = res.headers['content-range'];
       if (cr) {
@@ -855,6 +874,14 @@ function downloadWithRangeChunks(msg) {
     })
     .catch((err) => {
       cancelAllActive();
+      try {
+        if (fs.existsSync(finalDestPath)) {
+          const st = fs.statSync(finalDestPath);
+          if (st.size === 0) {
+            fs.unlinkSync(finalDestPath);
+          }
+        }
+      } catch (_) {}
       sendMessage({
         success: false,
         error: 'Turbo Chunker error: ' + err.message,

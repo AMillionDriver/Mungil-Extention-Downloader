@@ -641,7 +641,9 @@
         .replace(/\\\\u0026|\\u0026/g, '&')
         .replace(/\\\\u003d|\\u003d/g, '=')
         .replace(/\\\\\//g, '/')
-        .replace(/\\\//g, '/');
+        .replace(/\\\//g, '/')
+        .replace(/\\+$/, '')
+        .trim();
 
       const itagMatch = decoded.match(/itag=(\d+)/);
       const itag = itagMatch ? parseInt(itagMatch[1], 10) : 0;
@@ -697,8 +699,23 @@
       }
 
       if (targetToken) {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          try {
+            const tokenRes = await new Promise((resolve) => {
+              chrome.runtime.sendMessage(
+                { action: 'RESOLVE_ANOBOY_STREAM', bloggerToken: targetToken, preferredRes },
+                (response) => resolve(response)
+              );
+            });
+            if (tokenRes && tokenRes.success && tokenRes.streamUrl) {
+              return tokenRes.streamUrl;
+            }
+          } catch (_) {}
+        }
         try {
-          const bRes = await fetch(`https://www.blogger.com/video.g?token=${targetToken}`);
+          const bRes = await fetch(`https://www.blogger.com/video.g?token=${targetToken}`, {
+            headers: { Referer: 'https://anoboy.at/' }
+          });
           if (bRes.ok) {
             const bHtml = await bRes.text();
             const direct = extractStreamFromBloggerHtml(bHtml, preferredRes);
