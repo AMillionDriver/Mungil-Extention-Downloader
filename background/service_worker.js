@@ -2060,11 +2060,18 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           activeDownloads[videoId].speed = msg.speed || '';
           activeDownloads[videoId].totalSize = msg.totalSize || '';
           activeDownloads[videoId].eta = msg.eta || '';
-          activeDownloads[videoId].status = msg.status === 'merging' ? 'merging' : 'downloading';
+          activeDownloads[videoId].status =
+            msg.status === 'paused'
+              ? 'paused'
+              : msg.status === 'merging'
+                ? 'merging'
+                : 'downloading';
         }
 
         // Update toolbar action badge
-        if (msg.status === 'merging') {
+        if (msg.status === 'paused') {
+          updateActionBadge('||', '#f59e0b');
+        } else if (msg.status === 'merging') {
           updateActionBadge('MUX', '#06b6d4');
         } else {
           const badgeText = `${Math.round(percent)}%`;
@@ -2340,11 +2347,15 @@ async function downloadViaNativeChunker(params, _tabId) {
           activeDownloads[videoId].speed = msg.speed || '';
           activeDownloads[videoId].totalSize = msg.totalSize || '';
           activeDownloads[videoId].eta = msg.eta || '';
-          activeDownloads[videoId].status = 'downloading';
+          activeDownloads[videoId].status = msg.status === 'paused' ? 'paused' : 'downloading';
         }
 
-        const badgeText = `${Math.round(percent)}%`;
-        updateActionBadge(badgeText, '#10b981');
+        if (msg.status === 'paused') {
+          updateActionBadge('||', '#f59e0b');
+        } else {
+          const badgeText = `${Math.round(percent)}%`;
+          updateActionBadge(badgeText, '#10b981');
+        }
 
         const progPayload = {
           type: 'ANOBOY_NATIVE_PROGRESS',

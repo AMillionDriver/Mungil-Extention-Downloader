@@ -1041,8 +1041,34 @@ async function downloadWithRangeChunks(msg) {
     } catch (_) {}
   }
 
+  const partPath = finalDestPath + '.part';
+  const metaPath = finalDestPath + '.part.meta';
+
+  const job = {
+    id: taskId,
+    status: 'downloading',
+    sockets: new Set(),
+    fd: null,
+    finalDestPath,
+    partPath,
+    metaPath,
+    saveMeta: () => {},
+    chunks: [],
+    totalSize: 0,
+    totalDownloaded: 0,
+    chunkCount: 0,
+    msg,
+    url: targetUrl,
+    activeWorkers: 0,
+    startWorkers: null
+  };
+  activeJobs.set(taskId, job);
+
   function requestFollow(urlStr, options, maxRedir = 5) {
     return new Promise((resolve, reject) => {
+      if (job.status !== 'downloading') {
+        return reject(new Error('PAUSED_OR_CANCELLED'));
+      }
       if (maxRedir <= 0) return reject(new Error('Too many redirects'));
       const parsed = new URL(urlStr);
       const client = parsed.protocol === 'http:' ? http : https;
@@ -1063,6 +1089,11 @@ async function downloadWithRangeChunks(msg) {
           headers
         },
         (res) => {
+          if (job.status !== 'downloading') {
+            res.resume();
+            req.destroy();
+            return reject(new Error('PAUSED_OR_CANCELLED'));
+          }
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             const redirectUrl = new URL(res.headers.location, urlStr).href;
             res.resume();
@@ -1078,6 +1109,8 @@ async function downloadWithRangeChunks(msg) {
           req.destroy(new Error('Request timeout'));
         });
       }
+      job.sockets.add(req);
+      req.on('close', () => job.sockets.delete(req));
       activeSockets.add(req);
       req.on('close', () => activeSockets.delete(req));
       req.end();
@@ -1158,6 +1191,11 @@ async function downloadWithRangeChunks(msg) {
 
   probeAndStart()
     .then(({ res, url: probedUrl }) => {
+      if (job.status !== 'downloading') {
+        if (res && typeof res.resume === 'function') res.resume();
+        return;
+      }
+
       let totalSize = 0;
       let supportsRange = false;
 
@@ -1181,9 +1219,6 @@ async function downloadWithRangeChunks(msg) {
       if (!supportsRange || totalSize < 2 * 1024 * 1024) {
         return downloadSingleStream(probedUrl, finalDestPath, customHeaders, totalSize, msg);
       }
-
-      const partPath = finalDestPath + '.part';
-      const metaPath = finalDestPath + '.part.meta';
 
       let fd = null;
       let chunks = [];
@@ -1266,25 +1301,13 @@ async function downloadWithRangeChunks(msg) {
       let bytesSinceLastProgress = 0;
       let isFinished = false;
 
-      const job = {
-        id: taskId,
-        status: 'downloading',
-        sockets: new Set(),
-        fd,
-        finalDestPath,
-        partPath,
-        metaPath,
-        saveMeta,
-        chunks,
-        totalSize,
-        totalDownloaded,
-        chunkCount: chunks.length,
-        msg,
-        url: probedUrl,
-        activeWorkers: 0,
-        startWorkers: null
-      };
-      activeJobs.set(taskId, job);
+      job.fd = fd;
+      job.chunks = chunks;
+      job.totalSize = totalSize;
+      job.totalDownloaded = totalDownloaded;
+      job.chunkCount = chunks.length;
+      job.url = probedUrl;
+      job.saveMeta = saveMeta;
 
       const initialPct = Math.min(99, Math.round((totalDownloaded / totalSize) * 100));
       sendMessage({
@@ -1446,6 +1469,11 @@ async function downloadWithRangeChunks(msg) {
       });
     })
     .catch((err) => {
+      const isPaused = activeJobs.get(taskId)?.status === 'paused';
+      if (isPaused) {
+        return;
+      }
+
       const isCancelled =
         err.message === 'DOWNLOAD_CANCELLED' || activeJobs.get(taskId)?.status === 'cancelled';
       activeJobs.delete(taskId);

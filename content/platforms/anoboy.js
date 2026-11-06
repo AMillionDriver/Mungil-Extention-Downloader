@@ -1136,10 +1136,29 @@
           (async () => {
             let progressListener = null;
             try {
+              // If batch or task is paused, wait in place without exiting
+              while (taskInfo.status === 'paused' || currentBatchState.isPaused) {
+                if (isBatchCancelled || taskInfo.status === 'cancelled') return;
+                taskInfo.renderStatus('paused');
+                await new Promise((r) => setTimeout(r, 400));
+              }
+
+              if (isBatchCancelled || taskInfo.status === 'cancelled') return;
+
               let streamUrl = await resolveStreamUrlForEpisode(item.url, resolution);
-              if (!streamUrl || isBatchCancelled) {
+
+              // If paused while resolving stream URL, wait before firing download request
+              while (taskInfo.status === 'paused' || currentBatchState.isPaused) {
+                if (isBatchCancelled || taskInfo.status === 'cancelled') return;
+                taskInfo.renderStatus('paused');
+                await new Promise((r) => setTimeout(r, 400));
+              }
+
+              if (isBatchCancelled || taskInfo.status === 'cancelled') return;
+
+              if (!streamUrl) {
                 if (statusEl) {
-                  statusEl.textContent = isBatchCancelled ? 'Dibatalkan' : 'No Stream';
+                  statusEl.textContent = 'No Stream';
                   statusEl.style.color = '#FF5252';
                 }
                 return;
@@ -1174,7 +1193,7 @@
                     } else if (statusEl && msg.percent !== undefined) {
                       taskInfo.percent = msg.percent;
                       taskInfo.speed = msg.speed || '';
-                      if (taskInfo.status !== 'paused') {
+                      if (taskInfo.status !== 'paused' && !currentBatchState.isPaused) {
                         taskInfo.renderStatus('downloading', msg.speed || '');
                       }
 
@@ -1215,7 +1234,9 @@
                       progressListener = null;
                     }
                     if (statusEl) {
-                      if (res && res.success) {
+                      if (taskInfo.status === 'paused' || currentBatchState.isPaused) {
+                        taskInfo.renderStatus('paused');
+                      } else if (res && res.success) {
                         statusEl.innerHTML =
                           '<span style="color:#00E676;font-weight:700;">✓ Saved (Turbo)</span>';
                       } else if (taskInfo.status === 'cancelled' || isBatchCancelled) {
@@ -1247,7 +1268,12 @@
                 } catch (_) {}
               }
               active--;
-              if (taskInfo.status !== 'cancelled' && !isBatchCancelled) {
+              if (
+                taskInfo.status !== 'cancelled' &&
+                taskInfo.status !== 'paused' &&
+                !isBatchCancelled &&
+                !currentBatchState.isPaused
+              ) {
                 completed++;
               }
               const overallPct = Math.round((completed / items.length) * 100);
