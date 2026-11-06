@@ -12,6 +12,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const http = require('http');
+const https = require('https');
 const { spawn } = require('child_process');
 
 // Locate FFmpeg binary on Windows
@@ -70,6 +72,9 @@ const pythonBinPath = resolvePythonBinary();
 // Active child process and temp cookie reference to eliminate orphan processes/files on disconnect
 let activeChildProcess = null;
 let activeTempCookiePath = null;
+const activeSockets = new Set();
+let activeFd = null;
+let activeFilePath = null;
 
 function cleanupActiveTempCookie() {
   if (activeTempCookiePath) {
@@ -82,7 +87,7 @@ function cleanupActiveTempCookie() {
   }
 }
 
-function killActiveChild() {
+function cancelAllActive() {
   cleanupActiveTempCookie();
   if (activeChildProcess && !activeChildProcess.killed) {
     try {
@@ -90,26 +95,42 @@ function killActiveChild() {
     } catch (_) {}
     activeChildProcess = null;
   }
+  for (const sock of activeSockets) {
+    try {
+      sock.destroy();
+    } catch (_) {}
+  }
+  activeSockets.clear();
+  if (activeFd !== null) {
+    try {
+      fs.closeSync(activeFd);
+    } catch (_) {}
+    activeFd = null;
+  }
+}
+
+function killActiveChild() {
+  cancelAllActive();
 }
 
 // Ensure orphan processes are destroyed if Chrome closes or crashes
 process.stdin.on('end', () => {
-  killActiveChild();
+  cancelAllActive();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  killActiveChild();
+  cancelAllActive();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  killActiveChild();
+  cancelAllActive();
   process.exit(0);
 });
 
 process.on('exit', () => {
-  killActiveChild();
+  cancelAllActive();
 });
 
 // Standard Chrome Native Messaging Stdio Framing
@@ -430,5 +451,416 @@ function handleIncomingMessage(msg) {
     return;
   }
 
+  // 4. Fast Range Chunker for Direct Video Streams (Google Video, Blogger, AnoBoy)
+  if (action === 'FAST_RANGE_DOWNLOAD' || action === 'DOWNLOAD_CHUNKS') {
+    return downloadWithRangeChunks(msg);
+  }
+
   sendMessage({ success: false, error: 'Unknown action: ' + action });
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return bytes + ' B';
+}
+
+function formatDuration(sec) {
+  if (sec <= 0) return '0s';
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
+  return new Promise((resolve, reject) => {
+    function attempt(retryCount) {
+      const parsed = new URL(urlStr);
+      const client = parsed.protocol === 'http:' ? http : https;
+      const curStart = chunk.start + chunk.written;
+      if (curStart > chunk.end) return resolve();
+
+      const reqHeaders = Object.assign({}, headers, {
+        Range: `bytes=${curStart}-${chunk.end}`,
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+      });
+
+      const req = client.request(
+        parsed,
+        {
+          method: 'GET',
+          headers: reqHeaders
+        },
+        (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            const nextLoc = new URL(res.headers.location, urlStr).href;
+            res.resume();
+            return downloadChunkTask(nextLoc, chunk, headers, fd, onBytes, retryCount).then(
+              resolve,
+              reject
+            );
+          }
+
+          if (res.statusCode !== 206 && res.statusCode !== 200) {
+            res.resume();
+            if (retryCount > 0) {
+              return setTimeout(() => attempt(retryCount - 1), 600);
+            }
+            return reject(new Error(`Chunk ${chunk.index} HTTP ${res.statusCode}`));
+          }
+
+          res.on('data', (buf) => {
+            const writeOffset = chunk.start + chunk.written;
+            try {
+              fs.writeSync(fd, buf, 0, buf.length, writeOffset);
+              chunk.written += buf.length;
+              onBytes(buf.length);
+            } catch (writeErr) {
+              req.destroy(writeErr);
+            }
+          });
+
+          res.on('end', () => {
+            if (chunk.written >= chunk.length) {
+              resolve();
+            } else if (retryCount > 0) {
+              setTimeout(() => attempt(retryCount - 1), 500);
+            } else {
+              reject(
+                new Error(`Incomplete chunk ${chunk.index}: ${chunk.written}/${chunk.length}`)
+              );
+            }
+          });
+
+          res.on('error', (err) => {
+            if (retryCount > 0) {
+              setTimeout(() => attempt(retryCount - 1), 600);
+            } else {
+              reject(err);
+            }
+          });
+        }
+      );
+
+      req.on('error', (err) => {
+        if (retryCount > 0) {
+          setTimeout(() => attempt(retryCount - 1), 600);
+        } else {
+          reject(err);
+        }
+      });
+
+      activeSockets.add(req);
+      req.on('close', () => activeSockets.delete(req));
+      req.end();
+    }
+
+    attempt(retries);
+  });
+}
+
+function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(urlStr);
+    const client = parsed.protocol === 'http:' ? http : https;
+    const outStream = fs.createWriteStream(destPath);
+    activeFilePath = destPath;
+
+    const req = client.request(
+      parsed,
+      {
+        method: 'GET',
+        headers: Object.assign(
+          {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+          },
+          headers
+        )
+      },
+      (res) => {
+        let downloaded = 0;
+        let lastReport = Date.now();
+        let lastBytes = 0;
+
+        res.on('data', (buf) => {
+          downloaded += buf.length;
+          const now = Date.now();
+          if (now - lastReport >= 400) {
+            const deltaSec = (now - lastReport) / 1000;
+            const speed = (downloaded - lastBytes) / deltaSec;
+            const pct =
+              totalSize > 0 ? Math.min(99, Math.round((downloaded / totalSize) * 100)) : 0;
+            sendMessage({
+              type: 'PROGRESS',
+              status: 'downloading',
+              part: 'Single Stream',
+              percent: pct,
+              totalSize: totalSize > 0 ? formatBytes(totalSize) : '',
+              speed: `${formatBytes(speed)}/s`,
+              eta: '',
+              videoId: msg.videoId,
+              title: msg.title
+            });
+            lastBytes = downloaded;
+            lastReport = now;
+          }
+        });
+
+        res.pipe(outStream);
+        outStream.on('finish', () => {
+          activeFilePath = null;
+          sendMessage({
+            success: true,
+            status: 'complete',
+            filename: path.basename(destPath),
+            folder: path.dirname(destPath),
+            size: formatBytes(downloaded),
+            videoId: msg.videoId,
+            title: msg.title,
+            message: 'Video berhasil diunduh!'
+          });
+          resolve();
+        });
+        outStream.on('error', reject);
+      }
+    );
+
+    req.on('error', reject);
+    activeSockets.add(req);
+    req.on('close', () => activeSockets.delete(req));
+    req.end();
+  });
+}
+
+function downloadWithRangeChunks(msg) {
+  const targetUrl = msg.url;
+  if (!targetUrl) {
+    return sendMessage({ success: false, error: 'Missing download URL' });
+  }
+
+  const downloadDir = path.join(os.homedir(), 'Downloads');
+  let targetSubdir = downloadDir;
+  let rawFilename = msg.filename || `Video_${Date.now()}.mp4`;
+
+  if (rawFilename.includes('/') || rawFilename.includes('\\')) {
+    const parts = rawFilename.split(/[/\\]/);
+    const subFolder = parts.slice(0, -1).join(path.sep);
+    targetSubdir = path.join(downloadDir, subFolder);
+    rawFilename = parts[parts.length - 1];
+  }
+
+  if (!fs.existsSync(targetSubdir)) {
+    try {
+      fs.mkdirSync(targetSubdir, { recursive: true });
+    } catch (_) {}
+  }
+
+  const safeFilename =
+    rawFilename.replace(/[*?"<>|/\\:]/g, '_').trim() || `video_${Date.now()}.mp4`;
+  const finalDestPath = path.join(targetSubdir, safeFilename);
+
+  cancelAllActive();
+
+  function requestFollow(urlStr, options, maxRedir = 5) {
+    return new Promise((resolve, reject) => {
+      if (maxRedir <= 0) return reject(new Error('Too many redirects'));
+      const parsed = new URL(urlStr);
+      const client = parsed.protocol === 'http:' ? http : https;
+      const headers = Object.assign(
+        {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+        },
+        options.headers || {}
+      );
+
+      const req = client.request(
+        parsed,
+        {
+          method: options.method || 'GET',
+          headers
+        },
+        (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            const redirectUrl = new URL(res.headers.location, urlStr).href;
+            res.resume();
+            return requestFollow(redirectUrl, options, maxRedir - 1).then(resolve, reject);
+          }
+          resolve({ res, url: urlStr });
+        }
+      );
+
+      req.on('error', reject);
+      if (options.timeout) {
+        req.setTimeout(options.timeout, () => {
+          req.destroy(new Error('Request timeout'));
+        });
+      }
+      activeSockets.add(req);
+      req.on('close', () => activeSockets.delete(req));
+      req.end();
+    });
+  }
+
+  const customHeaders = Object.assign({}, msg.headers || {});
+  if (msg.referer) customHeaders['Referer'] = msg.referer;
+  if (!customHeaders['Referer'] && targetUrl.includes('googlevideo.com')) {
+    customHeaders['Referer'] = 'https://anoboy.at/';
+  }
+
+  requestFollow(targetUrl, {
+    method: 'GET',
+    headers: Object.assign({}, customHeaders, { Range: 'bytes=0-0' })
+  })
+    .then(({ res, url: probedUrl }) => {
+      let totalSize = 0;
+      let supportsRange = false;
+
+      const cr = res.headers['content-range'];
+      if (cr) {
+        const m = cr.match(/\/(\d+)$/);
+        if (m) {
+          totalSize = parseInt(m[1], 10);
+          supportsRange = true;
+        }
+      } else if (res.headers['content-length']) {
+        totalSize = parseInt(res.headers['content-length'], 10);
+        supportsRange = res.headers['accept-ranges'] === 'bytes' || res.statusCode === 206;
+      }
+      res.resume();
+
+      if (!supportsRange || totalSize < 2 * 1024 * 1024) {
+        return downloadSingleStream(probedUrl, finalDestPath, customHeaders, totalSize, msg);
+      }
+
+      const fd = fs.openSync(finalDestPath, 'w');
+      activeFd = fd;
+      activeFilePath = finalDestPath;
+      fs.ftruncateSync(fd, totalSize);
+
+      const chunkCount = Math.min(16, Math.max(4, Math.floor(totalSize / (2 * 1024 * 1024))));
+      const chunkSize = Math.ceil(totalSize / chunkCount);
+      const chunks = [];
+      for (let i = 0; i < chunkCount; i++) {
+        const start = i * chunkSize;
+        const end = i === chunkCount - 1 ? totalSize - 1 : (i + 1) * chunkSize - 1;
+        chunks.push({ index: i, start, end, written: 0, length: end - start + 1 });
+      }
+
+      let totalDownloaded = 0;
+      let lastProgressTime = Date.now();
+      let bytesSinceLastProgress = 0;
+      let isFinished = false;
+
+      sendMessage({
+        type: 'PROGRESS',
+        status: 'downloading',
+        part: `Turbo Chunker (${chunkCount}x)`,
+        percent: 0,
+        totalSize: formatBytes(totalSize),
+        speed: 'Memulai...',
+        eta: '',
+        videoId: msg.videoId,
+        title: msg.title
+      });
+
+      const reportProgress = () => {
+        const now = Date.now();
+        const deltaSec = (now - lastProgressTime) / 1000;
+        if (deltaSec >= 0.35) {
+          const speedBytes = bytesSinceLastProgress / deltaSec;
+          const pct = Math.min(99, Math.round((totalDownloaded / totalSize) * 100));
+          const remBytes = totalSize - totalDownloaded;
+          const etaSec = speedBytes > 0 ? Math.round(remBytes / speedBytes) : 0;
+
+          sendMessage({
+            type: 'PROGRESS',
+            status: 'downloading',
+            part: `Turbo Chunker (${chunkCount}x)`,
+            percent: pct,
+            totalSize: formatBytes(totalSize),
+            speed: `${formatBytes(speedBytes)}/s`,
+            eta: formatDuration(etaSec),
+            videoId: msg.videoId,
+            title: msg.title
+          });
+
+          bytesSinceLastProgress = 0;
+          lastProgressTime = now;
+        }
+      };
+
+      let activeWorkers = 0;
+      let nextChunkIdx = 0;
+
+      return new Promise((resolveAll, rejectAll) => {
+        function startNextWorker() {
+          if (isFinished) return;
+          if (nextChunkIdx >= chunks.length) {
+            if (activeWorkers === 0) {
+              isFinished = true;
+              resolveAll();
+            }
+            return;
+          }
+
+          const chunk = chunks[nextChunkIdx++];
+          activeWorkers++;
+
+          downloadChunkTask(probedUrl, chunk, customHeaders, fd, (bytes) => {
+            totalDownloaded += bytes;
+            bytesSinceLastProgress += bytes;
+            reportProgress();
+          })
+            .then(() => {
+              activeWorkers--;
+              startNextWorker();
+            })
+            .catch((err) => {
+              isFinished = true;
+              rejectAll(err);
+            });
+        }
+
+        const maxConcurrency = Math.min(chunkCount, 16);
+        for (let i = 0; i < maxConcurrency; i++) {
+          startNextWorker();
+        }
+      }).then(() => {
+        if (activeFd !== null) {
+          try {
+            fs.closeSync(activeFd);
+          } catch (_) {}
+          activeFd = null;
+        }
+        activeFilePath = null;
+
+        sendMessage({
+          success: true,
+          status: 'complete',
+          filename: safeFilename,
+          folder: targetSubdir,
+          size: formatBytes(totalSize),
+          videoId: msg.videoId,
+          title: msg.title,
+          author: msg.author,
+          timestamp: Date.now(),
+          message: 'Video berhasil diunduh dengan Turbo Chunker!'
+        });
+      });
+    })
+    .catch((err) => {
+      cancelAllActive();
+      sendMessage({
+        success: false,
+        error: 'Turbo Chunker error: ' + err.message,
+        errorCode: 'ERR_TURBO_CHUNK_FAIL',
+        videoId: msg.videoId,
+        title: msg.title
+      });
+    });
 }

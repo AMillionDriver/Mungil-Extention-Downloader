@@ -2255,6 +2255,234 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
   });
 }
 
+/**
+ * Downloads direct video streams (Blogger / Google Video / AnoBoy) using
+ * multi-connection HTTP Range chunking via Chrome Native Messaging Host.
+ * Bypasses Google's single-stream throttling without opening browser tabs.
+ *
+ * @param {object} params
+ * @param {number|null} [tabId]
+ * @returns {Promise<object>}
+ */
+async function downloadViaNativeChunker(params, tabId) {
+  const videoId =
+    params.videoId ||
+    params.id ||
+    `anoboy_${params.episode || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const streamUrl = params.url;
+
+  if (!streamUrl) {
+    throw new Error('URL stream video tidak ditemukan.');
+  }
+
+  return new Promise((resolve, reject) => {
+    let port = null;
+    let isSettled = false;
+
+    try {
+      port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    } catch (err) {
+      return reject(new Error('Gagal menghubungkan ke Native Host: ' + err.message));
+    }
+
+    const platform = params.platform || 'anoboy';
+
+    // Register active download state
+    activeDownloads[videoId] = {
+      videoId,
+      title: params.title || 'AnoBoy Episode',
+      author: params.author || 'AnoBoy',
+      platform,
+      startTime: Date.now(),
+      status: 'downloading',
+      part: 'Turbo Chunker (16x)',
+      percent: 0,
+      speed: '',
+      totalSize: '',
+      eta: ''
+    };
+
+    updateActionBadge('0%', '#10b981');
+
+    port.onMessage.addListener(async (msg) => {
+      if (!msg) return;
+
+      // Handle intermediate progress updates
+      if (msg.type === 'PROGRESS') {
+        const percent = typeof msg.percent === 'number' ? msg.percent : 0;
+        const part = msg.part || 'Turbo Chunker';
+
+        if (activeDownloads[videoId]) {
+          activeDownloads[videoId].part = part;
+          activeDownloads[videoId].percent = percent;
+          activeDownloads[videoId].speed = msg.speed || '';
+          activeDownloads[videoId].totalSize = msg.totalSize || '';
+          activeDownloads[videoId].eta = msg.eta || '';
+          activeDownloads[videoId].status = 'downloading';
+        }
+
+        const badgeText = `${Math.round(percent)}%`;
+        updateActionBadge(badgeText, '#10b981');
+
+        const progPayload = {
+          type: 'ANOBOY_NATIVE_PROGRESS',
+          platform,
+          videoId: videoId,
+          title: params.title,
+          part: part,
+          percent: percent,
+          speed: msg.speed,
+          totalSize: msg.totalSize,
+          eta: msg.eta,
+          status: msg.status,
+          message: msg.message
+        };
+        broadcastToAllTabs(progPayload);
+        broadcastToAllTabs({ ...progPayload, type: 'NATIVE_DOWNLOAD_PROGRESS' });
+        return;
+      }
+
+      // Handle final completion
+      if (msg.success) {
+        if (isSettled) return;
+        isSettled = true;
+        const finalName = msg.filename || `${params.title || 'Video'}.mp4`;
+        const sizeFormatted = msg.size || '';
+
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('id-ID', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+        const timeStr =
+          now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+        if (activeDownloads[videoId]) {
+          activeDownloads[videoId].status = 'complete';
+          activeDownloads[videoId].filename = finalName;
+          activeDownloads[videoId].size = sizeFormatted;
+          activeDownloads[videoId].percent = 100;
+        }
+
+        updateActionBadge('✓', '#10b981');
+        setTimeout(() => {
+          updateActionBadge('');
+          delete activeDownloads[videoId];
+        }, 8000);
+
+        showDesktopNotification({
+          success: true,
+          title: params.title,
+          author: params.author || 'AnoBoy',
+          size: sizeFormatted,
+          filename: finalName,
+          videoId: videoId
+        });
+
+        const completePayload = {
+          type: 'ANOBOY_NATIVE_COMPLETE',
+          platform,
+          videoId: videoId,
+          filename: finalName,
+          title: params.title,
+          author: params.author || 'AnoBoy',
+          size: sizeFormatted,
+          dateStr: dateStr,
+          timeStr: timeStr,
+          folder: msg.folder,
+          message: 'Video tersimpan di folder Downloads via Turbo Chunker!'
+        };
+        broadcastToAllTabs(completePayload);
+        broadcastToAllTabs({ ...completePayload, type: 'NATIVE_DOWNLOAD_COMPLETE' });
+
+        await recordDownloadTelemetry({
+          author: params.author || 'AnoBoy',
+          videoId: videoId,
+          title: params.title,
+          platform: platform,
+          filename: finalName
+        });
+
+        resolve({
+          success: true,
+          native: true,
+          filename: finalName,
+          size: sizeFormatted,
+          folder: msg.folder,
+          message: msg.message || 'Video tersimpan di folder Downloads via Turbo Chunker!'
+        });
+        try {
+          port.disconnect();
+        } catch (_) {}
+      } else {
+        if (isSettled) return;
+        isSettled = true;
+        const errorCode = msg.errorCode || 'ERR_TURBO_CHUNK_FAIL';
+        const displayError = msg.error || 'Unduhan Turbo Chunker gagal';
+
+        if (activeDownloads[videoId]) {
+          activeDownloads[videoId].status = 'error';
+          activeDownloads[videoId].error = displayError;
+          activeDownloads[videoId].errorCode = errorCode;
+        }
+        updateActionBadge('ERR', '#ef4444');
+        setTimeout(() => {
+          updateActionBadge('');
+          delete activeDownloads[videoId];
+        }, 6000);
+
+        showDesktopNotification({
+          success: false,
+          title: params.title,
+          author: params.author || 'AnoBoy',
+          error: displayError,
+          errorCode: errorCode,
+          videoId: videoId
+        });
+
+        broadcastToAllTabs({
+          type: 'ANOBOY_NATIVE_ERROR',
+          videoId: videoId,
+          title: params.title,
+          error: displayError,
+          errorCode: errorCode
+        });
+
+        reject(new Error(displayError));
+        try {
+          port.disconnect();
+        } catch (_) {}
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (isSettled) return;
+      isSettled = true;
+      try {
+        port.postMessage({ action: 'CANCEL' });
+      } catch (_) {}
+      const err = chrome.runtime.lastError
+        ? chrome.runtime.lastError.message
+        : 'Native host disconnected unexpectedly';
+      delete activeDownloads[videoId];
+      updateActionBadge('');
+      reject(new Error(err));
+    });
+
+    // Send FAST_RANGE_DOWNLOAD to native host
+    port.postMessage({
+      action: 'FAST_RANGE_DOWNLOAD',
+      url: streamUrl,
+      filename: params.filename,
+      referer: params.referer || 'https://anoboy.at/',
+      videoId: videoId,
+      title: params.title,
+      author: params.author || 'AnoBoy'
+    });
+  });
+}
+
 // =========================================================================
 // AnoBoy / Blogger Video Direct Stream Resolvers
 // =========================================================================
@@ -2550,6 +2778,21 @@ function handleMessage(message, sender, sendResponse) {
     resolveAnoboyStream(payload)
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Handle DOWNLOAD_ANOBOY_NATIVE (Multi-connection Turbo Range Chunker)
+  if (actionType === 'DOWNLOAD_ANOBOY_NATIVE') {
+    const payload =
+      message.payload && typeof message.payload === 'object' ? message.payload : message;
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+
+    downloadViaNativeChunker(payload, tabId)
+      .then((result) => sendResponse(result))
+      .catch((err) => {
+        console.warn('[SW] Turbo Chunker error:', err.message);
+        sendResponse({ success: false, error: err.message });
+      });
     return true;
   }
 

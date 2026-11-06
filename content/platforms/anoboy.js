@@ -389,7 +389,8 @@
           <div class="mungil-ab-res-picker">
             <label for="mungil-ab-modal-server-select">Server:</label>
             <select id="mungil-ab-modal-server-select" style="background:#1c202a;border:1px solid rgba(255,193,7,0.3);color:#ffc107;font-weight:700;padding:4px 8px;border-radius:6px;outline:none;cursor:pointer;">
-              <option value="gofile" selected>⚡ Gofile (High Speed 1K/720p)</option>
+              <option value="turbo" selected>⚡ Turbo Chunker (Native 16x - Tercepat)</option>
+              <option value="gofile">⚡ Gofile (High Speed 1K/720p)</option>
               <option value="blogger">🌐 Blogger (Auto-Folder MP4)</option>
             </select>
             <label for="mungil-ab-res-select">Resolusi:</label>
@@ -485,10 +486,13 @@
     const copyGofileBtn = modal.querySelector('#mungil-ab-copy-gofile-btn');
 
     function updateServerMode() {
-      const mode = serverSelect ? serverSelect.value : 'gofile';
+      const mode = serverSelect ? serverSelect.value : 'turbo';
       if (mode === 'gofile') {
         if (startBtn) startBtn.innerHTML = `<span>⚡ Buka Gofile Terpilih</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'inline-flex';
+      } else if (mode === 'turbo') {
+        if (startBtn) startBtn.innerHTML = `<span>⚡ Mulai Unduh Turbo (16x)</span>`;
+        if (copyGofileBtn) copyGofileBtn.style.display = 'none';
       } else {
         if (startBtn) startBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Batch Terpilih</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'none';
@@ -556,7 +560,7 @@
       });
     }
 
-    // Start Action (Gofile Open / Blogger Auto-Download)
+    // Start Action (Turbo Native / Gofile Open / Blogger Auto-Download)
     if (startBtn) {
       startBtn.addEventListener('click', async () => {
         const selected = Array.from(modal.querySelectorAll('.mungil-ab-checkbox:checked')).map(
@@ -568,15 +572,20 @@
 
         if (selected.length === 0) return;
 
-        const mode = serverSelect ? serverSelect.value : 'gofile';
+        const mode = serverSelect ? serverSelect.value : 'turbo';
         const resSelect = modal.querySelector('#mungil-ab-res-select');
         const resolution = resSelect ? resSelect.value : '720p';
 
-        if (mode === 'gofile') {
+        if (mode === 'turbo') {
+          startBtn.disabled = true;
+          startBtn.innerHTML = `<span>⚡ Memulai Turbo (${selected.length})...</span>`;
+          executeBatchTurbo(currentData.animeTitle, selected, resolution, modal);
+        } else if (mode === 'gofile') {
           startBtn.disabled = true;
           startBtn.innerHTML = `<span>Membuka Gofile...</span>`;
 
-          for (const ep of selected) {
+          for (let i = 0; i < selected.length; i++) {
+            const ep = selected[i];
             const statusEl = modal.querySelector(`#ab-status-${ep.episodeNum}`);
             if (statusEl) {
               statusEl.textContent = 'Mencari Gofile...';
@@ -593,7 +602,10 @@
               statusEl.textContent = 'Gofile Nihil';
               statusEl.style.color = '#FF5252';
             }
-            await new Promise((r) => setTimeout(r, 450));
+            if (i < selected.length - 1) {
+              // 1500ms safety interval to prevent Cloudflare 429 Too Many Requests
+              await new Promise((r) => setTimeout(r, 1500));
+            }
           }
 
           startBtn.disabled = false;
@@ -725,6 +737,95 @@
       }
     } catch (_) {}
     return null;
+  }
+
+  async function executeBatchTurbo(animeTitle, items, resolution, modalEl) {
+    const startBtn = modalEl?.querySelector('#mungil-ab-start-btn');
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const statusEl = modalEl?.querySelector(`#ab-status-${item.episodeNum}`);
+      if (statusEl) {
+        statusEl.textContent = 'Resolving Stream...';
+        statusEl.style.color = '#FFC107';
+      }
+
+      try {
+        let streamUrl = await resolveStreamUrlForEpisode(item.url, resolution);
+        if (!streamUrl) {
+          if (statusEl) {
+            statusEl.textContent = 'No Stream';
+            statusEl.style.color = '#FF5252';
+          }
+          continue;
+        }
+
+        if (statusEl) {
+          statusEl.textContent = '⚡ Turbo 0%';
+          statusEl.style.color = '#00E676';
+        }
+
+        const filename = formatAnoboyFilename({
+          animeTitle,
+          episodeNum: item.episodeNum,
+          resolution,
+          ext: 'mp4',
+          includeFolder: true
+        });
+
+        const progressListener = (msg) => {
+          if (!msg || typeof msg !== 'object') return;
+          if (msg.type === 'ANOBOY_NATIVE_PROGRESS' || msg.type === 'NATIVE_DOWNLOAD_PROGRESS') {
+            if (statusEl && msg.percent !== undefined) {
+              const speedText = msg.speed ? ` (${msg.speed})` : '';
+              statusEl.textContent = `⚡ ${msg.percent}%${speedText}`;
+              statusEl.style.color = '#00E676';
+            }
+          }
+        };
+
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+          chrome.runtime.onMessage.addListener(progressListener);
+        }
+
+        await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              action: 'DOWNLOAD_ANOBOY_NATIVE',
+              url: streamUrl,
+              filename,
+              title: `${animeTitle} - Episode ${item.episodeNum}`,
+              referer: 'https://anoboy.at/'
+            },
+            (res) => {
+              if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+                chrome.runtime.onMessage.removeListener(progressListener);
+              }
+              if (statusEl) {
+                if (res && res.success) {
+                  statusEl.textContent = '✓ Saved (Turbo)';
+                  statusEl.style.color = '#00E676';
+                } else {
+                  statusEl.textContent = 'Failed';
+                  statusEl.style.color = '#FF5252';
+                }
+              }
+              resolve(res);
+            }
+          );
+        });
+      } catch (_) {
+        if (statusEl) {
+          statusEl.textContent = 'Error';
+          statusEl.style.color = '#FF5252';
+        }
+      }
+    }
+
+    if (startBtn) {
+      startBtn.disabled = false;
+      startBtn.innerHTML = `${SVG_CHECK} <span>Selesai Turbo!</span>`;
+    }
   }
 
   async function executeBatchDownload(animeTitle, items, resolution, modalEl) {
@@ -867,9 +968,10 @@
           <span class="mungil-ab-bar-title" title="${data.animeTitle}">${data.animeTitle}</span>
         </div>
         <div class="mungil-ab-bar-actions">
-          <select class="mungil-ab-server-select" id="mungil-ab-server-select" title="Pilih server unduhan: Gofile (Kecepatan Tinggi) atau Blogger (Direct)">
-            ${hasGofile ? '<option value="gofile" selected>⚡ Gofile (High Speed)</option>' : ''}
-            <option value="blogger" ${!hasGofile ? 'selected' : ''}>🌐 Blogger Direct</option>
+          <select class="mungil-ab-server-select" id="mungil-ab-server-select" title="Pilih server unduhan">
+            <option value="turbo" selected>⚡ Turbo Chunker (Native 16x - Tercepat)</option>
+            ${hasGofile ? '<option value="gofile">⚡ Gofile (High Speed 1K/720p)</option>' : ''}
+            <option value="blogger">🌐 Blogger Direct (Browser)</option>
           </select>
           <button type="button" class="mungil-ab-btn mungil-ab-btn-primary" id="mungil-ab-btn-single">
             ${SVG_DOWNLOAD}
@@ -887,7 +989,7 @@
     if (singleBtn) {
       singleBtn.addEventListener('click', async () => {
         const serverSelect = floatingBarEl.querySelector('#mungil-ab-server-select');
-        const selectedServer = serverSelect ? serverSelect.value : hasGofile ? 'gofile' : 'blogger';
+        const selectedServer = serverSelect ? serverSelect.value : 'turbo';
 
         if (selectedServer === 'gofile') {
           let targetGofile = gofileItems.find((i) => /1k|1080/i.test(i.resolution));
@@ -907,7 +1009,7 @@
         }
 
         singleBtn.disabled = true;
-        singleBtn.innerHTML = `<span>Mengunduh...</span>`;
+        singleBtn.innerHTML = `<span>Resolving...</span>`;
 
         let streamUrl = await resolveStreamUrlForEpisode(data.currentUrl, '720p');
         if (!streamUrl && data.servers.length > 0 && data.servers[0].bloggerToken) {
@@ -926,20 +1028,66 @@
             includeFolder: true
           });
 
-          chrome.runtime.sendMessage(
-            { action: 'DOWNLOAD_VIDEO', url: streamUrl, filename, platform: 'anoboy' },
-            (res) => {
-              singleBtn.disabled = false;
-              if (res && res.success) {
-                singleBtn.innerHTML = `${SVG_CHECK} <span>Tersimpan!</span>`;
-              } else {
-                singleBtn.innerHTML = `${SVG_DOWNLOAD} <span>Coba Lagi</span>`;
+          if (selectedServer === 'turbo') {
+            singleBtn.innerHTML = `<span>⚡ Memulai Turbo...</span>`;
+
+            const progressListener = (msg) => {
+              if (!msg || typeof msg !== 'object') return;
+              if (
+                msg.type === 'ANOBOY_NATIVE_PROGRESS' ||
+                msg.type === 'NATIVE_DOWNLOAD_PROGRESS'
+              ) {
+                if (singleBtn && msg.percent !== undefined) {
+                  const spd = msg.speed ? ` (${msg.speed})` : '';
+                  singleBtn.innerHTML = `<span>⚡ ${msg.percent}%${spd}</span>`;
+                }
               }
-              setTimeout(() => {
-                if (singleBtn) singleBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Eps Ini</span>`;
-              }, 3000);
+            };
+
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+              chrome.runtime.onMessage.addListener(progressListener);
             }
-          );
+
+            chrome.runtime.sendMessage(
+              {
+                action: 'DOWNLOAD_ANOBOY_NATIVE',
+                url: streamUrl,
+                filename,
+                title: `${data.animeTitle} - Episode ${data.episodeNum}`,
+                referer: 'https://anoboy.at/'
+              },
+              (res) => {
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+                  chrome.runtime.onMessage.removeListener(progressListener);
+                }
+                singleBtn.disabled = false;
+                if (res && res.success) {
+                  singleBtn.innerHTML = `${SVG_CHECK} <span>Tersimpan (Turbo)!</span>`;
+                } else {
+                  singleBtn.innerHTML = `${SVG_DOWNLOAD} <span>Coba Lagi</span>`;
+                }
+                setTimeout(() => {
+                  if (singleBtn) singleBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Eps Ini</span>`;
+                }, 3000);
+              }
+            );
+          } else {
+            singleBtn.innerHTML = `<span>Mengunduh...</span>`;
+            chrome.runtime.sendMessage(
+              { action: 'DOWNLOAD_VIDEO', url: streamUrl, filename, platform: 'anoboy' },
+              (res) => {
+                singleBtn.disabled = false;
+                if (res && res.success) {
+                  singleBtn.innerHTML = `${SVG_CHECK} <span>Tersimpan!</span>`;
+                } else {
+                  singleBtn.innerHTML = `${SVG_DOWNLOAD} <span>Coba Lagi</span>`;
+                }
+                setTimeout(() => {
+                  if (singleBtn) singleBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Eps Ini</span>`;
+                }, 3000);
+              }
+            );
+          }
         } else {
           singleBtn.disabled = false;
           singleBtn.textContent = 'Gagal';
@@ -1032,6 +1180,7 @@
       extractStreamFromBloggerHtml,
       resolveStreamUrlForEpisode,
       resolveGofileUrlForEpisode,
+      executeBatchTurbo,
       renderFloatingBar
     };
   }
