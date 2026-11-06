@@ -935,6 +935,7 @@
     let idx = 0;
     let completed = 0;
     let isBatchCancelled = false;
+    let runWorker = null;
 
     currentBatchState.animeTitle = animeTitle;
     currentBatchState.total = items.length;
@@ -981,6 +982,9 @@
         }
       });
       updateMiniProgressWidget({ speed: 'Melanjutkan...' });
+      if (typeof runWorker === 'function') {
+        runWorker();
+      }
     };
 
     const cancelAllAction = () => {
@@ -1023,9 +1027,13 @@
     }
 
     return new Promise((resolveAll) => {
-      const runWorker = () => {
+      runWorker = () => {
         if (isBatchCancelled) {
           return resolveAll();
+        }
+
+        if (currentBatchState.isPaused) {
+          return;
         }
 
         if (completed >= items.length) {
@@ -1041,7 +1049,12 @@
           return resolveAll();
         }
 
-        while (active < concurrency && idx < items.length && !isBatchCancelled) {
+        while (
+          active < concurrency &&
+          idx < items.length &&
+          !isBatchCancelled &&
+          !currentBatchState.isPaused
+        ) {
           const item = items[idx++];
           active++;
           const videoId = `anoboy_${item.episodeNum}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -1234,10 +1247,14 @@
                 } catch (_) {}
               }
               active--;
-              completed++;
+              if (taskInfo.status !== 'cancelled' && !isBatchCancelled) {
+                completed++;
+              }
               const overallPct = Math.round((completed / items.length) * 100);
               updateMiniProgressWidget({ completed, percent: overallPct });
-              setTimeout(runWorker, 100);
+              if (!currentBatchState.isPaused && !isBatchCancelled) {
+                setTimeout(runWorker, 100);
+              }
             }
           })();
         }

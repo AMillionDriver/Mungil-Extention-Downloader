@@ -83,7 +83,9 @@ function pauseJob(taskId) {
   job.status = 'paused';
   for (const sock of job.sockets) {
     try {
-      sock.destroy();
+      if (typeof sock.destroy === 'function') {
+        sock.destroy();
+      }
     } catch (_) {}
   }
   job.sockets.clear();
@@ -195,6 +197,14 @@ function cancelAllActive() {
       fs.closeSync(activeFd);
     } catch (_) {}
     activeFd = null;
+  }
+  if (activeFilePath) {
+    try {
+      if (fs.existsSync(activeFilePath)) {
+        fs.unlinkSync(activeFilePath);
+      }
+    } catch (_) {}
+    activeFilePath = null;
   }
 }
 
@@ -628,10 +638,32 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
         },
         (res) => {
           if (job && job.status !== 'downloading') {
-            res.resume();
-            req.destroy();
+            try {
+              res.destroy();
+            } catch (_) {}
+            try {
+              if (res.socket) res.socket.destroy();
+            } catch (_) {}
+            try {
+              req.destroy();
+            } catch (_) {}
             return reject(new Error('PAUSED_OR_CANCELLED'));
           }
+
+          if (job) {
+            job.sockets.add(res);
+            if (res.socket) job.sockets.add(res.socket);
+            res.on('close', () => {
+              job.sockets.delete(res);
+              if (res.socket) job.sockets.delete(res.socket);
+            });
+          }
+          activeSockets.add(res);
+          if (res.socket) activeSockets.add(res.socket);
+          res.on('close', () => {
+            activeSockets.delete(res);
+            if (res.socket) activeSockets.delete(res.socket);
+          });
 
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             const nextLoc = new URL(res.headers.location, urlStr).href;
@@ -652,7 +684,15 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
 
           res.on('data', (buf) => {
             if (job && job.status !== 'downloading') {
-              req.destroy();
+              try {
+                res.destroy();
+              } catch (_) {}
+              try {
+                if (res.socket) res.socket.destroy();
+              } catch (_) {}
+              try {
+                req.destroy();
+              } catch (_) {}
               return;
             }
             const writeOffset = chunk.start + chunk.written;
@@ -661,6 +701,12 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
               chunk.written += buf.length;
               onBytes(buf.length);
             } catch (writeErr) {
+              try {
+                res.destroy(writeErr);
+              } catch (_) {}
+              try {
+                if (res.socket) res.socket.destroy(writeErr);
+              } catch (_) {}
               req.destroy(writeErr);
             }
           });
@@ -701,6 +747,15 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
         } else {
           reject(err);
         }
+      });
+
+      req.on('socket', (sock) => {
+        if (job) job.sockets.add(sock);
+        activeSockets.add(sock);
+        sock.on('close', () => {
+          if (job) job.sockets.delete(sock);
+          activeSockets.delete(sock);
+        });
       });
 
       if (job) {
@@ -744,6 +799,13 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
           } catch (_) {}
           return reject(new Error(`Download stream failed with HTTP ${res.statusCode}`));
         }
+
+        activeSockets.add(res);
+        if (res.socket) activeSockets.add(res.socket);
+        res.on('close', () => {
+          activeSockets.delete(res);
+          if (res.socket) activeSockets.delete(res.socket);
+        });
 
         let downloaded = 0;
         let lastReport = Date.now();
@@ -982,7 +1044,7 @@ async function downloadWithRangeChunks(msg) {
       });
       probedRes = probeResult.res;
       probedUrl = probeResult.url;
-    } catch (probeErr) {
+    } catch (_probeErr) {
       // If probe failed or returned error, try re-resolving in Node via episodeUrl or token
       probedRes = { statusCode: 500, headers: {}, resume: () => {} };
     }

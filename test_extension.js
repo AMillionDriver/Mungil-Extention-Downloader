@@ -7621,6 +7621,41 @@ async function runAllSuites() {
         );
         assert.ok(stream360.includes('itag=18'), '360p stream must have itag=18');
       });
+
+      test('AnoBoy pauseJob destroys in-flight response sockets and batch queue respects isPaused', () => {
+        const hostCode = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'native_host/downloader_host.js'),
+          'utf8'
+        );
+        const anoboyCode = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'),
+          'utf8'
+        );
+
+        // Native host socket destroy checks
+        assert.ok(
+          hostCode.includes('job.sockets.add(res)'),
+          'downloader_host.js must add res to job.sockets'
+        );
+        assert.ok(
+          hostCode.includes('if (res.socket) job.sockets.add(res.socket)'),
+          'downloader_host.js must track res.socket in job.sockets'
+        );
+        assert.ok(
+          hostCode.includes('sock.destroy()'),
+          'pauseJob must call sock.destroy() on all tracked sockets'
+        );
+
+        // Content script batch queue pause guard checks
+        assert.ok(
+          anoboyCode.includes('if (currentBatchState.isPaused)'),
+          'anoboy.js runWorker must abort queue loop when currentBatchState.isPaused is true'
+        );
+        assert.ok(
+          anoboyCode.includes('!currentBatchState.isPaused'),
+          'anoboy.js while loop must check !currentBatchState.isPaused'
+        );
+      });
     }
   );
 
