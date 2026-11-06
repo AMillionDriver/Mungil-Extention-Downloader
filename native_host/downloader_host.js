@@ -75,6 +75,89 @@ let activeTempCookiePath = null;
 const activeSockets = new Set();
 let activeFd = null;
 let activeFilePath = null;
+const activeJobs = new Map();
+
+function pauseJob(taskId) {
+  const job = activeJobs.get(taskId);
+  if (!job || job.status !== 'downloading') return false;
+  job.status = 'paused';
+  for (const sock of job.sockets) {
+    try {
+      sock.destroy();
+    } catch (_) {}
+  }
+  job.sockets.clear();
+  sendMessage({
+    type: 'PROGRESS',
+    status: 'paused',
+    part: `Turbo Chunker (${job.chunkCount}x)`,
+    percent: Math.min(99, Math.round((job.totalDownloaded / job.totalSize) * 100)),
+    totalSize: formatBytes(job.totalSize),
+    speed: 'Dijeda',
+    eta: '',
+    videoId: job.msg.videoId,
+    title: job.msg.title
+  });
+  return true;
+}
+
+function resumeJob(taskId) {
+  const job = activeJobs.get(taskId);
+  if (!job || job.status !== 'paused') return false;
+  job.status = 'downloading';
+  sendMessage({
+    type: 'PROGRESS',
+    status: 'downloading',
+    part: `Turbo Chunker (${job.chunkCount}x)`,
+    percent: Math.min(99, Math.round((job.totalDownloaded / job.totalSize) * 100)),
+    totalSize: formatBytes(job.totalSize),
+    speed: 'Melanjutkan...',
+    eta: '',
+    videoId: job.msg.videoId,
+    title: job.msg.title
+  });
+  if (typeof job.startWorkers === 'function') {
+    job.startWorkers();
+  }
+  return true;
+}
+
+function cancelJob(taskId) {
+  const job = activeJobs.get(taskId);
+  if (!job) return false;
+  job.status = 'cancelled';
+  for (const sock of job.sockets) {
+    try {
+      sock.destroy();
+    } catch (_) {}
+  }
+  job.sockets.clear();
+  if (job.fd !== null) {
+    try {
+      fs.closeSync(job.fd);
+    } catch (_) {}
+    job.fd = null;
+  }
+  try {
+    if (job.finalDestPath && fs.existsSync(job.finalDestPath)) {
+      const st = fs.statSync(job.finalDestPath);
+      if (st.size < job.totalSize) {
+        fs.unlinkSync(job.finalDestPath);
+      }
+    }
+  } catch (_) {}
+  activeJobs.delete(taskId);
+  sendMessage({
+    type: 'PROGRESS',
+    status: 'cancelled',
+    part: 'Turbo Chunker',
+    percent: 0,
+    speed: 'Dibatalkan',
+    videoId: job.msg.videoId,
+    title: job.msg.title
+  });
+  return true;
+}
 
 function cleanupActiveTempCookie() {
   if (activeTempCookiePath) {
@@ -95,6 +178,12 @@ function cancelAllActive() {
     } catch (_) {}
     activeChildProcess = null;
   }
+  for (const [taskId] of activeJobs) {
+    try {
+      cancelJob(taskId);
+    } catch (_) {}
+  }
+  activeJobs.clear();
   for (const sock of activeSockets) {
     try {
       sock.destroy();
@@ -195,6 +284,40 @@ function handleIncomingMessage(msg) {
   if (action === 'CANCEL') {
     killActiveChild();
     return sendMessage({ success: true, message: 'Download cancelled successfully' });
+  }
+
+  // 2b. Granular Fast Range Chunker Pause/Resume/Cancel
+  if (action === 'PAUSE_FAST_DOWNLOAD' || action === 'PAUSE_DOWNLOAD') {
+    const taskId = msg.taskId || msg.videoId;
+    const ok = pauseJob(taskId);
+    return sendMessage({
+      success: ok,
+      action: 'PAUSE_FAST_DOWNLOAD',
+      taskId,
+      videoId: msg.videoId
+    });
+  }
+
+  if (action === 'RESUME_FAST_DOWNLOAD' || action === 'RESUME_DOWNLOAD') {
+    const taskId = msg.taskId || msg.videoId;
+    const ok = resumeJob(taskId);
+    return sendMessage({
+      success: ok,
+      action: 'RESUME_FAST_DOWNLOAD',
+      taskId,
+      videoId: msg.videoId
+    });
+  }
+
+  if (action === 'CANCEL_FAST_DOWNLOAD') {
+    const taskId = msg.taskId || msg.videoId;
+    const ok = cancelJob(taskId);
+    return sendMessage({
+      success: ok,
+      action: 'CANCEL_FAST_DOWNLOAD',
+      taskId,
+      videoId: msg.videoId
+    });
   }
 
   // 3. Download YouTube Video via yt-dlp + FFmpeg
@@ -474,9 +597,13 @@ function formatDuration(sec) {
   return `${s}s`;
 }
 
-function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
+function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retries = 3) {
   return new Promise((resolve, reject) => {
     function attempt(retryCount) {
+      if (job && job.status !== 'downloading') {
+        return reject(new Error('PAUSED_OR_CANCELLED'));
+      }
+
       const parsed = new URL(urlStr);
       const client = parsed.protocol === 'http:' ? http : https;
       const curStart = chunk.start + chunk.written;
@@ -500,10 +627,16 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
           headers: reqHeaders
         },
         (res) => {
+          if (job && job.status !== 'downloading') {
+            res.resume();
+            req.destroy();
+            return reject(new Error('PAUSED_OR_CANCELLED'));
+          }
+
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             const nextLoc = new URL(res.headers.location, urlStr).href;
             res.resume();
-            return downloadChunkTask(nextLoc, chunk, headers, fd, onBytes, retryCount).then(
+            return downloadChunkTask(nextLoc, chunk, headers, fd, onBytes, job, retryCount).then(
               resolve,
               reject
             );
@@ -511,13 +644,17 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
 
           if (res.statusCode !== 206 && res.statusCode !== 200) {
             res.resume();
-            if (retryCount > 0) {
+            if (retryCount > 0 && (!job || job.status === 'downloading')) {
               return setTimeout(() => attempt(retryCount - 1), 600);
             }
             return reject(new Error(`Chunk ${chunk.index} HTTP ${res.statusCode}`));
           }
 
           res.on('data', (buf) => {
+            if (job && job.status !== 'downloading') {
+              req.destroy();
+              return;
+            }
             const writeOffset = chunk.start + chunk.written;
             try {
               fs.writeSync(fd, buf, 0, buf.length, writeOffset);
@@ -531,6 +668,8 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
           res.on('end', () => {
             if (chunk.written >= chunk.length) {
               resolve();
+            } else if (job && job.status !== 'downloading') {
+              reject(new Error('PAUSED_OR_CANCELLED'));
             } else if (retryCount > 0) {
               setTimeout(() => attempt(retryCount - 1), 500);
             } else {
@@ -541,6 +680,9 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
           });
 
           res.on('error', (err) => {
+            if (job && job.status !== 'downloading') {
+              return reject(new Error('PAUSED_OR_CANCELLED'));
+            }
             if (retryCount > 0) {
               setTimeout(() => attempt(retryCount - 1), 600);
             } else {
@@ -551,6 +693,9 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
       );
 
       req.on('error', (err) => {
+        if (job && job.status !== 'downloading') {
+          return reject(new Error('PAUSED_OR_CANCELLED'));
+        }
         if (retryCount > 0) {
           setTimeout(() => attempt(retryCount - 1), 600);
         } else {
@@ -558,6 +703,10 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, retries = 3) {
         }
       });
 
+      if (job) {
+        job.sockets.add(req);
+        req.on('close', () => job.sockets.delete(req));
+      }
       activeSockets.add(req);
       req.on('close', () => activeSockets.delete(req));
       req.end();
@@ -747,7 +896,15 @@ async function downloadWithRangeChunks(msg) {
     rawFilename.replace(/[*?"<>|/\\:]/g, '_').trim() || `video_${Date.now()}.mp4`;
   const finalDestPath = path.join(targetSubdir, safeFilename);
 
-  cancelAllActive();
+  const taskId =
+    msg.taskId ||
+    msg.videoId ||
+    'task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  if (activeJobs.has(taskId)) {
+    try {
+      cancelJob(taskId);
+    } catch (_) {}
+  }
 
   function requestFollow(urlStr, options, maxRedir = 5) {
     return new Promise((resolve, reject) => {
@@ -901,13 +1058,29 @@ async function downloadWithRangeChunks(msg) {
       for (let i = 0; i < chunkCount; i++) {
         const start = i * chunkSize;
         const end = i === chunkCount - 1 ? totalSize - 1 : (i + 1) * chunkSize - 1;
-        chunks.push({ index: i, start, end, written: 0, length: end - start + 1 });
+        chunks.push({ index: i, start, end, written: 0, length: end - start + 1, inFlight: false });
       }
 
       let totalDownloaded = 0;
       let lastProgressTime = Date.now();
       let bytesSinceLastProgress = 0;
       let isFinished = false;
+
+      const job = {
+        id: taskId,
+        status: 'downloading',
+        sockets: new Set(),
+        fd,
+        finalDestPath,
+        chunks,
+        totalSize,
+        totalDownloaded: 0,
+        chunkCount,
+        msg,
+        activeWorkers: 0,
+        startWorkers: null
+      };
+      activeJobs.set(taskId, job);
 
       sendMessage({
         type: 'PROGRESS',
@@ -918,10 +1091,12 @@ async function downloadWithRangeChunks(msg) {
         speed: 'Memulai...',
         eta: '',
         videoId: msg.videoId,
+        taskId,
         title: msg.title
       });
 
       const reportProgress = () => {
+        if (job.status !== 'downloading') return;
         const now = Date.now();
         const deltaSec = (now - lastProgressTime) / 1000;
         if (deltaSec >= 0.35) {
@@ -939,6 +1114,7 @@ async function downloadWithRangeChunks(msg) {
             speed: `${formatBytes(speedBytes)}/s`,
             eta: formatDuration(etaSec),
             videoId: msg.videoId,
+            taskId,
             title: msg.title
           });
 
@@ -947,46 +1123,74 @@ async function downloadWithRangeChunks(msg) {
         }
       };
 
-      let activeWorkers = 0;
-      let nextChunkIdx = 0;
-
       return new Promise((resolveAll, rejectAll) => {
         function startNextWorker() {
-          if (isFinished) return;
-          if (nextChunkIdx >= chunks.length) {
-            if (activeWorkers === 0) {
-              isFinished = true;
-              resolveAll();
+          if (isFinished || job.status !== 'downloading') return;
+
+          const incompleteChunk = chunks.find((c) => !c.inFlight && c.written < c.length);
+          if (!incompleteChunk) {
+            if (job.activeWorkers === 0) {
+              const allDone = chunks.every((c) => c.written >= c.length);
+              if (allDone) {
+                isFinished = true;
+                job.status = 'done';
+                resolveAll();
+              }
             }
             return;
           }
 
-          const chunk = chunks[nextChunkIdx++];
-          activeWorkers++;
+          incompleteChunk.inFlight = true;
+          job.activeWorkers++;
 
-          downloadChunkTask(probedUrl, chunk, customHeaders, fd, (bytes) => {
-            totalDownloaded += bytes;
-            bytesSinceLastProgress += bytes;
-            reportProgress();
-          })
+          downloadChunkTask(
+            probedUrl,
+            incompleteChunk,
+            customHeaders,
+            fd,
+            (bytes) => {
+              totalDownloaded += bytes;
+              job.totalDownloaded = totalDownloaded;
+              bytesSinceLastProgress += bytes;
+              reportProgress();
+            },
+            job
+          )
             .then(() => {
-              activeWorkers--;
+              incompleteChunk.inFlight = false;
+              job.activeWorkers--;
               startNextWorker();
             })
             .catch((err) => {
+              incompleteChunk.inFlight = false;
+              job.activeWorkers--;
+              if (job.status === 'paused') {
+                return;
+              }
+              if (job.status === 'cancelled') {
+                isFinished = true;
+                return rejectAll(new Error('DOWNLOAD_CANCELLED'));
+              }
               isFinished = true;
               rejectAll(err);
             });
         }
 
-        const maxConcurrency = Math.min(chunkCount, 16);
-        for (let i = 0; i < maxConcurrency; i++) {
-          startNextWorker();
-        }
+        job.startWorkers = () => {
+          if (isFinished || job.status !== 'downloading') return;
+          const maxConcurrency = Math.min(chunkCount, 16);
+          const needed = maxConcurrency - job.activeWorkers;
+          for (let i = 0; i < needed; i++) {
+            startNextWorker();
+          }
+        };
+
+        job.startWorkers();
       }).then(() => {
-        if (activeFd !== null) {
+        activeJobs.delete(taskId);
+        if (activeFd !== null && activeFd === fd) {
           try {
-            fs.closeSync(activeFd);
+            fs.closeSync(fd);
           } catch (_) {}
           activeFd = null;
         }
@@ -999,6 +1203,7 @@ async function downloadWithRangeChunks(msg) {
           folder: targetSubdir,
           size: formatBytes(totalSize),
           videoId: msg.videoId,
+          taskId,
           title: msg.title,
           author: msg.author,
           timestamp: Date.now(),
@@ -1007,7 +1212,18 @@ async function downloadWithRangeChunks(msg) {
       });
     })
     .catch((err) => {
-      cancelAllActive();
+      const isCancelled =
+        err.message === 'DOWNLOAD_CANCELLED' || activeJobs.get(taskId)?.status === 'cancelled';
+      activeJobs.delete(taskId);
+      if (activeFd !== null) {
+        try {
+          fs.closeSync(activeFd);
+        } catch (_) {}
+        activeFd = null;
+      }
+      if (isCancelled) {
+        return;
+      }
       try {
         if (fs.existsSync(finalDestPath)) {
           const st = fs.statSync(finalDestPath);
@@ -1021,6 +1237,7 @@ async function downloadWithRangeChunks(msg) {
         error: 'Turbo Chunker error: ' + err.message,
         errorCode: 'ERR_TURBO_CHUNK_FAIL',
         videoId: msg.videoId,
+        taskId,
         title: msg.title
       });
     });

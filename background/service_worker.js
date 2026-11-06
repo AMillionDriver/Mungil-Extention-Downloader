@@ -1692,6 +1692,7 @@ const NATIVE_HOST_NAME = 'com.direct.downloader.host';
 
 // In-Memory and Synchronized Active Downloads Registry
 const activeDownloads = {};
+const activeNativePorts = new Map();
 
 function broadcastToAllTabs(payload) {
   if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) return;
@@ -2227,6 +2228,7 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
     });
 
     port.onDisconnect.addListener(() => {
+      activeNativePorts.delete(videoId);
       if (isSettled) return;
       isSettled = true;
       try {
@@ -2281,6 +2283,7 @@ async function downloadViaNativeChunker(params, _tabId) {
 
     try {
       port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+      activeNativePorts.set(videoId, port);
     } catch (err) {
       return reject(new Error('Gagal menghubungkan ke Native Host: ' + err.message));
     }
@@ -2404,6 +2407,7 @@ async function downloadViaNativeChunker(params, _tabId) {
           filename: finalName
         });
 
+        activeNativePorts.delete(videoId);
         resolve({
           success: true,
           native: true,
@@ -2418,6 +2422,7 @@ async function downloadViaNativeChunker(params, _tabId) {
       } else {
         if (isSettled) return;
         isSettled = true;
+        activeNativePorts.delete(videoId);
         const errorCode = msg.errorCode || 'ERR_TURBO_CHUNK_FAIL';
         const displayError = msg.error || 'Unduhan Turbo Chunker gagal';
 
@@ -2457,6 +2462,7 @@ async function downloadViaNativeChunker(params, _tabId) {
     });
 
     port.onDisconnect.addListener(() => {
+      activeNativePorts.delete(videoId);
       if (isSettled) return;
       isSettled = true;
       try {
@@ -2690,6 +2696,118 @@ function handleMessage(message, sender, sendResponse) {
       count: Object.keys(activeDownloads).length
     });
     return true;
+  }
+
+  // Handle PAUSE_FAST_DOWNLOAD / PAUSE_DOWNLOAD
+  if (actionType === 'PAUSE_FAST_DOWNLOAD' || actionType === 'PAUSE_DOWNLOAD') {
+    const videoId = message.videoId || message.id || message.taskId;
+    if (activeNativePorts.has(videoId)) {
+      try {
+        activeNativePorts.get(videoId).postMessage({ action: 'PAUSE_FAST_DOWNLOAD', videoId });
+        if (activeDownloads[videoId]) activeDownloads[videoId].status = 'paused';
+        broadcastToAllTabs({
+          type: 'ANOBOY_NATIVE_PROGRESS',
+          videoId,
+          status: 'paused',
+          speed: 'Dijeda'
+        });
+        sendResponse({ success: true, status: 'paused', videoId });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+      return false;
+    }
+    if (
+      message.downloadId &&
+      typeof chrome !== 'undefined' &&
+      chrome.downloads &&
+      chrome.downloads.pause
+    ) {
+      chrome.downloads.pause(message.downloadId, () => {
+        sendResponse({
+          success: !chrome.runtime.lastError,
+          error: chrome.runtime.lastError?.message
+        });
+      });
+      return true;
+    }
+    sendResponse({ success: false, error: 'Download not found or not active' });
+    return false;
+  }
+
+  // Handle RESUME_FAST_DOWNLOAD / RESUME_DOWNLOAD
+  if (actionType === 'RESUME_FAST_DOWNLOAD' || actionType === 'RESUME_DOWNLOAD') {
+    const videoId = message.videoId || message.id || message.taskId;
+    if (activeNativePorts.has(videoId)) {
+      try {
+        activeNativePorts.get(videoId).postMessage({ action: 'RESUME_FAST_DOWNLOAD', videoId });
+        if (activeDownloads[videoId]) activeDownloads[videoId].status = 'downloading';
+        broadcastToAllTabs({
+          type: 'ANOBOY_NATIVE_PROGRESS',
+          videoId,
+          status: 'downloading',
+          speed: 'Melanjutkan...'
+        });
+        sendResponse({ success: true, status: 'downloading', videoId });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+      return false;
+    }
+    if (
+      message.downloadId &&
+      typeof chrome !== 'undefined' &&
+      chrome.downloads &&
+      chrome.downloads.resume
+    ) {
+      chrome.downloads.resume(message.downloadId, () => {
+        sendResponse({
+          success: !chrome.runtime.lastError,
+          error: chrome.runtime.lastError?.message
+        });
+      });
+      return true;
+    }
+    sendResponse({ success: false, error: 'Download not found or not paused' });
+    return false;
+  }
+
+  // Handle CANCEL_FAST_DOWNLOAD / CANCEL_DOWNLOAD
+  if (actionType === 'CANCEL_FAST_DOWNLOAD' || actionType === 'CANCEL_DOWNLOAD') {
+    const videoId = message.videoId || message.id || message.taskId;
+    if (activeNativePorts.has(videoId)) {
+      try {
+        activeNativePorts.get(videoId).postMessage({ action: 'CANCEL_FAST_DOWNLOAD', videoId });
+        delete activeDownloads[videoId];
+        activeNativePorts.delete(videoId);
+        broadcastToAllTabs({
+          type: 'ANOBOY_NATIVE_PROGRESS',
+          videoId,
+          status: 'cancelled',
+          speed: 'Dibatalkan'
+        });
+        sendResponse({ success: true, status: 'cancelled', videoId });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+      return false;
+    }
+    if (
+      message.downloadId &&
+      typeof chrome !== 'undefined' &&
+      chrome.downloads &&
+      chrome.downloads.cancel
+    ) {
+      chrome.downloads.cancel(message.downloadId, () => {
+        sendResponse({
+          success: !chrome.runtime.lastError,
+          error: chrome.runtime.lastError?.message
+        });
+      });
+      return true;
+    }
+    sendResponse({ success: false, error: 'Download not found' });
+    return false;
   }
 
   // Handle CHECK_DOWNLOADED_STATUS (For button gray state and redownload prompt)

@@ -357,7 +357,12 @@
     completed: 0,
     speed: '',
     percent: 0,
-    isDownloading: false
+    isDownloading: false,
+    isPaused: false,
+    activeTasks: new Map(),
+    pauseAll: null,
+    resumeAll: null,
+    cancelAll: null
   };
 
   function updateMiniProgressWidget(data = {}) {
@@ -366,11 +371,23 @@
     const pct = Math.min(100, Math.max(0, currentBatchState.percent || 0));
     const title = currentBatchState.animeTitle || 'AnoBoy Batch';
     const spd = currentBatchState.speed ? ` • ${currentBatchState.speed}` : '';
+    const pauseIcon = currentBatchState.isPaused ? '▶' : '⏸';
+    const pauseTitle = currentBatchState.isPaused
+      ? 'Lanjutkan Semua Unduhan'
+      : 'Jeda Semua Unduhan';
 
     miniWidgetEl.innerHTML = `
       <div class="mungil-ab-mini-top">
         <span class="mungil-ab-mini-title">⚡ ${title}</span>
-        <span class="mungil-ab-mini-speed">${currentBatchState.speed || 'Turbo'}</span>
+        <div class="mungil-ab-mini-actions">
+          ${
+            currentBatchState.isDownloading
+              ? `<button type="button" class="mungil-ab-mini-ctrl-btn" id="mungil-ab-mini-pause-btn" title="${pauseTitle}">${pauseIcon}</button>
+                 <button type="button" class="mungil-ab-mini-ctrl-btn cancel" id="mungil-ab-mini-cancel-btn" title="Batalkan Semua Unduhan">✕</button>`
+              : ''
+          }
+          <span class="mungil-ab-mini-speed">${currentBatchState.isPaused ? 'Dijeda' : currentBatchState.speed || 'Turbo'}</span>
+        </div>
       </div>
       <div class="mungil-ab-mini-bar-bg">
         <div class="mungil-ab-mini-bar-fill" style="width: ${pct}%;"></div>
@@ -380,6 +397,26 @@
         <span class="hint">Buka ↗</span>
       </div>
     `;
+
+    const pauseBtn = miniWidgetEl.querySelector('#mungil-ab-mini-pause-btn');
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentBatchState.isPaused) {
+          if (typeof currentBatchState.resumeAll === 'function') currentBatchState.resumeAll();
+        } else {
+          if (typeof currentBatchState.pauseAll === 'function') currentBatchState.pauseAll();
+        }
+      });
+    }
+
+    const cancelBtn = miniWidgetEl.querySelector('#mungil-ab-mini-cancel-btn');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof currentBatchState.cancelAll === 'function') currentBatchState.cancelAll();
+      });
+    }
   }
 
   function showMiniProgressWidget(animeTitle, total) {
@@ -540,6 +577,12 @@
           </div>
           <div class="mungil-ab-footer-btns">
             <button type="button" class="mungil-ab-btn mungil-ab-btn-ghost" id="mungil-ab-cancel-btn">Tutup</button>
+            <button type="button" class="mungil-ab-btn mungil-ab-btn-pause" id="mungil-ab-pause-all-btn" style="display:none;" title="Jeda semua unduhan aktif">
+              <span>⏸ Jeda Semua</span>
+            </button>
+            <button type="button" class="mungil-ab-btn mungil-ab-btn-stop" id="mungil-ab-cancel-all-btn" style="display:none;" title="Batalkan unduhan">
+              <span>✕ Batalkan</span>
+            </button>
             <button type="button" class="mungil-ab-btn mungil-ab-btn-secondary" id="mungil-ab-copy-gofile-btn">
               <span>📋 Salin Link Gofile</span>
             </button>
@@ -885,20 +928,112 @@
 
   async function executeBatchTurbo(animeTitle, items, resolution, modalEl, concurrency = 2) {
     const startBtn = modalEl?.querySelector('#mungil-ab-start-btn');
+    const pauseAllBtn = modalEl?.querySelector('#mungil-ab-pause-all-btn');
+    const cancelAllBtn = modalEl?.querySelector('#mungil-ab-cancel-all-btn');
+
     let active = 0;
     let idx = 0;
     let completed = 0;
+    let isBatchCancelled = false;
 
     currentBatchState.animeTitle = animeTitle;
     currentBatchState.total = items.length;
     currentBatchState.completed = 0;
     currentBatchState.percent = 0;
     currentBatchState.isDownloading = true;
+    currentBatchState.isPaused = false;
+    currentBatchState.activeTasks = new Map();
+
+    if (startBtn) startBtn.style.display = 'none';
+    if (pauseAllBtn) {
+      pauseAllBtn.style.display = 'inline-flex';
+      pauseAllBtn.innerHTML = '<span>⏸ Jeda Semua</span>';
+    }
+    if (cancelAllBtn) {
+      cancelAllBtn.style.display = 'inline-flex';
+    }
+
+    const pauseAllAction = () => {
+      currentBatchState.isPaused = true;
+      if (pauseAllBtn) pauseAllBtn.innerHTML = '<span>▶ Lanjutkan Semua</span>';
+      currentBatchState.activeTasks.forEach((t) => {
+        if (t.status === 'downloading') {
+          t.status = 'paused';
+          try {
+            chrome.runtime.sendMessage({ action: 'PAUSE_FAST_DOWNLOAD', videoId: t.videoId });
+          } catch (_) {}
+          if (t.renderStatus) t.renderStatus('paused');
+        }
+      });
+      updateMiniProgressWidget({ speed: 'Dijeda' });
+    };
+
+    const resumeAllAction = () => {
+      currentBatchState.isPaused = false;
+      if (pauseAllBtn) pauseAllBtn.innerHTML = '<span>⏸ Jeda Semua</span>';
+      currentBatchState.activeTasks.forEach((t) => {
+        if (t.status === 'paused') {
+          t.status = 'downloading';
+          try {
+            chrome.runtime.sendMessage({ action: 'RESUME_FAST_DOWNLOAD', videoId: t.videoId });
+          } catch (_) {}
+          if (t.renderStatus) t.renderStatus('downloading');
+        }
+      });
+      updateMiniProgressWidget({ speed: 'Melanjutkan...' });
+    };
+
+    const cancelAllAction = () => {
+      isBatchCancelled = true;
+      currentBatchState.isDownloading = false;
+      currentBatchState.isPaused = false;
+      currentBatchState.activeTasks.forEach((t) => {
+        try {
+          chrome.runtime.sendMessage({ action: 'CANCEL_FAST_DOWNLOAD', videoId: t.videoId });
+        } catch (_) {}
+        if (t.statusEl) {
+          t.statusEl.innerHTML = '<span style="color:#ef4444;font-weight:700;">✕ Dibatalkan</span>';
+        }
+      });
+      currentBatchState.activeTasks.clear();
+      if (pauseAllBtn) pauseAllBtn.style.display = 'none';
+      if (cancelAllBtn) cancelAllBtn.style.display = 'none';
+      if (startBtn) {
+        startBtn.style.display = 'inline-flex';
+        startBtn.disabled = false;
+        startBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Batch Terpilih</span>`;
+      }
+      hideMiniProgressWidget();
+    };
+
+    currentBatchState.pauseAll = pauseAllAction;
+    currentBatchState.resumeAll = resumeAllAction;
+    currentBatchState.cancelAll = cancelAllAction;
+
+    if (pauseAllBtn) {
+      pauseAllBtn.onclick = () => {
+        if (currentBatchState.isPaused) resumeAllAction();
+        else pauseAllAction();
+      };
+    }
+    if (cancelAllBtn) {
+      cancelAllBtn.onclick = () => {
+        cancelAllAction();
+      };
+    }
 
     return new Promise((resolveAll) => {
       const runWorker = () => {
+        if (isBatchCancelled) {
+          return resolveAll();
+        }
+
         if (completed >= items.length) {
+          currentBatchState.isDownloading = false;
+          if (pauseAllBtn) pauseAllBtn.style.display = 'none';
+          if (cancelAllBtn) cancelAllBtn.style.display = 'none';
           if (startBtn) {
+            startBtn.style.display = 'inline-flex';
             startBtn.disabled = false;
             startBtn.innerHTML = `${SVG_CHECK} <span>Selesai Turbo (${completed} File)!</span>`;
           }
@@ -906,7 +1041,7 @@
           return resolveAll();
         }
 
-        while (active < concurrency && idx < items.length) {
+        while (active < concurrency && idx < items.length && !isBatchCancelled) {
           const item = items[idx++];
           active++;
           const videoId = `anoboy_${item.episodeNum}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -917,22 +1052,87 @@
             statusEl.style.color = '#FFC107';
           }
 
+          const taskInfo = {
+            episodeNum: item.episodeNum,
+            videoId,
+            status: 'downloading',
+            statusEl,
+            percent: 0,
+            speed: '',
+            renderStatus: (state, extraText = '') => {
+              if (!statusEl) return;
+              if (state === 'paused') {
+                statusEl.innerHTML = `
+                  <span style="color:#ffc107;font-weight:700;">⏸ ${taskInfo.percent}% (Dijeda)</span>
+                  <div class="mungil-ab-row-ctrls">
+                    <button type="button" class="mungil-ab-row-btn play" title="Lanjutkan episode ini">▶</button>
+                    <button type="button" class="mungil-ab-row-btn cancel" title="Batalkan episode ini">✕</button>
+                  </div>
+                `;
+              } else if (state === 'cancelled') {
+                statusEl.innerHTML = `<span style="color:#ef4444;font-weight:700;">✕ Dibatalkan</span>`;
+              } else {
+                const spd = extraText ? ` (${extraText})` : '';
+                statusEl.innerHTML = `
+                  <span style="color:#00e676;font-weight:700;">⚡ ${taskInfo.percent}%${spd}</span>
+                  <div class="mungil-ab-row-ctrls">
+                    <button type="button" class="mungil-ab-row-btn pause" title="Jeda episode ini">⏸</button>
+                    <button type="button" class="mungil-ab-row-btn cancel" title="Batalkan episode ini">✕</button>
+                  </div>
+                `;
+              }
+
+              const rowPlay = statusEl.querySelector('.mungil-ab-row-btn.play');
+              if (rowPlay) {
+                rowPlay.onclick = (e) => {
+                  e.stopPropagation();
+                  taskInfo.status = 'downloading';
+                  try {
+                    chrome.runtime.sendMessage({ action: 'RESUME_FAST_DOWNLOAD', videoId });
+                  } catch (_) {}
+                  taskInfo.renderStatus('downloading');
+                };
+              }
+              const rowPause = statusEl.querySelector('.mungil-ab-row-btn.pause');
+              if (rowPause) {
+                rowPause.onclick = (e) => {
+                  e.stopPropagation();
+                  taskInfo.status = 'paused';
+                  try {
+                    chrome.runtime.sendMessage({ action: 'PAUSE_FAST_DOWNLOAD', videoId });
+                  } catch (_) {}
+                  taskInfo.renderStatus('paused');
+                };
+              }
+              const rowCancel = statusEl.querySelector('.mungil-ab-row-btn.cancel');
+              if (rowCancel) {
+                rowCancel.onclick = (e) => {
+                  e.stopPropagation();
+                  taskInfo.status = 'cancelled';
+                  try {
+                    chrome.runtime.sendMessage({ action: 'CANCEL_FAST_DOWNLOAD', videoId });
+                  } catch (_) {}
+                  taskInfo.renderStatus('cancelled');
+                };
+              }
+            }
+          };
+
+          currentBatchState.activeTasks.set(videoId, taskInfo);
+
           (async () => {
             let progressListener = null;
             try {
               let streamUrl = await resolveStreamUrlForEpisode(item.url, resolution);
-              if (!streamUrl) {
+              if (!streamUrl || isBatchCancelled) {
                 if (statusEl) {
-                  statusEl.textContent = 'No Stream';
+                  statusEl.textContent = isBatchCancelled ? 'Dibatalkan' : 'No Stream';
                   statusEl.style.color = '#FF5252';
                 }
                 return;
               }
 
-              if (statusEl) {
-                statusEl.textContent = '⚡ Turbo 0%';
-                statusEl.style.color = '#00E676';
-              }
+              taskInfo.renderStatus('downloading', '0%');
 
               const filename = formatAnoboyFilename({
                 animeTitle,
@@ -952,10 +1152,18 @@
                     msg.videoId === videoId ||
                     msg.title?.includes(`Episode ${item.episodeNum}`)
                   ) {
-                    if (statusEl && msg.percent !== undefined) {
-                      const speedText = msg.speed ? ` (${msg.speed})` : '';
-                      statusEl.textContent = `⚡ ${msg.percent}%${speedText}`;
-                      statusEl.style.color = '#00E676';
+                    if (msg.status === 'paused') {
+                      taskInfo.status = 'paused';
+                      taskInfo.renderStatus('paused');
+                    } else if (msg.status === 'cancelled') {
+                      taskInfo.status = 'cancelled';
+                      taskInfo.renderStatus('cancelled');
+                    } else if (statusEl && msg.percent !== undefined) {
+                      taskInfo.percent = msg.percent;
+                      taskInfo.speed = msg.speed || '';
+                      if (taskInfo.status !== 'paused') {
+                        taskInfo.renderStatus('downloading', msg.speed || '');
+                      }
 
                       const overallPct = Math.round(
                         ((completed + (msg.percent || 0) / 100) / items.length) * 100
@@ -995,11 +1203,14 @@
                     }
                     if (statusEl) {
                       if (res && res.success) {
-                        statusEl.textContent = '✓ Saved (Turbo)';
-                        statusEl.style.color = '#00E676';
+                        statusEl.innerHTML =
+                          '<span style="color:#00E676;font-weight:700;">✓ Saved (Turbo)</span>';
+                      } else if (taskInfo.status === 'cancelled' || isBatchCancelled) {
+                        statusEl.innerHTML =
+                          '<span style="color:#ef4444;font-weight:700;">✕ Dibatalkan</span>';
                       } else {
-                        statusEl.textContent = 'Failed';
-                        statusEl.style.color = '#FF5252';
+                        statusEl.innerHTML =
+                          '<span style="color:#FF5252;font-weight:700;">Failed</span>';
                       }
                     }
                     resolveTask(res);
@@ -1008,10 +1219,10 @@
               });
             } catch (_) {
               if (statusEl) {
-                statusEl.textContent = 'Error';
-                statusEl.style.color = '#FF5252';
+                statusEl.innerHTML = '<span style="color:#FF5252;font-weight:700;">Error</span>';
               }
             } finally {
+              currentBatchState.activeTasks.delete(videoId);
               if (
                 typeof chrome !== 'undefined' &&
                 chrome.runtime &&
