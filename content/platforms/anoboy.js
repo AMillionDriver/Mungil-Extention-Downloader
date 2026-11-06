@@ -396,6 +396,12 @@
               <option value="gofile">⚡ Gofile (High Speed 1K/720p)</option>
               <option value="blogger">🌐 Blogger (Auto-Folder MP4)</option>
             </select>
+            <label for="mungil-ab-concurrency-select" id="mungil-ab-concurrency-label">Simultan:</label>
+            <select id="mungil-ab-concurrency-select" style="background:#1c202a;border:1px solid rgba(0,230,118,0.3);color:#00e676;font-weight:700;padding:4px 8px;border-radius:6px;outline:none;cursor:pointer;">
+              <option value="1">1 File (Stabil)</option>
+              <option value="2" selected>⚡ 2 File (Rekomendasi Cepat)</option>
+              <option value="3">🚀 3 File (Maksimal)</option>
+            </select>
             <label for="mungil-ab-res-select">Resolusi:</label>
             <select id="mungil-ab-res-select">
               <option value="1080p">1080p (1K)</option>
@@ -490,15 +496,23 @@
 
     function updateServerMode() {
       const mode = serverSelect ? serverSelect.value : 'turbo';
+      const concSelect = modal.querySelector('#mungil-ab-concurrency-select');
+      const concLabel = modal.querySelector('#mungil-ab-concurrency-label');
       if (mode === 'gofile') {
         if (startBtn) startBtn.innerHTML = `<span>⚡ Buka Gofile Terpilih</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'inline-flex';
+        if (concSelect) concSelect.style.display = 'none';
+        if (concLabel) concLabel.style.display = 'none';
       } else if (mode === 'turbo') {
-        if (startBtn) startBtn.innerHTML = `<span>⚡ Mulai Unduh Turbo (16x)</span>`;
+        if (startBtn) startBtn.innerHTML = `<span>⚡ Mulai Unduh Turbo (Multi-File)</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'none';
+        if (concSelect) concSelect.style.display = 'inline-block';
+        if (concLabel) concLabel.style.display = 'inline-block';
       } else {
         if (startBtn) startBtn.innerHTML = `${SVG_DOWNLOAD} <span>Unduh Batch Terpilih</span>`;
         if (copyGofileBtn) copyGofileBtn.style.display = 'none';
+        if (concSelect) concSelect.style.display = 'inline-block';
+        if (concLabel) concLabel.style.display = 'inline-block';
       }
     }
     if (serverSelect) {
@@ -582,7 +596,9 @@
         if (mode === 'turbo') {
           startBtn.disabled = true;
           startBtn.innerHTML = `<span>⚡ Memulai Turbo (${selected.length})...</span>`;
-          executeBatchTurbo(currentData.animeTitle, selected, resolution, modal);
+          const concSelect = modal.querySelector('#mungil-ab-concurrency-select');
+          const concurrency = concSelect ? parseInt(concSelect.value, 10) || 2 : 2;
+          executeBatchTurbo(currentData.animeTitle, selected, resolution, modal, concurrency);
         } else if (mode === 'gofile') {
           startBtn.disabled = true;
           startBtn.innerHTML = `<span>Membuka Gofile...</span>`;
@@ -759,96 +775,143 @@
     return null;
   }
 
-  async function executeBatchTurbo(animeTitle, items, resolution, modalEl) {
+  async function executeBatchTurbo(animeTitle, items, resolution, modalEl, concurrency = 2) {
     const startBtn = modalEl?.querySelector('#mungil-ab-start-btn');
+    let active = 0;
+    let idx = 0;
+    let completed = 0;
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const statusEl = modalEl?.querySelector(`#ab-status-${item.episodeNum}`);
-      if (statusEl) {
-        statusEl.textContent = 'Resolving Stream...';
-        statusEl.style.color = '#FFC107';
-      }
+    return new Promise((resolveAll) => {
+      const runWorker = () => {
+        if (completed >= items.length) {
+          if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.innerHTML = `${SVG_CHECK} <span>Selesai Turbo (${completed} File)!</span>`;
+          }
+          return resolveAll();
+        }
 
-      try {
-        let streamUrl = await resolveStreamUrlForEpisode(item.url, resolution);
-        if (!streamUrl) {
+        while (active < concurrency && idx < items.length) {
+          const item = items[idx++];
+          active++;
+          const videoId = `anoboy_${item.episodeNum}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+          const statusEl = modalEl?.querySelector(`#ab-status-${item.episodeNum}`);
           if (statusEl) {
-            statusEl.textContent = 'No Stream';
-            statusEl.style.color = '#FF5252';
+            statusEl.textContent = 'Resolving Stream...';
+            statusEl.style.color = '#FFC107';
           }
-          continue;
-        }
 
-        if (statusEl) {
-          statusEl.textContent = '⚡ Turbo 0%';
-          statusEl.style.color = '#00E676';
-        }
-
-        const filename = formatAnoboyFilename({
-          animeTitle,
-          episodeNum: item.episodeNum,
-          resolution,
-          ext: 'mp4',
-          includeFolder: true
-        });
-
-        const progressListener = (msg) => {
-          if (!msg || typeof msg !== 'object') return;
-          if (msg.type === 'ANOBOY_NATIVE_PROGRESS' || msg.type === 'NATIVE_DOWNLOAD_PROGRESS') {
-            if (statusEl && msg.percent !== undefined) {
-              const speedText = msg.speed ? ` (${msg.speed})` : '';
-              statusEl.textContent = `⚡ ${msg.percent}%${speedText}`;
-              statusEl.style.color = '#00E676';
-            }
-          }
-        };
-
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-          chrome.runtime.onMessage.addListener(progressListener);
-        }
-
-        await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            {
-              action: 'DOWNLOAD_ANOBOY_NATIVE',
-              url: streamUrl,
-              filename,
-              title: `${animeTitle} - Episode ${item.episodeNum}`,
-              referer: 'https://anoboy.at/',
-              userAgent: navigator.userAgent,
-              bloggerToken: item.bloggerToken || null,
-              episodeUrl: item.url || null
-            },
-            (res) => {
-              if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-                chrome.runtime.onMessage.removeListener(progressListener);
-              }
-              if (statusEl) {
-                if (res && res.success) {
-                  statusEl.textContent = '✓ Saved (Turbo)';
-                  statusEl.style.color = '#00E676';
-                } else {
-                  statusEl.textContent = 'Failed';
+          (async () => {
+            let progressListener = null;
+            try {
+              let streamUrl = await resolveStreamUrlForEpisode(item.url, resolution);
+              if (!streamUrl) {
+                if (statusEl) {
+                  statusEl.textContent = 'No Stream';
                   statusEl.style.color = '#FF5252';
                 }
+                return;
               }
-              resolve(res);
-            }
-          );
-        });
-      } catch (_) {
-        if (statusEl) {
-          statusEl.textContent = 'Error';
-          statusEl.style.color = '#FF5252';
-        }
-      }
-    }
 
-    if (startBtn) {
-      startBtn.disabled = false;
-      startBtn.innerHTML = `${SVG_CHECK} <span>Selesai Turbo!</span>`;
-    }
+              if (statusEl) {
+                statusEl.textContent = '⚡ Turbo 0%';
+                statusEl.style.color = '#00E676';
+              }
+
+              const filename = formatAnoboyFilename({
+                animeTitle,
+                episodeNum: item.episodeNum,
+                resolution,
+                ext: 'mp4',
+                includeFolder: true
+              });
+
+              progressListener = (msg) => {
+                if (!msg || typeof msg !== 'object') return;
+                if (
+                  msg.type === 'ANOBOY_NATIVE_PROGRESS' ||
+                  msg.type === 'NATIVE_DOWNLOAD_PROGRESS'
+                ) {
+                  if (
+                    msg.videoId === videoId ||
+                    msg.title?.includes(`Episode ${item.episodeNum}`)
+                  ) {
+                    if (statusEl && msg.percent !== undefined) {
+                      const speedText = msg.speed ? ` (${msg.speed})` : '';
+                      statusEl.textContent = `⚡ ${msg.percent}%${speedText}`;
+                      statusEl.style.color = '#00E676';
+                    }
+                  }
+                }
+              };
+
+              if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+                chrome.runtime.onMessage.addListener(progressListener);
+              }
+
+              await new Promise((resolveTask) => {
+                chrome.runtime.sendMessage(
+                  {
+                    action: 'DOWNLOAD_ANOBOY_NATIVE',
+                    url: streamUrl,
+                    filename,
+                    title: `${animeTitle} - Episode ${item.episodeNum}`,
+                    videoId,
+                    referer: 'https://anoboy.at/',
+                    userAgent: navigator.userAgent,
+                    bloggerToken: item.bloggerToken || null,
+                    episodeUrl: item.url || null
+                  },
+                  (res) => {
+                    if (
+                      typeof chrome !== 'undefined' &&
+                      chrome.runtime &&
+                      chrome.runtime.onMessage &&
+                      progressListener
+                    ) {
+                      chrome.runtime.onMessage.removeListener(progressListener);
+                      progressListener = null;
+                    }
+                    if (statusEl) {
+                      if (res && res.success) {
+                        statusEl.textContent = '✓ Saved (Turbo)';
+                        statusEl.style.color = '#00E676';
+                      } else {
+                        statusEl.textContent = 'Failed';
+                        statusEl.style.color = '#FF5252';
+                      }
+                    }
+                    resolveTask(res);
+                  }
+                );
+              });
+            } catch (_) {
+              if (statusEl) {
+                statusEl.textContent = 'Error';
+                statusEl.style.color = '#FF5252';
+              }
+            } finally {
+              if (
+                typeof chrome !== 'undefined' &&
+                chrome.runtime &&
+                chrome.runtime.onMessage &&
+                progressListener
+              ) {
+                try {
+                  chrome.runtime.onMessage.removeListener(progressListener);
+                } catch (_) {}
+              }
+              active--;
+              completed++;
+              setTimeout(runWorker, 100);
+            }
+          })();
+        }
+      };
+
+      runWorker();
+    });
   }
 
   async function executeBatchDownload(animeTitle, items, resolution, modalEl) {
