@@ -816,7 +816,9 @@
               filename,
               title: `${animeTitle} - Episode ${item.episodeNum}`,
               referer: 'https://anoboy.at/',
-              userAgent: navigator.userAgent
+              userAgent: navigator.userAgent,
+              bloggerToken: item.bloggerToken || null,
+              episodeUrl: item.url || null
             },
             (res) => {
               if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
@@ -1069,6 +1071,14 @@
               chrome.runtime.onMessage.addListener(progressListener);
             }
 
+            let bToken = data.servers && data.servers[0] ? data.servers[0].bloggerToken : null;
+            if (!bToken && typeof document !== 'undefined') {
+              const tm =
+                document.body.innerHTML.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
+                document.body.innerHTML.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
+              if (tm) bToken = tm[1];
+            }
+
             chrome.runtime.sendMessage(
               {
                 action: 'DOWNLOAD_ANOBOY_NATIVE',
@@ -1076,7 +1086,9 @@
                 filename,
                 title: `${data.animeTitle} - Episode ${data.episodeNum}`,
                 referer: 'https://anoboy.at/',
-                userAgent: navigator.userAgent
+                userAgent: navigator.userAgent,
+                bloggerToken: bToken || null,
+                episodeUrl: data.currentUrl || null
               },
               (res) => {
                 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {

@@ -2478,7 +2478,10 @@ async function downloadViaNativeChunker(params, _tabId) {
       referer: params.referer || 'https://anoboy.at/',
       videoId: videoId,
       title: params.title,
-      author: params.author || 'AnoBoy'
+      author: params.author || 'AnoBoy',
+      userAgent: params.userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
+      bloggerToken: params.bloggerToken || null,
+      episodeUrl: params.episodeUrl || params.url || null
     });
   });
 }

@@ -656,8 +656,72 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
   });
 }
 
-function downloadWithRangeChunks(msg) {
-  const targetUrl = (msg.url || '').replace(/\\+$/, '').trim();
+async function resolveBloggerStreamInNode(token, referer, userAgent) {
+  if (!token) return null;
+  const ua =
+    userAgent ||
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+  try {
+    const res = await fetch(`https://www.blogger.com/video.g?token=${token}`, {
+      headers: {
+        Referer: referer || 'https://anoboy.at/',
+        'User-Agent': ua
+      }
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const re =
+      /https?:\/\/[a-zA-Z0-9.\-_]+?\.googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
+    let match;
+    const streams = [];
+    while ((match = re.exec(html)) !== null) {
+      const decoded = match[0]
+        .replace(/\\\\u0026|\\u0026/g, '&')
+        .replace(/\\\\u003d|\\u003d/g, '=')
+        .replace(/\\\\\//g, '/')
+        .replace(/\\\//g, '/')
+        .replace(/\\+$/, '')
+        .trim();
+      const itagMatch = decoded.match(/itag=(\d+)/);
+      const itag = itagMatch ? parseInt(itagMatch[1], 10) : 0;
+      if (itag > 0) streams.push({ itag, url: decoded });
+    }
+    if (streams.length === 0) return null;
+    const s720 = streams.find((s) => s.itag === 22);
+    if (s720) return s720.url;
+    const s360 = streams.find((s) => s.itag === 18);
+    if (s360) return s360.url;
+    streams.sort((a, b) => b.itag - a.itag);
+    return streams[0].url;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function resolveFromEpisodeUrlInNode(episodeUrl, referer, userAgent) {
+  if (!episodeUrl) return null;
+  const ua =
+    userAgent ||
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+  try {
+    const pageRes = await fetch(episodeUrl, {
+      headers: { 'User-Agent': ua, Referer: referer || 'https://anoboy.at/' }
+    });
+    if (!pageRes.ok) return null;
+    const pageHtml = await pageRes.text();
+    const tokenMatch =
+      pageHtml.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
+      pageHtml.match(/data-video=["'][^"']*url=([^&"'>\s]+)/) ||
+      pageHtml.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
+    if (!tokenMatch || !tokenMatch[1]) return null;
+    return await resolveBloggerStreamInNode(tokenMatch[1], referer, userAgent);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function downloadWithRangeChunks(msg) {
+  let targetUrl = (msg.url || '').replace(/\\+$/, '').trim();
   if (!targetUrl) {
     return sendMessage({ success: false, error: 'Missing download URL' });
   }
@@ -690,10 +754,12 @@ function downloadWithRangeChunks(msg) {
       if (maxRedir <= 0) return reject(new Error('Too many redirects'));
       const parsed = new URL(urlStr);
       const client = parsed.protocol === 'http:' ? http : https;
+      const defaultUa =
+        (options.headers && options.headers['User-Agent']) ||
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
       const headers = Object.assign(
         {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+          'User-Agent': defaultUa
         },
         options.headers || {}
       );
@@ -733,10 +799,72 @@ function downloadWithRangeChunks(msg) {
     customHeaders['Referer'] = 'https://anoboy.at/';
   }
 
-  requestFollow(targetUrl, {
-    method: 'GET',
-    headers: Object.assign({}, customHeaders, { Range: 'bytes=0-0' })
-  })
+  // Pre-resolve: If targetUrl is an embed or token is provided, resolve fresh stream in Node
+  let initialBloggerToken = msg.bloggerToken;
+  if (!initialBloggerToken && targetUrl.includes('blogger.com/video.g?token=')) {
+    const tm = targetUrl.match(/token=([a-zA-Z0-9_-]+)/);
+    if (tm) initialBloggerToken = tm[1];
+  }
+  if (initialBloggerToken) {
+    const freshStream = await resolveBloggerStreamInNode(
+      initialBloggerToken,
+      customHeaders['Referer'],
+      customHeaders['User-Agent']
+    );
+    if (freshStream) targetUrl = freshStream;
+  }
+
+  async function probeAndStart() {
+    let probedRes = null;
+    let probedUrl = targetUrl;
+
+    try {
+      const probeResult = await requestFollow(targetUrl, {
+        method: 'GET',
+        headers: Object.assign({}, customHeaders, { Range: 'bytes=0-0' })
+      });
+      probedRes = probeResult.res;
+      probedUrl = probeResult.url;
+    } catch (probeErr) {
+      // If probe failed or returned error, try re-resolving in Node via episodeUrl or token
+      probedRes = { statusCode: 500, headers: {}, resume: () => {} };
+    }
+
+    // If HTTP 403 or failure, recover using Node-resolved fresh stream
+    if (!probedRes || probedRes.statusCode >= 400) {
+      if (probedRes && typeof probedRes.resume === 'function') probedRes.resume();
+
+      let recoveredUrl = null;
+      if (msg.bloggerToken) {
+        recoveredUrl = await resolveBloggerStreamInNode(
+          msg.bloggerToken,
+          customHeaders['Referer'],
+          customHeaders['User-Agent']
+        );
+      }
+      if (!recoveredUrl && msg.episodeUrl) {
+        recoveredUrl = await resolveFromEpisodeUrlInNode(
+          msg.episodeUrl,
+          customHeaders['Referer'],
+          customHeaders['User-Agent']
+        );
+      }
+
+      if (recoveredUrl) {
+        targetUrl = recoveredUrl;
+        const retryProbe = await requestFollow(targetUrl, {
+          method: 'GET',
+          headers: Object.assign({}, customHeaders, { Range: 'bytes=0-0' })
+        });
+        probedRes = retryProbe.res;
+        probedUrl = retryProbe.url;
+      }
+    }
+
+    return { res: probedRes, url: probedUrl };
+  }
+
+  probeAndStart()
     .then(({ res, url: probedUrl }) => {
       let totalSize = 0;
       let supportsRange = false;
