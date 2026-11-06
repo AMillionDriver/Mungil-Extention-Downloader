@@ -2092,8 +2092,17 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
         return;
       }
 
-      // Handle final completion
-      if (msg.success) {
+      // Ignore intermediate progress and pause/resume acks from completion handler
+      if (
+        msg.action === 'PAUSE_FAST_DOWNLOAD' ||
+        msg.action === 'RESUME_FAST_DOWNLOAD' ||
+        msg.status === 'paused'
+      ) {
+        return;
+      }
+
+      // Handle final completion - strictly require status === 'complete' or type === 'COMPLETE'
+      if (msg.success && (msg.status === 'complete' || msg.type === 'COMPLETE')) {
         if (isSettled) return;
         isSettled = true;
         const finalName = msg.filename || `${params.title || 'YouTube_Video'}.mp4`;
@@ -2166,8 +2175,15 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
         try {
           port.disconnect();
         } catch (_) {}
-      } else {
+      } else if (
+        !msg.success &&
+        msg.action !== 'PAUSE_FAST_DOWNLOAD' &&
+        msg.action !== 'RESUME_FAST_DOWNLOAD'
+      ) {
         if (isSettled) return;
+        if (msg.status === 'paused' || activeDownloads[videoId]?.status === 'paused') {
+          return;
+        }
         isSettled = true;
         const now = new Date();
         const dateStr = now.toLocaleDateString('id-ID', {
@@ -2230,6 +2246,9 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
     port.onDisconnect.addListener(() => {
       activeNativePorts.delete(videoId);
       if (isSettled) return;
+      if (activeDownloads[videoId] && activeDownloads[videoId].status === 'paused') {
+        return;
+      }
       isSettled = true;
       try {
         port.postMessage({ action: 'CANCEL' });
@@ -2345,8 +2364,17 @@ async function downloadViaNativeChunker(params, _tabId) {
         return;
       }
 
-      // Handle final completion
-      if (msg.success) {
+      // Ignore intermediate progress and pause/resume acks from completion handler
+      if (
+        msg.action === 'PAUSE_FAST_DOWNLOAD' ||
+        msg.action === 'RESUME_FAST_DOWNLOAD' ||
+        msg.status === 'paused'
+      ) {
+        return;
+      }
+
+      // Handle final completion - strictly require status === 'complete' or type === 'COMPLETE'
+      if (msg.success && (msg.status === 'complete' || msg.type === 'COMPLETE')) {
         if (isSettled) return;
         isSettled = true;
         const finalName = msg.filename || `${params.title || 'Video'}.mp4`;
@@ -2419,8 +2447,15 @@ async function downloadViaNativeChunker(params, _tabId) {
         try {
           port.disconnect();
         } catch (_) {}
-      } else {
+      } else if (
+        !msg.success &&
+        msg.action !== 'PAUSE_FAST_DOWNLOAD' &&
+        msg.action !== 'RESUME_FAST_DOWNLOAD'
+      ) {
         if (isSettled) return;
+        if (msg.status === 'paused' || activeDownloads[videoId]?.status === 'paused') {
+          return;
+        }
         isSettled = true;
         activeNativePorts.delete(videoId);
         const errorCode = msg.errorCode || 'ERR_TURBO_CHUNK_FAIL';
@@ -2464,6 +2499,9 @@ async function downloadViaNativeChunker(params, _tabId) {
     port.onDisconnect.addListener(() => {
       activeNativePorts.delete(videoId);
       if (isSettled) return;
+      if (activeDownloads[videoId] && activeDownloads[videoId].status === 'paused') {
+        return;
+      }
       isSettled = true;
       try {
         port.postMessage({ action: 'CANCEL' });

@@ -7656,6 +7656,55 @@ async function runAllSuites() {
           'anoboy.js while loop must check !currentBatchState.isPaused'
         );
       });
+
+      test('Industrial-grade .part quarantine, .part.meta state persistence and token auto-refresh', () => {
+        const hostCode = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'native_host/downloader_host.js'),
+          'utf8'
+        );
+        const swCode = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'background/service_worker.js'),
+          'utf8'
+        );
+
+        // .part and .part.meta verification
+        assert.ok(
+          hostCode.includes("finalDestPath + '.part'"),
+          'downloader_host.js must quarantine files to .part until 100% complete'
+        );
+        assert.ok(
+          hostCode.includes("finalDestPath + '.part.meta'"),
+          'downloader_host.js must persist chunk state in .part.meta sidecar'
+        );
+        assert.ok(
+          hostCode.includes('fs.renameSync(partPath, finalDestPath)'),
+          'downloader_host.js must perform atomic rename from .part to finalDestPath on completion'
+        );
+        assert.ok(
+          hostCode.includes('fs.unlinkSync(metaPath)'),
+          'downloader_host.js must clean up .part.meta on 100% completion'
+        );
+
+        // Token expiry auto-recovery verification
+        assert.ok(
+          hostCode.includes('res.statusCode === 403 || res.statusCode === 410'),
+          'downloadChunkTask must detect HTTP 403/410 token expiration'
+        );
+        assert.ok(
+          hostCode.includes('resolveBloggerStreamInNode'),
+          'downloadChunkTask must auto-refresh expired token via resolveBloggerStreamInNode'
+        );
+
+        // Service worker message contract verification
+        assert.ok(
+          swCode.includes("msg.status === 'complete' || msg.type === 'COMPLETE'"),
+          "service_worker.js must strictly require msg.status === 'complete' to trigger completion"
+        );
+        assert.ok(
+          swCode.includes("msg.action === 'PAUSE_FAST_DOWNLOAD'"),
+          'service_worker.js must ignore PAUSE_FAST_DOWNLOAD acks from completion handler'
+        );
+      });
     }
   );
 
