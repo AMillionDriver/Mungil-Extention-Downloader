@@ -1129,9 +1129,12 @@
     if (!data) return;
 
     if (!floatingBarEl) {
-      floatingBarEl = document.createElement('div');
-      floatingBarEl.id = 'mungil-anoboy-bar';
-      document.body.appendChild(floatingBarEl);
+      floatingBarEl = document.getElementById('mungil-anoboy-bar');
+      if (!floatingBarEl) {
+        floatingBarEl = document.createElement('div');
+        floatingBarEl.id = 'mungil-anoboy-bar';
+        document.body.appendChild(floatingBarEl);
+      }
     }
 
     const mirrors = Array.isArray(data.downloadMirrors) ? data.downloadMirrors : [];
