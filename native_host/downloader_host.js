@@ -89,6 +89,12 @@ function pauseJob(taskId) {
     } catch (_) {}
   }
   job.sockets.clear();
+  if (Array.isArray(job.chunks)) {
+    for (const c of job.chunks) {
+      c.inFlight = false;
+    }
+  }
+  job.activeWorkers = 0;
   if (typeof job.saveMeta === 'function') {
     job.saveMeta();
   }
@@ -110,6 +116,12 @@ function resumeJob(taskId) {
   const job = activeJobs.get(taskId);
   if (!job || job.status !== 'paused') return false;
   job.status = 'downloading';
+  if (Array.isArray(job.chunks)) {
+    for (const c of job.chunks) {
+      c.inFlight = false;
+    }
+  }
+  job.activeWorkers = 0;
   sendMessage({
     type: 'PROGRESS',
     status: 'downloading',
@@ -1359,7 +1371,7 @@ async function downloadWithRangeChunks(msg) {
         function startNextWorker() {
           if (isFinished || job.status !== 'downloading') return;
 
-          const incompleteChunk = chunks.find((c) => !c.inFlight && c.written < c.length);
+          let incompleteChunk = chunks.find((c) => !c.inFlight && c.written < c.length);
           if (!incompleteChunk) {
             if (job.activeWorkers === 0) {
               const allDone = chunks.every((c) => c.written >= c.length);
@@ -1367,9 +1379,21 @@ async function downloadWithRangeChunks(msg) {
                 isFinished = true;
                 job.status = 'done';
                 resolveAll();
+                return;
               }
+              // Self-healing anti-deadlock: reset any orphaned inFlight chunks and resume
+              const pending = chunks.filter((c) => c.written < c.length);
+              if (pending.length > 0) {
+                for (const c of pending) {
+                  c.inFlight = false;
+                }
+                incompleteChunk = pending[0];
+              } else {
+                return;
+              }
+            } else {
+              return;
             }
-            return;
           }
 
           incompleteChunk.inFlight = true;
@@ -1390,19 +1414,27 @@ async function downloadWithRangeChunks(msg) {
           )
             .then(() => {
               incompleteChunk.inFlight = false;
-              job.activeWorkers--;
+              if (job.activeWorkers > 0) job.activeWorkers--;
               startNextWorker();
             })
             .catch((err) => {
               incompleteChunk.inFlight = false;
-              job.activeWorkers--;
-              if (job.status === 'paused') {
+              if (job.activeWorkers > 0) job.activeWorkers--;
+              if (err.message === 'PAUSED_OR_CANCELLED' || job.status === 'paused') {
                 saveMeta();
                 return;
               }
               if (job.status === 'cancelled') {
                 isFinished = true;
                 return rejectAll(new Error('DOWNLOAD_CANCELLED'));
+              }
+              // Transient chunk error during download: save progress, do not kill whole job
+              if (job.status === 'downloading') {
+                saveMeta();
+                setTimeout(() => {
+                  if (job.status === 'downloading') startNextWorker();
+                }, 1000);
+                return;
               }
               isFinished = true;
               rejectAll(err);

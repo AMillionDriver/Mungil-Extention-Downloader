@@ -2791,10 +2791,12 @@ function handleMessage(message, sender, sendResponse) {
       try {
         activeNativePorts.get(videoId).postMessage({ action: 'RESUME_FAST_DOWNLOAD', videoId });
         if (activeDownloads[videoId]) activeDownloads[videoId].status = 'downloading';
+        const curPercent = activeDownloads[videoId]?.percent ?? 0;
         broadcastToAllTabs({
           type: 'ANOBOY_NATIVE_PROGRESS',
           videoId,
           status: 'downloading',
+          percent: curPercent,
           speed: 'Melanjutkan...'
         });
         sendResponse({ success: true, status: 'downloading', videoId });
