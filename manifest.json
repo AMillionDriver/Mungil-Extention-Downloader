@@ -49,6 +49,19 @@
     "*://*.naver.com/*",
     "*://*.pstatic.net/*",
     "*://*.webtoons.com/*",
+    "*://*.dood.to/*",
+    "*://*.doodstream.com/*",
+    "*://*.dood.so/*",
+    "*://*.dood.la/*",
+    "*://*.dood.ws/*",
+    "*://*.dood.wf/*",
+    "*://*.dood.re/*",
+    "*://*.dood.pm/*",
+    "*://*.ds2play.com/*",
+    "*://*.do0od.co/*",
+    "*://*.dood.cx/*",
+    "*://*.dood.sh/*",
+    "*://*.dood.video/*",
     "https://translate.googleapis.com/*",
     "https://api.ocr.space/*"
   ],
@@ -223,6 +236,31 @@
       "css": [
         "content/styles/shinigami.css"
       ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.dood.to/*",
+        "*://*.doodstream.com/*",
+        "*://*.dood.so/*",
+        "*://*.dood.la/*",
+        "*://*.dood.ws/*",
+        "*://*.dood.wf/*",
+        "*://*.dood.re/*",
+        "*://*.dood.pm/*",
+        "*://*.ds2play.com/*",
+        "*://*.do0od.co/*",
+        "*://*.dood.cx/*",
+        "*://*.dood.sh/*",
+        "*://*/*"
+      ],
+      "js": [
+        "content/platforms/doodstream.js"
+      ],
+      "css": [
+        "content/styles/doodstream.css"
+      ],
+      "all_frames": true,
       "run_at": "document_idle"
     },
     {

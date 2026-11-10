@@ -2096,6 +2096,7 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
         };
         broadcastToAllTabs(progPayload);
         broadcastToAllTabs({ ...progPayload, type: 'NATIVE_DOWNLOAD_PROGRESS' });
+        broadcastToAllTabs({ ...progPayload, type: 'DOOD_NATIVE_PROGRESS' });
         return;
       }
 
@@ -2372,6 +2373,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         };
         broadcastToAllTabs(progPayload);
         broadcastToAllTabs({ ...progPayload, type: 'NATIVE_DOWNLOAD_PROGRESS' });
+        broadcastToAllTabs({ ...progPayload, type: 'DOOD_NATIVE_PROGRESS' });
         return;
       }
 
@@ -2970,7 +2972,47 @@ function handleMessage(message, sender, sendResponse) {
     return true;
   }
 
-  // Handle DOWNLOAD_VIDEO (Fallback and direct downloads)
+  // Handle RESOLVE_DOOD_STREAM (Pass MD5 Token Handshake)
+  if (actionType === 'RESOLVE_DOOD_STREAM') {
+    const passUrl = message.passUrl;
+    const referer = message.referer || 'https://dood.to/';
+    fetch(passUrl, {
+      method: 'GET',
+      headers: {
+        Referer: referer,
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Doodstream HTTP ${res.status}: ${res.statusText}`);
+        }
+        const text = await res.text();
+        sendResponse({ success: true, baseCdnUrl: text.trim() });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  // Handle DOWNLOAD_DOOD_NATIVE / NATIVE_DOWNLOAD_STREAM
+  if (actionType === 'DOWNLOAD_DOOD_NATIVE' || actionType === 'NATIVE_DOWNLOAD_STREAM') {
+    const payload =
+      message.payload && typeof message.payload === 'object' ? message.payload : message;
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+    payload.platform = 'doodstream';
+    payload.author = payload.author || 'Doodstream';
+    payload.referer = payload.referer || payload.headers?.Referer || 'https://dood.to/';
+
+    downloadViaNativeChunker(payload, tabId)
+      .then((result) => sendResponse(result))
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
   if (actionType === 'DOWNLOAD_VIDEO') {
     const payload =
       message.payload && typeof message.payload === 'object' ? message.payload : message;

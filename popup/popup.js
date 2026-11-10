@@ -56,6 +56,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const snTitle = document.getElementById('sn-title');
   const snDesc = document.getElementById('sn-desc');
   const snStatusChip = document.getElementById('sn-status-chip');
+  const stateDoodstream = document.getElementById('state-doodstream');
+  const doodTitle = document.getElementById('dood-title');
+  const doodDesc = document.getElementById('dood-desc');
+  const doodStatusChip = document.getElementById('dood-status-chip');
   const btnDownloadActive = document.getElementById('btn-download-active');
   const btnDownloadText = document.getElementById('btn-download-text');
   const btnOpenTikTok = document.getElementById('btn-open-tiktok');
@@ -390,6 +394,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isPinterest = false;
   let isAnoboy = false;
   let isShinigami = false;
+  let isDoodstream = false;
 
   try {
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
@@ -428,6 +433,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             host === 'pinterest.com' || host.endsWith('.pinterest.com') || host === 'pin.it';
           isAnoboy = host.includes('anoboy.');
           isShinigami = host.includes('shinigami.');
+          isDoodstream =
+            host.includes('dood.') ||
+            host.includes('doodstream.') ||
+            host.includes('ds2play.') ||
+            host.includes('do0od.');
         } catch (_) {
           isTikTok = tabUrl.includes('tiktok.com');
           isBstation = tabUrl.includes('bilibili.tv') || tabUrl.includes('bstation.tv');
@@ -448,6 +458,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           isPinterest = tabUrl.includes('pinterest.com') || tabUrl.includes('pin.it');
           isAnoboy = tabUrl.includes('anoboy.');
           isShinigami = tabUrl.includes('shinigami.');
+          isDoodstream =
+            tabUrl.includes('dood.') ||
+            tabUrl.includes('doodstream.') ||
+            tabUrl.includes('ds2play.') ||
+            tabUrl.includes('do0od.');
         }
       }
     }
@@ -1491,6 +1506,44 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       });
     }
+  } else if (isDoodstream && activeTab && activeTab.id) {
+    // Online / Active Doodstream State
+    if (statusDot) statusDot.className = 'status-dot online';
+    if (stateTiktok) stateTiktok.style.display = 'none';
+    if (stateBstation) stateBstation.style.display = 'none';
+    if (stateJwplyr) stateJwplyr.style.display = 'none';
+    if (stateYoutube) stateYoutube.style.display = 'none';
+    if (stateTerabox) stateTerabox.style.display = 'none';
+    if (stateCosplaytele) stateCosplaytele.style.display = 'none';
+    if (statePinterest) statePinterest.style.display = 'none';
+    if (stateAnoboy) stateAnoboy.style.display = 'none';
+    if (stateShinigami) stateShinigami.style.display = 'none';
+    if (stateDoodstream) stateDoodstream.style.display = 'flex';
+    if (stateEmpty) stateEmpty.style.display = 'none';
+    if (btnDownloadActive) btnDownloadActive.style.display = 'flex';
+    if (platformTitle) platformTitle.textContent = 'Doodstream Downloader';
+    if (platformDesc)
+      platformDesc.textContent = 'Direct multi-chunk video download with pause & resume support.';
+
+    if (doodTitle) doodTitle.textContent = 'Doodstream Video';
+    if (doodDesc) doodDesc.textContent = 'Klik tombol di player atau popup untuk mengunduh';
+    if (doodStatusChip) {
+      doodStatusChip.textContent = 'Ready';
+      doodStatusChip.style.color = 'var(--accent-green)';
+    }
+    if (btnDownloadText) btnDownloadText.textContent = 'Download Video';
+
+    if (btnDownloadActive) {
+      btnDownloadActive.addEventListener('click', () => {
+        if (btnDownloadActive.disabled || !activeTab || !activeTab.id) return;
+        showStatus('Memicu pengunduhan video di halaman...', 'info', 2000);
+        chrome.tabs.sendMessage(activeTab.id, { action: 'TRIGGER_DOOD_DOWNLOAD' }, () => {
+          if (chrome.runtime.lastError) {
+            showStatus('Gunakan tombol floating di dalam pemutar video.', 'info', 3500);
+          }
+        });
+      });
+    }
   } else {
     // Inactive / Non-Supported State
     if (statusDot) statusDot.className = 'status-dot idle';
@@ -1503,6 +1556,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (statePinterest) statePinterest.style.display = 'none';
     if (stateAnoboy) stateAnoboy.style.display = 'none';
     if (stateShinigami) stateShinigami.style.display = 'none';
+    if (stateDoodstream) stateDoodstream.style.display = 'none';
     if (stateEmpty) stateEmpty.style.display = 'flex';
     if (btnDownloadActive) btnDownloadActive.style.display = 'none';
     if (platformTitle) platformTitle.textContent = 'Not on Supported Platform';

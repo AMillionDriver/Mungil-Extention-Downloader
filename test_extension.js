@@ -844,6 +844,7 @@ async function runAllSuites() {
         'content/platforms/pinterest.js',
         'content/platforms/anoboy.js',
         'content/platforms/comic_translator.js',
+        'content/platforms/doodstream.js',
         'test_extension.js',
         'test_adversarial_bstation.js'
       ];
@@ -8151,6 +8152,116 @@ async function runAllSuites() {
             merged[0].translatedText.includes('Pengumuman Hasil'),
           'Merged text should preserve both lines'
         );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 32: Doodstream Platform Registration, NTFS Sanitization & 3-System Handshake
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 32: Doodstream Platform Registration, NTFS Sanitization & 3-System Handshake',
+    async ({ test }) => {
+      test('Manifest V3 registers Doodstream mirrors and content script with all_frames', () => {
+        const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('dood.to')),
+          'dood.to must be in host_permissions'
+        );
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('ds2play.com')),
+          'ds2play.com must be in host_permissions'
+        );
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('dood.video')),
+          'dood.video must be in host_permissions'
+        );
+
+        const doodScript = manifest.content_scripts.find(
+          (cs) => cs.js && cs.js.includes('content/platforms/doodstream.js')
+        );
+        assert.ok(doodScript, 'doodstream.js must be registered in content_scripts');
+        assert.strictEqual(
+          doodScript.all_frames,
+          true,
+          'all_frames must be true for embed support'
+        );
+        assert.ok(
+          doodScript.matches.some((m) => m.includes('dood.to')),
+          'dood.to must be matched'
+        );
+      });
+
+      test('doodstream.js and doodstream.css exist on disk with non-zero size', () => {
+        const jsPath = path.join(PROJECT_ROOT, 'content/platforms/doodstream.js');
+        const cssPath = path.join(PROJECT_ROOT, 'content/styles/doodstream.css');
+        assert.ok(fs.existsSync(jsPath), 'doodstream.js must exist');
+        assert.ok(fs.statSync(jsPath).size > 100, 'doodstream.js must have non-trivial size');
+        assert.ok(fs.existsSync(cssPath), 'doodstream.css must exist');
+        assert.ok(fs.statSync(cssPath).size > 100, 'doodstream.css must have non-trivial size');
+      });
+
+      test('Strict DOM Button Creation Hygiene in doodstream.js', () => {
+        const jsContent = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'),
+          'utf8'
+        );
+        const buttonCount = (jsContent.match(/document\.createElement\(['"]button['"]\)/g) || [])
+          .length;
+        const typeCount = (jsContent.match(/\.type\s*=\s*['"]button['"]/g) || []).length;
+        assert.ok(buttonCount > 0, 'Buttons must be created in doodstream.js');
+        assert.strictEqual(
+          typeCount,
+          buttonCount,
+          `Every button in doodstream.js must explicitly declare type="button" (${typeCount}/${buttonCount})`
+        );
+      });
+
+      test('isDoodHost accurately matches official mirror domains and rejects others', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        assert.strictEqual(typeof dood.isDoodHost, 'function');
+        assert.strictEqual(dood.isDoodHost('dood.to'), true);
+        assert.strictEqual(dood.isDoodHost('sub.dood.to'), true);
+        assert.strictEqual(dood.isDoodHost('ds2play.com'), true);
+        assert.strictEqual(dood.isDoodHost('do0od.co'), true);
+        assert.strictEqual(dood.isDoodHost('doodstream.com'), true);
+        assert.strictEqual(dood.isDoodHost('youtube.com'), false);
+        assert.strictEqual(dood.isDoodHost('anoboy.at'), false);
+      });
+
+      test('Windows NTFS sanitization formats safe Doodstream filename', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        assert.strictEqual(
+          dood.formatDoodFilename('Bleach: Thousand-Year Blood War / Ep 01'),
+          'Bleach - Thousand - Year Blood War - Ep 01.mp4'
+        );
+        assert.strictEqual(
+          dood.formatDoodFilename('Illegal*Chars? <Test> | "Quote"', 'xyz123'),
+          'IllegalChars Test - Quote.mp4'
+        );
+        assert.strictEqual(dood.formatDoodFilename('', 'xyz123'), 'dood_xyz123.mp4');
+      });
+
+      test('generateDoodSalt produces random 10-char alphanumeric string', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        const salt1 = dood.generateDoodSalt(10);
+        const salt2 = dood.generateDoodSalt(10);
+        assert.strictEqual(salt1.length, 10);
+        assert.strictEqual(salt2.length, 10);
+        assert.ok(/^[a-zA-Z0-9]{10}$/.test(salt1));
+        assert.notStrictEqual(salt1, salt2, 'Salts should be non-deterministic');
+      });
+
+      test('buildDoodFinalUrl synthesizes direct CDN URL with token and expiry', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        const base = 'https://n40.dood.video/xyz123~';
+        const token = 'pass_token_abc';
+        const finalUrl = dood.buildDoodFinalUrl(base, token);
+        assert.ok(finalUrl.startsWith('https://n40.dood.video/xyz123~'));
+        assert.ok(finalUrl.includes('?token=pass_token_abc'));
+        assert.ok(finalUrl.includes('&expiry='));
       });
     }
   );
