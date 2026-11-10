@@ -325,15 +325,26 @@
 
   function updateProgressWidget(msg) {
     if (!activeWidgetEl) return;
-    const pct = typeof msg.percent === 'number' ? msg.percent : 0;
+    const pct = typeof msg.percent === 'number' ? Math.round(msg.percent) : 0;
     if (activeFillEl) activeFillEl.style.width = `${Math.min(100, Math.max(0, pct))}%`;
     if (activePercentEl) activePercentEl.textContent = `${pct}%`;
-    if (activeSpeedEl && msg.speedText) activeSpeedEl.textContent = msg.speedText;
+    const speed = msg.speedText || msg.speed;
+    if (activeSpeedEl && speed) activeSpeedEl.textContent = speed;
 
-    if (msg.status === 'complete') {
+    if (msg.status === 'paused') {
+      if (activeSpeedEl) activeSpeedEl.textContent = 'Dijeda';
+      if (activePauseBtn) activePauseBtn.style.display = 'none';
+      if (activePlayBtn) activePlayBtn.style.display = 'inline-flex';
+    } else if (msg.status === 'downloading') {
+      if (activePlayBtn) activePlayBtn.style.display = 'none';
+      if (activePauseBtn) activePauseBtn.style.display = 'inline-flex';
+    }
+
+    if (msg.status === 'complete' || pct === 100) {
       if (activeSpeedEl) activeSpeedEl.textContent = 'Selesai 100%';
       if (activePauseBtn) activePauseBtn.style.display = 'none';
       if (activePlayBtn) activePlayBtn.style.display = 'none';
+      activeCurrentJobId = null;
       setTimeout(() => {
         if (activeWidgetEl) {
           activeWidgetEl.remove();
@@ -343,6 +354,17 @@
     }
   }
 
+  function handleProgressError(msg) {
+    if (!activeWidgetEl) return;
+    if (activeSpeedEl) {
+      activeSpeedEl.textContent = `Gagal: ${msg.error || 'Koneksi terputus'}`;
+      activeSpeedEl.style.color = 'var(--dood-danger, #ef4444)';
+    }
+    if (activePauseBtn) activePauseBtn.style.display = 'none';
+    if (activePlayBtn) activePlayBtn.style.display = 'none';
+    activeCurrentJobId = null;
+  }
+
   // =========================================================================
   // 6. Download Trigger & Stream Resolution
   // =========================================================================
@@ -350,6 +372,21 @@
   let isResolving = false;
 
   async function startDoodDownload(triggerBtn) {
+    if (activeCurrentJobId) {
+      // Download already in progress - visual feedback
+      if (activeWidgetEl) {
+        activeWidgetEl.style.transition = 'transform 0.15s ease, box-shadow 0.15s ease';
+        activeWidgetEl.style.transform = 'scale(1.04)';
+        activeWidgetEl.style.boxShadow = '0 0 20px rgba(99, 102, 241, 0.6)';
+        setTimeout(() => {
+          if (activeWidgetEl) {
+            activeWidgetEl.style.transform = 'scale(1)';
+            activeWidgetEl.style.boxShadow = '';
+          }
+        }, 200);
+      }
+      return;
+    }
     if (isResolving) return;
     isResolving = true;
     if (triggerBtn) triggerBtn.disabled = true;
@@ -455,15 +492,34 @@
   // Global Message & Progress Listener
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      if (msg.action === 'ANOBOY_NATIVE_PROGRESS' || msg.action === 'DOOD_NATIVE_PROGRESS') {
-        if (msg.jobId === activeCurrentJobId || !activeCurrentJobId) {
+      const type = msg.type || msg.action;
+      const id = msg.jobId || msg.videoId;
+
+      if (
+        type === 'ANOBOY_NATIVE_PROGRESS' ||
+        type === 'DOOD_NATIVE_PROGRESS' ||
+        type === 'NATIVE_DOWNLOAD_PROGRESS'
+      ) {
+        if (!activeCurrentJobId || id === activeCurrentJobId) {
           updateProgressWidget(msg);
         }
-      } else if (msg.action === 'TRIGGER_DOOD_DOWNLOAD') {
+      } else if (type === 'ANOBOY_NATIVE_ERROR' || type === 'DOOD_NATIVE_ERROR') {
+        if (!activeCurrentJobId || id === activeCurrentJobId) {
+          handleProgressError(msg);
+        }
+      } else if (
+        type === 'ANOBOY_NATIVE_COMPLETE' ||
+        type === 'DOOD_NATIVE_COMPLETE' ||
+        type === 'NATIVE_DOWNLOAD_COMPLETE'
+      ) {
+        if (!activeCurrentJobId || id === activeCurrentJobId) {
+          updateProgressWidget({ status: 'complete', percent: 100, speedText: 'Selesai 100%' });
+        }
+      } else if (type === 'TRIGGER_DOOD_DOWNLOAD') {
         const btn = document.getElementById('dood-dl-btn');
         startDoodDownload(btn);
         if (sendResponse) sendResponse({ success: true });
-      } else if (msg.action === 'GET_ACTIVE_VIDEO_INFO') {
+      } else if (type === 'GET_ACTIVE_VIDEO_INFO') {
         const title = extractVideoTitle();
         if (sendResponse) {
           sendResponse({

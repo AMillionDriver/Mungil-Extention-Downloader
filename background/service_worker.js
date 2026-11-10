@@ -2295,9 +2295,10 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
  */
 async function downloadViaNativeChunker(params, _tabId) {
   const videoId =
+    params.jobId ||
     params.videoId ||
     params.id ||
-    `anoboy_${params.episode || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    `${params.platform || 'anoboy'}_${params.episode || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const streamUrl = params.url;
 
   if (!streamUrl) {
@@ -2361,6 +2362,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         const progPayload = {
           type: 'ANOBOY_NATIVE_PROGRESS',
           platform,
+          jobId: videoId,
           videoId: videoId,
           title: params.title,
           part: part,
@@ -2427,6 +2429,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         const completePayload = {
           type: 'ANOBOY_NATIVE_COMPLETE',
           platform,
+          jobId: videoId,
           videoId: videoId,
           filename: finalName,
           title: params.title,
@@ -2439,6 +2442,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         };
         broadcastToAllTabs(completePayload);
         broadcastToAllTabs({ ...completePayload, type: 'NATIVE_DOWNLOAD_COMPLETE' });
+        broadcastToAllTabs({ ...completePayload, type: 'DOOD_NATIVE_COMPLETE' });
 
         await recordDownloadTelemetry({
           author: params.author || 'AnoBoy',
@@ -2496,6 +2500,15 @@ async function downloadViaNativeChunker(params, _tabId) {
 
         broadcastToAllTabs({
           type: 'ANOBOY_NATIVE_ERROR',
+          jobId: videoId,
+          videoId: videoId,
+          title: params.title,
+          error: displayError,
+          errorCode: errorCode
+        });
+        broadcastToAllTabs({
+          type: 'DOOD_NATIVE_ERROR',
+          jobId: videoId,
           videoId: videoId,
           title: params.title,
           error: displayError,
@@ -2527,15 +2540,22 @@ async function downloadViaNativeChunker(params, _tabId) {
       reject(new Error(err));
     });
 
+    const forwardHeaders = Object.assign({}, params.headers || {});
+    if (params.referer) forwardHeaders['Referer'] = params.referer;
+    if (params.userAgent) forwardHeaders['User-Agent'] = params.userAgent;
+
     // Send FAST_RANGE_DOWNLOAD to native host
     port.postMessage({
       action: 'FAST_RANGE_DOWNLOAD',
       url: streamUrl,
       filename: params.filename,
-      referer: params.referer || 'https://anoboy.at/',
+      referer: params.referer || forwardHeaders['Referer'] || 'https://anoboy.at/',
+      headers: forwardHeaders,
+      customHeaders: forwardHeaders,
       videoId: videoId,
+      jobId: videoId,
       title: params.title,
-      author: params.author || 'AnoBoy',
+      author: params.author || (params.platform === 'doodstream' ? 'Doodstream' : 'AnoBoy'),
       userAgent: params.userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
       bloggerToken: params.bloggerToken || null,
       episodeUrl: params.episodeUrl || params.url || null
