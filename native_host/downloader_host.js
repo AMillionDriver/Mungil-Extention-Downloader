@@ -929,6 +929,14 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
             } catch (_) {}
             return reject(new Error('Downloaded file is empty (0 bytes)'));
           }
+          if (totalSize > 0 && downloaded < totalSize) {
+            try {
+              if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+            } catch (_) {}
+            return reject(
+              new Error(`Stream terputus prematur: baru ${downloaded}/${totalSize} byte`)
+            );
+          }
           sendMessage({
             success: true,
             status: 'complete',
@@ -1461,21 +1469,30 @@ async function downloadWithRangeChunks(msg) {
         if (activeFd === fd) activeFd = null;
         activeFilePath = null;
 
-        // Atomic rename .part -> finalDestPath
-        try {
-          if (fs.existsSync(partPath)) {
-            if (fs.existsSync(finalDestPath)) {
-              try {
-                fs.unlinkSync(finalDestPath);
-              } catch (_) {}
-            }
-            fs.renameSync(partPath, finalDestPath);
+        // Strict Pre-Rename Integrity Guard
+        const allChunksDone = chunks.every((c) => c.written >= c.length);
+        if (!allChunksDone) {
+          throw new Error('Incomplete download: beberapa chunk belum selesai');
+        }
+        if (fs.existsSync(partPath)) {
+          const stat = fs.statSync(partPath);
+          if (totalSize > 0 && stat.size < totalSize) {
+            throw new Error(
+              `Incomplete file size: ${stat.size} bytes (expected ${totalSize} bytes)`
+            );
           }
-        } catch (_) {
+          // Atomic rename .part -> finalDestPath
+          if (fs.existsSync(finalDestPath)) {
+            try {
+              fs.unlinkSync(finalDestPath);
+            } catch (_) {}
+          }
           try {
+            fs.renameSync(partPath, finalDestPath);
+          } catch (_) {
             fs.copyFileSync(partPath, finalDestPath);
             fs.unlinkSync(partPath);
-          } catch (_) {}
+          }
         }
 
         // Clean up companion .part.meta
