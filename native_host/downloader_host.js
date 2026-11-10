@@ -660,7 +660,8 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
         parsed,
         {
           method: 'GET',
-          headers: reqHeaders
+          headers: reqHeaders,
+          family: 4
         },
         (res) => {
           if (job && job.status !== 'downloading') {
@@ -874,7 +875,8 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
           },
           headers
-        )
+        ),
+        family: 4
       },
       (res) => {
         if (res.statusCode >= 400) {
@@ -928,6 +930,20 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
               if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
             } catch (_) {}
             return reject(new Error('Downloaded file is empty (0 bytes)'));
+          }
+          if (downloaded < 1024) {
+            let errorText = '';
+            try {
+              if (fs.existsSync(destPath)) {
+                errorText = fs.readFileSync(destPath, 'utf8').trim();
+                fs.unlinkSync(destPath);
+              }
+            } catch (_) {}
+            return reject(
+              new Error(
+                `Server mengembalikan pesan error alih-alih video (${downloaded} B): ${errorText || 'Respon tidak valid'}`
+              )
+            );
           }
           if (totalSize > 0 && downloaded < totalSize) {
             try {
@@ -1106,7 +1122,8 @@ async function downloadWithRangeChunks(msg) {
         parsed,
         {
           method: options.method || 'GET',
-          headers
+          headers,
+          family: 4
         },
         (res) => {
           if (job.status !== 'downloading') {
@@ -1237,6 +1254,11 @@ async function downloadWithRangeChunks(msg) {
       res.resume();
 
       if (!supportsRange || totalSize < 2 * 1024 * 1024) {
+        if (totalSize > 0 && totalSize < 1024) {
+          throw new Error(
+            `Ukuran file tidak valid untuk video (${totalSize} B). Kemungkinan token ditolak oleh server.`
+          );
+        }
         return downloadSingleStream(probedUrl, finalDestPath, customHeaders, totalSize, msg);
       }
 

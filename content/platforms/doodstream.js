@@ -365,6 +365,18 @@
     activeCurrentJobId = null;
   }
 
+  function findActiveVideoElement() {
+    const video = document.querySelector('video');
+    if (video && video.src && !video.src.startsWith('blob:') && video.src.startsWith('http')) {
+      return video.src;
+    }
+    const source = document.querySelector('video source');
+    if (source && source.src && !source.src.startsWith('blob:') && source.src.startsWith('http')) {
+      return source.src;
+    }
+    return null;
+  }
+
   // =========================================================================
   // 6. Download Trigger & Stream Resolution
   // =========================================================================
@@ -392,39 +404,81 @@
     if (triggerBtn) triggerBtn.disabled = true;
 
     try {
-      const passData = extractPassMd5Endpoint();
-      if (!passData) {
-        throw new Error('Endpoint /pass_md5/ tidak ditemukan di halaman pemutar');
+      const referer = window.location.href;
+      let finalVideoUrl = findActiveVideoElement();
+
+      // If video element hasn't populated src yet, attempt to trigger play and poll
+      if (!finalVideoUrl) {
+        const bigPlayBtn =
+          document.querySelector('.vjs-big-play-button') ||
+          document.querySelector('.play-btn') ||
+          document.querySelector('#os_player') ||
+          document.querySelector('video');
+        if (bigPlayBtn) {
+          try {
+            bigPlayBtn.click();
+          } catch (_) {}
+        }
+        const video = document.querySelector('video');
+        if (video) {
+          try {
+            video.play().catch(() => {});
+          } catch (_) {}
+        }
+
+        // Poll up to 3 seconds for dsplayer to finish /pass_md5/ and set video.src
+        for (let i = 0; i < 15; i++) {
+          await new Promise((r) => setTimeout(r, 200));
+          finalVideoUrl = findActiveVideoElement();
+          if (finalVideoUrl) break;
+        }
       }
 
-      const passUrl = `${window.location.origin}${passData.path}`;
-      const referer = window.location.href;
+      // Fallback: try pass_md5 endpoint extraction if available
+      if (!finalVideoUrl) {
+        const passData = extractPassMd5Endpoint();
+        if (passData) {
+          const passUrl = `${window.location.origin}${passData.path}`;
 
-      // Ask service worker to fetch pass_md5 with correct Referer header
-      const res = await new Promise((resolve, reject) => {
-        if (!chrome.runtime || !chrome.runtime.sendMessage) {
-          return reject(new Error('Extension runtime offline'));
-        }
-        chrome.runtime.sendMessage(
-          {
-            action: 'RESOLVE_DOOD_STREAM',
-            passUrl,
-            referer
-          },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              return reject(new Error(chrome.runtime.lastError.message));
-            }
-            if (!response || !response.success) {
-              return reject(new Error(response?.error || 'Gagal mengambil base token Doodstream'));
-            }
-            resolve(response);
+          // Ask service worker to fetch pass_md5 with correct Referer header
+          try {
+            const res = await new Promise((resolve, reject) => {
+              if (!chrome.runtime || !chrome.runtime.sendMessage) {
+                return reject(new Error('Extension runtime offline'));
+              }
+              chrome.runtime.sendMessage(
+                {
+                  action: 'RESOLVE_DOOD_STREAM',
+                  passUrl,
+                  referer
+                },
+                (response) => {
+                  if (chrome.runtime.lastError) {
+                    return reject(new Error(chrome.runtime.lastError.message));
+                  }
+                  if (!response || !response.success) {
+                    return reject(
+                      new Error(response?.error || 'Gagal mengambil base token Doodstream')
+                    );
+                  }
+                  resolve(response);
+                }
+              );
+            });
+
+            const baseCdnUrl = res.baseCdnUrl;
+            finalVideoUrl = buildDoodFinalUrl(baseCdnUrl, passData.token);
+          } catch (_) {
+            // Handshake blocked or failed
           }
-        );
-      });
+        }
+      }
 
-      const baseCdnUrl = res.baseCdnUrl;
-      const finalVideoUrl = buildDoodFinalUrl(baseCdnUrl, passData.token);
+      if (!finalVideoUrl) {
+        throw new Error(
+          'Video belum diputar! Silakan tekan tombol Play pada video terlebih dahulu agar token stream aktif, lalu klik Download lagi.'
+        );
+      }
 
       const title = extractVideoTitle();
       const filename = formatDoodFilename(title);
@@ -439,6 +493,8 @@
         jobId,
         url: finalVideoUrl,
         filename,
+        title,
+        author: 'Doodstream',
         headers: {
           Referer: referer,
           'User-Agent': navigator.userAgent
