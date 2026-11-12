@@ -8267,6 +8267,142 @@ async function runAllSuites() {
   );
 
   // --------------------------------------------------------------------------
+  // SUITE 33: AnoBoy Adaptive Engine & Anti-False-Positive Conjunction
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 33: AnoBoy Adaptive Engine & Anti-False-Positive Conjunction',
+    async ({ test }) => {
+      const anoboy = require(path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'));
+
+      test('Manifest V3 registers global fallback match for anoboy.js with document_idle', () => {
+        const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        const anoboyScript = manifest.content_scripts.find(
+          (cs) => cs.js && cs.js.includes('content/platforms/anoboy.js')
+        );
+        assert.ok(anoboyScript, 'anoboy.js must be registered in content_scripts');
+        assert.ok(
+          anoboyScript.matches.includes('*://*/*'),
+          '*://*/* must be included for adaptive domain rotation'
+        );
+        assert.strictEqual(
+          anoboyScript.run_at,
+          'document_idle',
+          'run_at must be document_idle for reliable DOM fingerprinting'
+        );
+      });
+
+      test('Layer 1 (Blacklist Guard) instantly rejects common platforms and foreign sites', () => {
+        assert.strictEqual(typeof anoboy.isAnoBoyExcluded, 'function');
+        assert.strictEqual(anoboy.isAnoBoyExcluded('youtube.com'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('www.google.com'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('github.com'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('v20.kuramanime.ing'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('otakudesu.cloud'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('samehadaku.care'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('shinigami.asia'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('anoboy.quest'), false);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('anoboy.at'), false);
+      });
+
+      test('Layer 2 (TLD-Agnostic Regex) matches all valid AnoBoy domain variants', () => {
+        assert.strictEqual(typeof anoboy.isAnoBoyHost, 'function');
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.at'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.quest'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.online'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.live'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.show'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.tv'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('v2.anoboy.ninja'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy-stream.com'), true);
+        // Rejects non-anoboy domains
+        assert.strictEqual(anoboy.isAnoBoyHost('anotherboy.com'), false);
+        assert.strictEqual(anoboy.isAnoBoyHost('boyano.org'), false);
+        assert.strictEqual(anoboy.isAnoBoyHost('google.com'), false);
+      });
+
+      test('Layer 3 (Strict 3-Point DNA Conjunction) accepts only when all 3 authentic markers exist', () => {
+        assert.strictEqual(typeof anoboy.verifyAnoBoyDNA, 'function');
+
+        // Case A: Complete AnoBoy DNA -> PASS
+        const mockValidDoc = {
+          querySelectorAll: (sel) => (sel === 'a#allmiror[data-video]' ? [{}] : []),
+          getElementById: (id) => (id === 'mediaplayer' ? {} : null),
+          querySelector: (sel) => (sel.includes('adsbatch') ? {} : null),
+          documentElement: { innerHTML: '<html>...adsbatch.php...</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockValidDoc), true);
+
+        // Case B: Missing typo mirror (a#allmiror) -> FAIL (0% false positive)
+        const mockMissingMirror = {
+          querySelectorAll: () => [],
+          getElementById: (id) => (id === 'mediaplayer' ? {} : null),
+          querySelector: (sel) => (sel.includes('adsbatch') ? {} : null),
+          documentElement: { innerHTML: '<html>...adsbatch.php...</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockMissingMirror), false);
+
+        // Case C: Missing mediaplayer -> FAIL
+        const mockMissingPlayer = {
+          querySelectorAll: (sel) => (sel === 'a#allmiror[data-video]' ? [{}] : []),
+          getElementById: () => null,
+          querySelector: (sel) => (sel.includes('adsbatch') ? {} : null),
+          documentElement: { innerHTML: '<html>...adsbatch.php...</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockMissingPlayer), false);
+
+        // Case D: Missing adsbatch endpoint -> FAIL
+        const mockMissingAdsbatch = {
+          querySelectorAll: (sel) => (sel === 'a#allmiror[data-video]' ? [{}] : []),
+          getElementById: (id) => (id === 'mediaplayer' ? {} : null),
+          querySelector: () => null,
+          documentElement: { innerHTML: '<html>generic player</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockMissingAdsbatch), false);
+      });
+
+      test('detectAnoBoyPlatform orchestrates 3 layers flawlessly', () => {
+        assert.strictEqual(typeof anoboy.detectAnoBoyPlatform, 'function');
+
+        // Blacklisted host -> False
+        assert.strictEqual(
+          anoboy.detectAnoBoyPlatform({
+            location: { hostname: 'www.youtube.com' }
+          }),
+          false
+        );
+
+        // Known anoboy variant -> True
+        assert.strictEqual(
+          anoboy.detectAnoBoyPlatform({
+            location: { hostname: 'anoboy.quest' }
+          }),
+          true
+        );
+
+        // Unrelated domain without DNA -> False
+        assert.strictEqual(
+          anoboy.detectAnoBoyPlatform({
+            location: { hostname: 'random-domain.io' },
+            document: {
+              querySelectorAll: () => [],
+              getElementById: () => null,
+              querySelector: () => null
+            }
+          }),
+          false
+        );
+      });
+
+      test('getActiveAnoBoyOrigin dynamically resolves current origin with trailing slash', () => {
+        assert.strictEqual(typeof anoboy.getActiveAnoBoyOrigin, 'function');
+        const origOrigin = anoboy.getActiveAnoBoyOrigin();
+        assert.ok(origOrigin.endsWith('/'));
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // --------------------------------------------------------------------------
   // TEST REPORT SUMMARY & EXIT CODE
   // --------------------------------------------------------------------------

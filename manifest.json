@@ -215,7 +215,8 @@
         "*://*.anoboy.at/*",
         "*://*.anoboy.quest/*",
         "*://*.anoboy.online/*",
-        "*://*.anoboy.ninja/*"
+        "*://*.anoboy.ninja/*",
+        "*://*/*"
       ],
       "js": [
         "content/platforms/anoboy.js"

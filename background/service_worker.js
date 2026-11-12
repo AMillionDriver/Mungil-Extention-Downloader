@@ -2649,8 +2649,13 @@ async function resolveAnoboyStream(payload = {}) {
   if (token) {
     try {
       const bloggerUrl = `https://www.blogger.com/video.g?token=${token}`;
+      const activeReferer =
+        payload.referer ||
+        (payload.url && payload.url.startsWith('http')
+          ? new URL(payload.url).origin + '/'
+          : 'https://anoboy.at/');
       const res = await fetch(bloggerUrl, {
-        headers: { Referer: 'https://anoboy.at/' }
+        headers: { Referer: activeReferer }
       });
       if (res.ok) {
         const html = await res.text();

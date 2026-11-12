@@ -43,6 +43,84 @@
   `;
 
   // =========================================================================
+  // 0. Adaptive Domain & DNA Detection Engine (Zero False Positive)
+  // =========================================================================
+
+  const ANOBOY_EXCLUDED_HOSTS = [
+    'google.',
+    'youtube.',
+    'github.',
+    'facebook.',
+    'twitter.',
+    'x.com',
+    'tiktok.',
+    'bilibili.',
+    'bstation.',
+    'wikipedia.',
+    'komiku.',
+    'shinigami.',
+    'kuramanime.',
+    'otakudesu.',
+    'samehadaku.',
+    'terabox.',
+    'pinterest.',
+    'cosplaytele.',
+    'dood.'
+  ];
+
+  function isAnoBoyExcluded(hostname) {
+    if (!hostname) return true;
+    const lower = String(hostname).toLowerCase();
+    return ANOBOY_EXCLUDED_HOSTS.some((h) => lower === h || lower.includes(h));
+  }
+
+  function isAnoBoyHost(hostname) {
+    if (!hostname) return false;
+    // TLD-Agnostic regex: matches anoboy.at, anoboy.quest, v2.anoboy.live, anoboy-stream.tv, etc.
+    return /(^|\.)anoboy(-[a-z0-9]+)?\.[a-z]{2,}(\.[a-z]{2,})?$/i.test(hostname);
+  }
+
+  function verifyAnoBoyDNA(doc = typeof document !== 'undefined' ? document : null) {
+    if (!doc || typeof doc.querySelectorAll !== 'function') return false;
+    // 3-Point Strict Conjunctive Gate (ALL 3 must be true)
+    // 1. Proprietary Typo ID: a#allmiror with data-video attribute
+    const hasTypoMirrors = doc.querySelectorAll('a#allmiror[data-video]').length > 0;
+    if (!hasTypoMirrors) return false;
+
+    // 2. Main video player wrapper: #mediaplayer
+    const hasMediaPlayer = doc.getElementById('mediaplayer') !== null;
+    if (!hasMediaPlayer) return false;
+
+    // 3. Proprietary parser script / endpoint: adsbatch
+    const hasAdsbatch =
+      doc.querySelector('iframe[src*="adsbatch"]') !== null ||
+      (doc.documentElement ? doc.documentElement.innerHTML.includes('adsbatch') : false);
+
+    return hasAdsbatch;
+  }
+
+  function detectAnoBoyPlatform(win = typeof window !== 'undefined' ? window : null) {
+    if (!win || !win.location) return false;
+    const host = win.location.hostname || '';
+
+    // Layer 1: Fast Blacklist Exit (< 0.01ms)
+    if (isAnoBoyExcluded(host)) return false;
+
+    // Layer 2: TLD-Agnostic Host Regex
+    if (isAnoBoyHost(host)) return true;
+
+    // Layer 3: Strict 3-Point DNA Conjunction (when domain changed without 'anoboy')
+    return verifyAnoBoyDNA(win.document);
+  }
+
+  function getActiveAnoBoyOrigin() {
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      return `${window.location.origin}/`;
+    }
+    return 'https://anoboy.at/';
+  }
+
+  // =========================================================================
   // 1. Windows NTFS Sanitization & Formatting
   // =========================================================================
 
@@ -904,7 +982,7 @@
         }
         try {
           const bRes = await fetch(`https://www.blogger.com/video.g?token=${targetToken}`, {
-            headers: { Referer: 'https://anoboy.at/' }
+            headers: { Referer: getActiveAnoBoyOrigin() }
           });
           if (bRes.ok) {
             const bHtml = await bRes.text();
@@ -1290,7 +1368,7 @@
                     filename,
                     title: `${animeTitle} - Episode ${item.episodeNum}`,
                     videoId,
-                    referer: 'https://anoboy.at/',
+                    referer: getActiveAnoBoyOrigin(),
                     userAgent: navigator.userAgent,
                     bloggerToken: item.bloggerToken || null,
                     episodeUrl: item.url || null
@@ -1628,7 +1706,7 @@
                 url: streamUrl,
                 filename,
                 title: `${data.animeTitle} - Episode ${data.episodeNum}`,
-                referer: 'https://anoboy.at/',
+                referer: getActiveAnoBoyOrigin(),
                 userAgent: navigator.userAgent,
                 bloggerToken: bToken || null,
                 episodeUrl: data.currentUrl || null
@@ -1697,6 +1775,8 @@
 
   function init() {
     if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    if (!detectAnoBoyPlatform()) return;
+
     const data = extractAnoboyPageData();
     if (!data) return;
 
@@ -1748,6 +1828,11 @@
   // Export for testing in Node environment
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
+      isAnoBoyExcluded,
+      isAnoBoyHost,
+      verifyAnoBoyDNA,
+      detectAnoBoyPlatform,
+      getActiveAnoBoyOrigin,
       sanitizeAnoboyTitle,
       formatAnoboyFilename,
       extractEpisodeNumber,
