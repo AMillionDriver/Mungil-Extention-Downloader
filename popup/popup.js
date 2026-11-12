@@ -67,6 +67,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnOpenJwplyr = document.getElementById('btn-open-jwplyr');
   const btnOpenYoutube = document.getElementById('btn-open-youtube');
   const btnOpenDownloads = document.getElementById('btn-open-downloads');
+  const btnOpenHistory = document.getElementById('btn-open-history');
   const downloadCountEl = document.getElementById('download-count');
   const statusPill = document.getElementById('popup-status-msg');
   const platformTitle = document.getElementById('platform-title');
@@ -312,6 +313,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // 4. Quick Action Listeners
+  if (btnOpenHistory) {
+    btnOpenHistory.addEventListener('click', () => {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+          chrome.tabs.create({ url: chrome.runtime.getURL('history/history.html') });
+        } else if (typeof window !== 'undefined' && window.open) {
+          window.open('history/history.html', '_blank');
+        }
+      } catch (err) {
+        console.warn('[Popup] open history page failed:', err);
+      }
+    });
+  }
+
   if (btnOpenDownloads) {
     btnOpenDownloads.addEventListener('click', () => {
       try {

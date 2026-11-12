@@ -14,7 +14,7 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const https = require('https');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 // Locate FFmpeg binary on Windows
 function findFfmpegBin() {
@@ -612,6 +612,23 @@ function handleIncomingMessage(msg) {
   // 4. Fast Range Chunker for Direct Video Streams (Google Video, Blogger, AnoBoy)
   if (action === 'FAST_RANGE_DOWNLOAD' || action === 'DOWNLOAD_CHUNKS') {
     return downloadWithRangeChunks(msg);
+  }
+
+  // 5. Smart History & File Lifecycle Tracker Actions
+  if (action === 'AUDIT_FILE_STATUS_BATCH') {
+    return handleAuditFileStatusBatch(msg);
+  }
+
+  if (action === 'OPEN_FILE_LOCATION') {
+    return handleOpenFileLocation(msg);
+  }
+
+  if (action === 'PLAY_VIDEO_FILE') {
+    return handlePlayVideoFile(msg);
+  }
+
+  if (action === 'OPEN_RECYCLE_BIN') {
+    return handleOpenRecycleBin(msg);
   }
 
   sendMessage({ success: false, error: 'Unknown action: ' + action });
@@ -1575,4 +1592,256 @@ async function downloadWithRangeChunks(msg) {
         taskId
       });
     });
+}
+
+// =========================================================================
+// 5. Smart History & File Lifecycle Tracker Helpers
+// =========================================================================
+
+function findMovedFile(filename, sizeBytes, originalPath, customRoots = null) {
+  if (!filename) return null;
+  const candidateRoots =
+    Array.isArray(customRoots) && customRoots.length > 0
+      ? customRoots
+      : [
+          'D:\\Anime',
+          'D:\\',
+          'C:\\Anime',
+          path.join(os.homedir(), 'Downloads'),
+          path.join(os.homedir(), 'Videos'),
+          path.join(os.homedir(), 'Desktop'),
+          path.join(os.homedir(), 'Documents')
+        ];
+
+  for (const root of candidateRoots) {
+    if (!fs.existsSync(root)) continue;
+    try {
+      const direct = path.join(root, filename);
+      if (direct !== originalPath && fs.existsSync(direct)) {
+        const st = fs.statSync(direct);
+        if (!sizeBytes || Math.abs(st.size - sizeBytes) < 4096) {
+          return { path: direct, size: st.size };
+        }
+      }
+      const entries = fs.readdirSync(root, { withFileTypes: true });
+      for (const ent of entries) {
+        if (ent.isDirectory()) {
+          const subPath = path.join(root, ent.name, filename);
+          if (subPath !== originalPath && fs.existsSync(subPath)) {
+            const st = fs.statSync(subPath);
+            if (!sizeBytes || Math.abs(st.size - sizeBytes) < 4096) {
+              return { path: subPath, size: st.size };
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+function getRecycleBinFilenames() {
+  try {
+    const cmd = `powershell -NoProfile -NonInteractive -Command "(New-Object -ComObject Shell.Application).Namespace(10).Items() | ForEach-Object { $_.Name }"`;
+    const out = execSync(cmd, { encoding: 'utf8', timeout: 4000, windowsHide: true });
+    return out
+      .split(/\r?\n/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+function auditSingleFile(item, binFiles = [], customRoots = null) {
+  if (!item || typeof item !== 'object') {
+    return {
+      status: 'PERMANENTLY_DELETED',
+      state: 'PERMANENTLY_DELETED',
+      fileStatus: 'PERMANENTLY_DELETED',
+      currentPath: null,
+      originalPath: null,
+      sizeBytes: 0,
+      lastChecked: Date.now()
+    };
+  }
+
+  const originalPath =
+    item.originalPath ||
+    item.filePath ||
+    (item.folder && item.filename ? path.join(item.folder, item.filename) : null);
+  const filename = item.filename || (originalPath ? path.basename(originalPath) : '');
+  const sizeBytes = typeof item.sizeBytes === 'number' ? item.sizeBytes : null;
+
+  // 1. Check if file still exists in original location
+  if (originalPath && fs.existsSync(originalPath)) {
+    try {
+      const st = fs.statSync(originalPath);
+      return {
+        id: item.id,
+        status: 'EXISTS_ORIGINAL',
+        state: 'EXISTS_ORIGINAL',
+        fileStatus: 'EXISTS_ORIGINAL',
+        inRecycleBin: false,
+        currentPath: originalPath,
+        originalPath,
+        sizeBytes: st.size,
+        lastChecked: Date.now()
+      };
+    } catch (_) {}
+  }
+
+  // 2. Check if file was moved elsewhere on drive
+  const moved = findMovedFile(filename, sizeBytes, originalPath, customRoots);
+  if (moved) {
+    return {
+      id: item.id,
+      status: 'MOVED',
+      state: 'MOVED',
+      fileStatus: 'MOVED',
+      inRecycleBin: false,
+      currentPath: moved.path,
+      originalPath,
+      sizeBytes: moved.size,
+      lastChecked: Date.now()
+    };
+  }
+
+  // 3. Check if file is in Windows Recycle Bin
+  const binArr = Array.isArray(binFiles)
+    ? binFiles
+    : binFiles instanceof Set
+      ? Array.from(binFiles)
+      : binFiles && typeof binFiles[Symbol.iterator] === 'function'
+        ? Array.from(binFiles)
+        : [];
+
+  const lowerName = filename.toLowerCase();
+  const lowerBaseNoExt = path.parse(filename).name.toLowerCase();
+  const isInBin = binArr.some((bf) => {
+    const s = String(bf).toLowerCase();
+    return s === lowerName || s === lowerBaseNoExt || s.includes(lowerBaseNoExt);
+  });
+
+  if (isInBin) {
+    return {
+      id: item.id,
+      status: 'IN_RECYCLE_BIN',
+      state: 'IN_RECYCLE_BIN',
+      fileStatus: 'IN_RECYCLE_BIN',
+      inRecycleBin: true,
+      currentPath: null,
+      originalPath,
+      sizeBytes,
+      lastChecked: Date.now()
+    };
+  }
+
+  // 4. File is permanently deleted or missing
+  return {
+    id: item.id,
+    status: 'PERMANENTLY_DELETED',
+    state: 'PERMANENTLY_DELETED',
+    fileStatus: 'PERMANENTLY_DELETED',
+    inRecycleBin: false,
+    currentPath: null,
+    originalPath,
+    sizeBytes,
+    lastChecked: Date.now()
+  };
+}
+
+function handleAuditFileStatusBatch(msg) {
+  const items = Array.isArray(msg.items) ? msg.items : [];
+  let binFiles = [];
+  const hasPotentiallyMissing = items.some((it) => {
+    const p =
+      it.originalPath ||
+      it.filePath ||
+      (it.folder && it.filename ? path.join(it.folder, it.filename) : null);
+    return !p || !fs.existsSync(p);
+  });
+
+  if (hasPotentiallyMissing) {
+    binFiles = getRecycleBinFilenames();
+  }
+
+  const results = items.map((it) => auditSingleFile(it, binFiles));
+  sendMessage({
+    success: true,
+    action: 'AUDIT_FILE_STATUS_BATCH',
+    results
+  });
+}
+
+function handleOpenFileLocation(msg) {
+  const targetPath = msg.filePath || msg.path || msg.currentPath || msg.originalPath;
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return sendMessage({
+      success: false,
+      action: 'OPEN_FILE_LOCATION',
+      error: 'File tidak ditemukan di disk: ' + (targetPath || '')
+    });
+  }
+
+  try {
+    const cleanPath = path.normalize(targetPath);
+    spawn('explorer.exe', ['/select,', cleanPath], {
+      windowsHide: true,
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    sendMessage({ success: true, action: 'OPEN_FILE_LOCATION', path: cleanPath });
+  } catch (err) {
+    sendMessage({ success: false, action: 'OPEN_FILE_LOCATION', error: err.message });
+  }
+}
+
+function handlePlayVideoFile(msg) {
+  const targetPath = msg.filePath || msg.path || msg.currentPath || msg.originalPath;
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return sendMessage({
+      success: false,
+      action: 'PLAY_VIDEO_FILE',
+      error: 'File video tidak ditemukan di disk: ' + (targetPath || '')
+    });
+  }
+
+  try {
+    const cleanPath = path.normalize(targetPath);
+    spawn('cmd.exe', ['/c', 'start', '""', cleanPath], {
+      windowsHide: true,
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    sendMessage({ success: true, action: 'PLAY_VIDEO_FILE', path: cleanPath });
+  } catch (err) {
+    sendMessage({ success: false, action: 'PLAY_VIDEO_FILE', error: err.message });
+  }
+}
+
+function handleOpenRecycleBin() {
+  try {
+    spawn('explorer.exe', ['shell:RecycleBinFolder'], {
+      windowsHide: true,
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    sendMessage({ success: true, action: 'OPEN_RECYCLE_BIN' });
+  } catch (err) {
+    sendMessage({ success: false, action: 'OPEN_RECYCLE_BIN', error: err.message });
+  }
+}
+
+// Node export for unit tests
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    findMovedFile,
+    getRecycleBinFilenames,
+    auditSingleFile,
+    handleAuditFileStatusBatch,
+    handleOpenFileLocation,
+    handlePlayVideoFile,
+    handleOpenRecycleBin
+  };
 }

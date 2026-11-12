@@ -8403,6 +8403,125 @@ async function runAllSuites() {
   );
 
   // --------------------------------------------------------------------------
+  // SUITE 34: Smart History & File Lifecycle Tracker (Windows Filesystem & Recycle Bin)
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 34: Smart History & File Lifecycle Tracker (Windows Filesystem & Recycle Bin)',
+    async ({ test, testAsync }) => {
+      const downloaderHost = require(path.join(PROJECT_ROOT, 'native_host/downloader_host.js'));
+
+      test('downloader_host exports file lifecycle audit functions', () => {
+        assert.strictEqual(typeof downloaderHost.auditSingleFile, 'function');
+        assert.strictEqual(typeof downloaderHost.findMovedFile, 'function');
+        assert.strictEqual(typeof downloaderHost.getRecycleBinFilenames, 'function');
+      });
+
+      test('auditSingleFile accurately detects EXISTS_ORIGINAL when file exists in place', () => {
+        const tempFile = path.join(PROJECT_ROOT, 'temp_test_history_orig.mp4');
+        fs.writeFileSync(tempFile, 'test file content');
+        try {
+          const res = downloaderHost.auditSingleFile({
+            filename: 'temp_test_history_orig.mp4',
+            originalPath: tempFile,
+            sizeBytes: 17
+          });
+          assert.strictEqual(res.status, 'EXISTS_ORIGINAL');
+          assert.strictEqual(res.currentPath, tempFile);
+        } finally {
+          if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        }
+      });
+
+      test('auditSingleFile accurately detects MOVED when file is found in another location', () => {
+        const movedTarget = path.join(PROJECT_ROOT, 'temp_moved_target.mp4');
+        fs.writeFileSync(movedTarget, 'moved file content bytes');
+        const originalMissing = path.join(PROJECT_ROOT, 'downloads', 'temp_moved_target.mp4');
+
+        try {
+          const res = downloaderHost.auditSingleFile(
+            {
+              filename: 'temp_moved_target.mp4',
+              originalPath: originalMissing,
+              sizeBytes: 24
+            },
+            new Set(),
+            [PROJECT_ROOT]
+          );
+          assert.strictEqual(res.status, 'MOVED');
+          assert.strictEqual(res.currentPath, movedTarget);
+
+          const found = downloaderHost.findMovedFile('temp_moved_target.mp4', 24, originalMissing, [
+            PROJECT_ROOT
+          ]);
+          assert.ok(found !== null);
+          assert.strictEqual(found.path, movedTarget);
+        } finally {
+          if (fs.existsSync(movedTarget)) fs.unlinkSync(movedTarget);
+        }
+      });
+
+      test('auditSingleFile accurately detects IN_RECYCLE_BIN when in bin set', () => {
+        const binSet = new Set(['my_deleted_anime.mp4', 'another_video.mp4']);
+        const res = downloaderHost.auditSingleFile(
+          {
+            filename: 'my_deleted_anime.mp4',
+            originalPath: 'C:\\Users\\flami\\Downloads\\my_deleted_anime.mp4',
+            sizeBytes: 1024
+          },
+          binSet
+        );
+        assert.strictEqual(res.status, 'IN_RECYCLE_BIN');
+        assert.strictEqual(res.inRecycleBin, true);
+      });
+
+      test('auditSingleFile accurately detects PERMANENTLY_DELETED when nowhere found', () => {
+        const binSet = new Set(['some_other.mp4']);
+        const res = downloaderHost.auditSingleFile(
+          {
+            filename: 'completely_vanished_file_9999.mp4',
+            originalPath: 'C:\\NonExistentPath\\Folder\\completely_vanished_file_9999.mp4',
+            sizeBytes: 5000000
+          },
+          binSet
+        );
+        assert.strictEqual(res.status, 'PERMANENTLY_DELETED');
+        assert.strictEqual(res.currentPath, null);
+      });
+
+      test('history UI bundle (HTML, CSS, JS) exists with full semantic architecture', () => {
+        const htmlPath = path.join(PROJECT_ROOT, 'history/history.html');
+        const cssPath = path.join(PROJECT_ROOT, 'history/history.css');
+        const jsPath = path.join(PROJECT_ROOT, 'history/history.js');
+
+        assert.ok(fs.existsSync(htmlPath), 'history.html exists');
+        assert.ok(fs.existsSync(cssPath), 'history.css exists');
+        assert.ok(fs.existsSync(jsPath), 'history.js exists');
+
+        const html = fs.readFileSync(htmlPath, 'utf8');
+        assert.ok(html.includes('id="history-list"'));
+        assert.ok(html.includes('id="metric-total-count"'));
+        assert.ok(html.includes('id="btn-audit-now"'));
+        assert.ok(html.includes('id="btn-open-recycle-bin"'));
+
+        const js = fs.readFileSync(jsPath, 'utf8');
+        assert.ok(js.includes('GET_SMART_HISTORY'));
+        assert.ok(js.includes('AUDIT_ALL_HISTORY_FILES'));
+        assert.ok(js.includes('OPEN_FILE_LOCATION'));
+        assert.ok(js.includes('OPEN_RECYCLE_BIN'));
+      });
+
+      test('popup integrates History launcher button and click handler', () => {
+        const popHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        const popJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+
+        assert.ok(popHtml.includes('id="btn-open-history"'), 'popup.html has btn-open-history');
+        assert.ok(popJs.includes('btnOpenHistory'), 'popup.js binds btnOpenHistory');
+        assert.ok(popJs.includes('history/history.html'), 'popup.js opens history page');
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // --------------------------------------------------------------------------
   // TEST REPORT SUMMARY & EXIT CODE
   // --------------------------------------------------------------------------

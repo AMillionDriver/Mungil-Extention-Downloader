@@ -436,6 +436,12 @@ body {
   color: var(--text-muted);
 }
 
+.footer-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .btn-icon-action {
   width: 26px;
   height: 26px;

@@ -1295,55 +1295,87 @@ function recordDownloadTelemetry(params = {}) {
     }
 
     try {
-      chrome.storage.local.get(['downloadCount', 'recentDownloads', 'downloadHistory'], (data) => {
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
-          console.warn('[TikTok Downloader SW] Storage get error:', chrome.runtime.lastError);
-        }
-
-        const rawCount = Number(data && data.downloadCount);
-        const count = !isNaN(rawCount) && rawCount >= 0 ? Math.floor(rawCount) + 1 : 1;
-        const recent = data && Array.isArray(data.recentDownloads) ? data.recentDownloads : [];
-        const history =
-          data && data.downloadHistory && typeof data.downloadHistory === 'object'
-            ? data.downloadHistory
-            : {};
-
-        recent.unshift({
-          downloadId,
-          filename: safeFilename,
-          author: safeAuthor,
-          videoId: safeVideoId,
-          timestamp: Date.now()
-        });
-
-        history[safeVideoId] = {
-          videoId: safeVideoId,
-          filename: safeFilename,
-          author: safeAuthor,
-          timestamp: Date.now()
-        };
-        if (videoId && videoId !== safeVideoId) {
-          history[videoId] = history[safeVideoId];
-        }
-
-        chrome.storage.local.set(
-          {
-            downloadCount: count,
-            recentDownloads: recent.slice(0, 50),
-            downloadHistory: history
-          },
-          () => {
-            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
-              console.warn('[TikTok Downloader SW] Storage set error:', chrome.runtime.lastError);
-            }
-            resolve({
-              success: true,
-              downloadCount: count,
-              filename: safeFilename
-            });
+      chrome.storage.local.get(
+        ['downloadCount', 'recentDownloads', 'downloadHistory', 'smartDownloadHistory'],
+        (data) => {
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+            console.warn('[TikTok Downloader SW] Storage get error:', chrome.runtime.lastError);
           }
-        );
-      });
+
+          const rawCount = Number(data && data.downloadCount);
+          const count = !isNaN(rawCount) && rawCount >= 0 ? Math.floor(rawCount) + 1 : 1;
+          const recent = data && Array.isArray(data.recentDownloads) ? data.recentDownloads : [];
+          const history =
+            data && data.downloadHistory && typeof data.downloadHistory === 'object'
+              ? data.downloadHistory
+              : {};
+          const smartHistory =
+            data && Array.isArray(data.smartDownloadHistory) ? data.smartDownloadHistory : [];
+
+          recent.unshift({
+            downloadId,
+            filename: safeFilename,
+            author: safeAuthor,
+            videoId: safeVideoId,
+            timestamp: Date.now()
+          });
+
+          history[safeVideoId] = {
+            videoId: safeVideoId,
+            filename: safeFilename,
+            author: safeAuthor,
+            timestamp: Date.now()
+          };
+          if (videoId && videoId !== safeVideoId) {
+            history[videoId] = history[safeVideoId];
+          }
+
+          const histId = `hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          const defaultFolder = 'C:\\Users\\flami\\Downloads';
+          const resolvedPath =
+            p.originalPath ||
+            (p.folder ? `${p.folder}\\${safeFilename}` : `${defaultFolder}\\${safeFilename}`);
+
+          smartHistory.unshift({
+            id: histId,
+            filename: safeFilename,
+            title: p.title || safeFilename.replace(/\.[a-zA-Z0-9]+$/, ''),
+            author: safeAuthor,
+            platform: p.platform || 'video',
+            sourceUrl: p.url || p.sourceUrl || null,
+            downloadedAt: Date.now(),
+            originalPath: resolvedPath,
+            folder: p.folder || defaultFolder,
+            size: p.size || '',
+            sizeBytes: typeof p.sizeBytes === 'number' ? p.sizeBytes : null,
+            resolution: p.quality || p.resolution || null,
+            fileStatus: {
+              state: 'EXISTS_ORIGINAL',
+              currentPath: resolvedPath,
+              lastChecked: Date.now()
+            }
+          });
+
+          chrome.storage.local.set(
+            {
+              downloadCount: count,
+              recentDownloads: recent.slice(0, 50),
+              downloadHistory: history,
+              smartDownloadHistory: smartHistory.slice(0, 500)
+            },
+            () => {
+              if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+                console.warn('[TikTok Downloader SW] Storage set error:', chrome.runtime.lastError);
+              }
+              resolve({
+                success: true,
+                downloadCount: count,
+                filename: safeFilename
+              });
+            }
+          );
+        }
+      );
     } catch (err) {
       console.warn('[TikTok Downloader SW] Storage exception:', err);
       resolve({
@@ -3132,6 +3164,141 @@ function handleMessage(message, sender, sendResponse) {
       });
     } else {
       sendResponse({ success: true, downloadCount: 0, recentDownloads: [] });
+    }
+    return true;
+  }
+
+  // =========================================================================
+  // Smart History & File Lifecycle Tracker Handlers
+  // =========================================================================
+
+  function callNativeHostOneOff(payload) {
+    return new Promise((resolve, reject) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendNativeMessage) {
+        return reject(new Error('chrome.runtime.sendNativeMessage is unavailable'));
+      }
+      chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, payload, (response) => {
+        if (chrome.runtime.lastError) {
+          return reject(new Error(chrome.runtime.lastError.message));
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  // Handle GET_SMART_HISTORY
+  if (actionType === 'GET_SMART_HISTORY') {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['smartDownloadHistory'], (data) => {
+        const history = Array.isArray(data?.smartDownloadHistory) ? data.smartDownloadHistory : [];
+        sendResponse({ success: true, history });
+      });
+    } else {
+      sendResponse({ success: true, history: [] });
+    }
+    return true;
+  }
+
+  // Handle AUDIT_ALL_HISTORY_FILES
+  if (actionType === 'AUDIT_ALL_HISTORY_FILES') {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['smartDownloadHistory'], async (data) => {
+        const history = Array.isArray(data?.smartDownloadHistory) ? data.smartDownloadHistory : [];
+        if (history.length === 0) {
+          return sendResponse({ success: true, history: [] });
+        }
+
+        try {
+          const res = await callNativeHostOneOff({
+            action: 'AUDIT_FILE_STATUS_BATCH',
+            items: history
+          });
+
+          if (res && res.success && Array.isArray(res.results)) {
+            const resultMap = new Map(res.results.map((r) => [r.id, r]));
+            const updatedHistory = history.map((item) => {
+              if (resultMap.has(item.id)) {
+                const audited = resultMap.get(item.id);
+                return {
+                  ...item,
+                  fileStatus: {
+                    state: audited.state,
+                    currentPath: audited.currentPath,
+                    sizeBytes: audited.sizeBytes,
+                    lastChecked: audited.lastChecked
+                  }
+                };
+              }
+              return item;
+            });
+
+            chrome.storage.local.set({ smartDownloadHistory: updatedHistory }, () => {
+              sendResponse({ success: true, history: updatedHistory });
+            });
+            return;
+          }
+          sendResponse({ success: true, history });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message, history });
+        }
+      });
+    } else {
+      sendResponse({ success: false, error: 'Storage unavailable' });
+    }
+    return true;
+  }
+
+  // Handle OPEN_FILE_LOCATION
+  if (actionType === 'OPEN_FILE_LOCATION') {
+    const targetPath = message.filePath || message.path;
+    callNativeHostOneOff({ action: 'OPEN_FILE_LOCATION', filePath: targetPath })
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Handle PLAY_LOCAL_VIDEO
+  if (actionType === 'PLAY_LOCAL_VIDEO') {
+    const targetPath = message.filePath || message.path;
+    callNativeHostOneOff({ action: 'PLAY_VIDEO_FILE', filePath: targetPath })
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Handle OPEN_RECYCLE_BIN
+  if (actionType === 'OPEN_RECYCLE_BIN') {
+    callNativeHostOneOff({ action: 'OPEN_RECYCLE_BIN' })
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Handle CLEAR_SMART_HISTORY
+  if (actionType === 'CLEAR_SMART_HISTORY') {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ smartDownloadHistory: [] }, () => {
+        sendResponse({ success: true, history: [] });
+      });
+    } else {
+      sendResponse({ success: true, history: [] });
+    }
+    return true;
+  }
+
+  // Handle REMOVE_HISTORY_ITEM
+  if (actionType === 'REMOVE_HISTORY_ITEM') {
+    const itemId = message.id;
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['smartDownloadHistory'], (data) => {
+        const history = Array.isArray(data?.smartDownloadHistory) ? data.smartDownloadHistory : [];
+        const filtered = history.filter((it) => it.id !== itemId);
+        chrome.storage.local.set({ smartDownloadHistory: filtered }, () => {
+          sendResponse({ success: true, history: filtered });
+        });
+      });
+    } else {
+      sendResponse({ success: true });
     }
     return true;
   }
