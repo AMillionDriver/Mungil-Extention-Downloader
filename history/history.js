@@ -323,7 +323,7 @@
     return card;
   }
 
-  function renderCardActions(item, status, activePath) {
+  function renderCardActions(item, status, _activePath) {
     let html = '';
 
     if (status === 'EXISTS_ORIGINAL' || status === 'MOVED') {

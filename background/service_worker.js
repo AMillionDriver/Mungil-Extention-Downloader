@@ -2333,8 +2333,17 @@ async function downloadViaNativeChunker(params, _tabId) {
     `${params.platform || 'anoboy'}_${params.episode || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const streamUrl = params.url;
 
-  if (!streamUrl) {
+  if (!streamUrl || typeof streamUrl !== 'string') {
     throw new Error('URL stream video tidak ditemukan.');
+  }
+  const cleanStreamUrl = streamUrl.replace(/[\r\n]/g, '').trim();
+  try {
+    const p = new URL(cleanStreamUrl);
+    if (p.protocol !== 'https:' && p.protocol !== 'http:') {
+      throw new Error(`Protokol tidak aman atau tidak didukung: ${p.protocol}`);
+    }
+  } catch (err) {
+    throw new Error('URL stream tidak valid: ' + err.message);
   }
 
   return new Promise((resolve, reject) => {
@@ -2373,7 +2382,8 @@ async function downloadViaNativeChunker(params, _tabId) {
       // Handle intermediate progress updates
       if (msg.type === 'PROGRESS') {
         const percent = typeof msg.percent === 'number' ? msg.percent : 0;
-        const part = msg.part || 'Turbo Chunker';
+        const concurrencyStr = msg.concurrency ? ` (${msg.concurrency}x Adaptive)` : '';
+        const part = msg.part || `Turbo Chunker${concurrencyStr}`;
 
         if (activeDownloads[videoId]) {
           activeDownloads[videoId].part = part;
@@ -2381,6 +2391,7 @@ async function downloadViaNativeChunker(params, _tabId) {
           activeDownloads[videoId].speed = msg.speed || '';
           activeDownloads[videoId].totalSize = msg.totalSize || '';
           activeDownloads[videoId].eta = msg.eta || '';
+          activeDownloads[videoId].concurrency = msg.concurrency || null;
           activeDownloads[videoId].status = msg.status === 'paused' ? 'paused' : 'downloading';
         }
 
@@ -2402,6 +2413,7 @@ async function downloadViaNativeChunker(params, _tabId) {
           speed: msg.speed,
           totalSize: msg.totalSize,
           eta: msg.eta,
+          concurrency: msg.concurrency || null,
           status: msg.status,
           message: msg.message
         };
@@ -2572,14 +2584,29 @@ async function downloadViaNativeChunker(params, _tabId) {
       reject(new Error(err));
     });
 
-    const forwardHeaders = Object.assign({}, params.headers || {});
-    if (params.referer) forwardHeaders['Referer'] = params.referer;
-    if (params.userAgent) forwardHeaders['User-Agent'] = params.userAgent;
+    const forwardHeaders = {};
+    if (params.headers && typeof params.headers === 'object') {
+      for (const [k, v] of Object.entries(params.headers)) {
+        if (typeof k === 'string' && v !== null && v !== undefined) {
+          const cleanK = k.replace(/[\r\n]/g, '').trim();
+          const cleanV = String(v)
+            .replace(/[\r\n]/g, '')
+            .trim();
+          if (cleanK) forwardHeaders[cleanK] = cleanV;
+        }
+      }
+    }
+    if (params.referer && typeof params.referer === 'string') {
+      forwardHeaders['Referer'] = params.referer.replace(/[\r\n]/g, '').trim();
+    }
+    if (params.userAgent && typeof params.userAgent === 'string') {
+      forwardHeaders['User-Agent'] = params.userAgent.replace(/[\r\n]/g, '').trim();
+    }
 
     // Send FAST_RANGE_DOWNLOAD to native host
     port.postMessage({
       action: 'FAST_RANGE_DOWNLOAD',
-      url: streamUrl,
+      url: cleanStreamUrl,
       filename: params.filename,
       referer: params.referer || forwardHeaders['Referer'] || 'https://anoboy.at/',
       headers: forwardHeaders,
@@ -2603,7 +2630,8 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
   if (!bloggerHtml || typeof bloggerHtml !== 'string') return null;
 
   // Strict regex: domain must directly be *.googlevideo.com
-  const re = /https?:\/\/[a-zA-Z0-9.\-_]+?\.googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
+  const re =
+    /https?:\/\/(?:[a-zA-Z0-9.\-_]+\.)?googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
   let match;
   const streams = [];
 
@@ -2626,7 +2654,7 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
 
   if (streams.length === 0) return null;
 
-  if (preferredRes && preferredRes.includes('720')) {
+  if (preferredRes && (preferredRes.includes('1080') || preferredRes.includes('720'))) {
     const s720 = streams.find((s) => s.itag === 22);
     if (s720) return s720.url;
   }
@@ -2640,30 +2668,111 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
   return streams[0].url;
 }
 
+function isValidAnoBoyToken(token) {
+  if (!token || typeof token !== 'string') return false;
+  const clean = token.trim().toLowerCase();
+  return (
+    clean !== 'none' &&
+    clean !== 'null' &&
+    clean !== 'undefined' &&
+    clean !== 'false' &&
+    clean.length >= 10
+  );
+}
+
+function extractAnoBoyCandidateTokens(html, preferredRes = '720p') {
+  if (!html || typeof html !== 'string') return [];
+  const isHd = !preferredRes || preferredRes.includes('720') || preferredRes.includes('1080');
+
+  // 1. Parse all <a ... id="allmiror" ...> elements
+  const mirrorRegex =
+    /<a[^>]*id=["']allmiror["'][^>]*data-video=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  const mirrors = [];
+  while ((m = mirrorRegex.exec(html)) !== null) {
+    const videoData = m[1];
+    const label = m[2].trim();
+    const tokenM =
+      videoData.match(/url=([^&"'>\s]+)/i) || videoData.match(/token=([a-zA-Z0-9_-]+)/i);
+    if (tokenM && isValidAnoBoyToken(tokenM[1])) {
+      mirrors.push({ label, token: tokenM[1], videoData });
+    }
+  }
+
+  const candidateTokens = [];
+
+  // 2. If HD requested, prioritize mirrors matching 720 / HD with valid token
+  if (isHd) {
+    const m720 = mirrors.filter((x) => /720|hd/i.test(x.label));
+    m720.forEach((item) => {
+      if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+    });
+  }
+
+  // 3. Add 360 / SD mirrors
+  const m360 = mirrors.filter((x) => /360|sd/i.test(x.label));
+  m360.forEach((item) => {
+    if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+  });
+
+  // 4. Add any remaining mirrors with valid tokens
+  mirrors.forEach((item) => {
+    if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+  });
+
+  // 5. Check iframe #mediaplayer fallback
+  const mediaplayerMatch = html.match(/id=["']mediaplayer["'][^>]*src=["'][^"']*url=([^&"'>\s]+)/i);
+  if (mediaplayerMatch && isValidAnoBoyToken(mediaplayerMatch[1])) {
+    if (!candidateTokens.includes(mediaplayerMatch[1])) {
+      candidateTokens.push(mediaplayerMatch[1]);
+    }
+  }
+
+  // 6. Check adsbatch fallback
+  const generalMatch = html.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/i);
+  if (generalMatch && isValidAnoBoyToken(generalMatch[1])) {
+    if (!candidateTokens.includes(generalMatch[1])) {
+      candidateTokens.push(generalMatch[1]);
+    }
+  }
+
+  return candidateTokens;
+}
+
+function extractAnoBoyTokenFromHtml(html, preferredRes = '720p') {
+  const tokens = extractAnoBoyCandidateTokens(html, preferredRes);
+  return tokens.length > 0 ? tokens[0] : null;
+}
+
 async function resolveAnoboyStream(payload = {}) {
   const targetUrl = payload.url || '';
-  let token =
-    payload.bloggerToken ||
-    (targetUrl.match(/token=([a-zA-Z0-9_-]+)/)
-      ? targetUrl.match(/token=([a-zA-Z0-9_-]+)/)[1]
-      : null);
+  const tokens = [];
+
+  if (payload.bloggerToken && isValidAnoBoyToken(payload.bloggerToken)) {
+    tokens.push(payload.bloggerToken);
+  }
+
+  const directTokenMatch = targetUrl.match(/token=([a-zA-Z0-9_-]+)/);
+  if (directTokenMatch && isValidAnoBoyToken(directTokenMatch[1])) {
+    if (!tokens.includes(directTokenMatch[1])) tokens.push(directTokenMatch[1]);
+  }
+
   const preferredRes = payload.preferredRes || payload.resolution || '720p';
 
-  // If targetUrl is an episode web page, fetch page to locate adsbatch token or mirror
-  if (!token && targetUrl && (targetUrl.includes('anoboy.at') || targetUrl.includes('anoboy.'))) {
+  // If targetUrl is an episode web page, fetch page to locate candidate tokens
+  if (targetUrl && (targetUrl.includes('anoboy.at') || targetUrl.includes('anoboy.'))) {
     try {
       const pageRes = await fetch(targetUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' }
       });
       if (pageRes.ok) {
         const pageHtml = await pageRes.text();
-        const tokenMatch =
-          pageHtml.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
-          pageHtml.match(/data-video=["'][^"']*url=([^&"'>\s]+)/) ||
-          pageHtml.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
-        if (tokenMatch && tokenMatch[1]) {
-          token = tokenMatch[1];
-        } else {
+        const extracted = extractAnoBoyCandidateTokens(pageHtml, preferredRes);
+        extracted.forEach((t) => {
+          if (!tokens.includes(t)) tokens.push(t);
+        });
+
+        if (tokens.length === 0) {
           // Check udl mirrors
           const mirrorMatch = pageHtml.match(
             /href=["'](https?:\/\/[^"']*(?:mp4upload\.com|gofile\.io)[^"']*)["']/i
@@ -2678,14 +2787,16 @@ async function resolveAnoboyStream(payload = {}) {
     }
   }
 
-  if (token) {
+  const activeReferer =
+    payload.referer ||
+    (payload.url && payload.url.startsWith('http')
+      ? new URL(payload.url).origin + '/'
+      : 'https://anoboy.at/');
+
+  for (const token of tokens) {
+    if (!isValidAnoBoyToken(token)) continue;
     try {
       const bloggerUrl = `https://www.blogger.com/video.g?token=${token}`;
-      const activeReferer =
-        payload.referer ||
-        (payload.url && payload.url.startsWith('http')
-          ? new URL(payload.url).origin + '/'
-          : 'https://anoboy.at/');
       const res = await fetch(bloggerUrl, {
         headers: { Referer: activeReferer }
       });
@@ -2696,7 +2807,10 @@ async function resolveAnoboyStream(payload = {}) {
           return {
             success: true,
             streamUrl: directUrl,
-            itag: directUrl.includes('itag=22') ? 22 : 18
+            itag: directUrl.includes('itag=22') ? 22 : 18,
+            isFallback:
+              !directUrl.includes('itag=22') &&
+              (preferredRes.includes('720') || preferredRes.includes('1080'))
           };
         }
       }
@@ -4040,6 +4154,7 @@ if (typeof module !== 'undefined' && module.exports) {
     sanitizeAnoboyTitle,
     formatAnoboyFilename,
     extractStreamFromBloggerHtml,
+    extractAnoBoyTokenFromHtml,
     resolveAnoboyStream,
     SHINIGAMI_CDN_RULES,
     sanitizeShinigamiTitle,

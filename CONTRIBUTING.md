@@ -19,17 +19,19 @@ Ekstensi ini menerapkan pengawasan kode otomatis pada 3 tingkatan (Editor, Git P
 - **`eslint-plugin-security`**: Mendeteksi pola ReDoS (_Regular Expression Denial of Service_), _prototype pollution_, `eval()`, dan eksekusi non-literal.
 - **`eslint-plugin-no-unsanitized`**: Memvalidasi manipulasi DOM untuk mencegah injeksi XSS. Dilarang menggunakan `document.write` atau `insertAdjacentHTML` yang tidak tersanitasi.
 - **Windows NTFS Path Sanitizer**: Semua nama file yang disimpan ke OS wajib melalui filter sanitasi NTFS Win32 (menghapus karakter ilegal `\ / : * ? " < > |` dan _control characters_ `0x00-0x1F`).
+- **SSRF & CRLF Protection**: URL media divalidasi terhadap rentang IP privat RFC 1918 / loopback, dan header filename dibersihkan dari CRLF.
 
 ### Lapis 3: Pencegahan Kebocoran Memori (Memory Leak & DOM Hygiene)
 
 - **Event Listener Cleanup**: Setiap listener sementara (`setTimeout`, DOM event) wajib memiliki mekanisme pembersihan (_cleanup function_ / `removeEventListener`).
 - **Object URL Revocation**: `URL.createObjectURL(blob)` wajib dicabut (`URL.revokeObjectURL`) segera setelah _download_ dipicu atau jika proses _catch_ terjadi.
+- **Button Element Hygiene**: Seluruh elemen `<button>` wajib secara eksplisit mendefinisikan `type="button"`.
 - **Active Navigation Watcher**: Deteksi navigasi SPA (Single Page Application) YouTube dan Bstation wajib mereset status tombol kembali ke `idle` untuk mencegah status lama tertinggal di video baru.
 
 ### Lapis 4: Otomasi Git Hook & CI/CD
 
 - **Husky + lint-staged**: Setiap kali Anda menjalankan `git commit`, hook lokal otomatis memverifikasi formatting via Prettier dan linting via ESLint.
-- **GitHub Actions**: Setiap _Pull Request_ dan _Push_ ke branch `main` wajib lolos 100% pada suite pengujian otomatis.
+- **GitHub Actions**: Setiap _Pull Request_ dan _Push_ ke branch `main` wajib lolos 100% pada suite pengujian otomatis (**38 Suites, 298 Tests**).
 
 ---
 
@@ -56,7 +58,7 @@ _Perintah `npm install` akan otomatis mengaktifkan Husky pre-commit hooks._
 Sebelum melakukan commit, pastikan seluruh pengujian lulus:
 
 ```bash
-# Menjalankan 24 suite test (182 test cases)
+# Menjalankan 38 suite test (298 test cases)
 npm test
 
 # Menjalankan pengujian ketahanan adversarial Bstation
@@ -103,8 +105,8 @@ Kami menggunakan format pesan commit konvensional:
 Contoh:
 
 ```bash
-git commit -m "feat(youtube): add universal H.264 MP4 format selection and audio remux"
-git commit -m "fix(navigation): reset button state on YouTube SPA video transition"
+git commit -m "feat(anoboy): add dynamic estimated batch file size badge and footer calculator"
+git commit -m "fix(anoboy): resolve 720p/1080p stream degradation from blogger cdn"
 ```
 
 ---
@@ -116,6 +118,7 @@ Sebelum membuat Pull Request ke branch `main`, pastikan:
 - [ ] Menambahkan branch baru dari `main` (misal `git checkout -b feat/nama-fitur`).
 - [ ] `npm run lint` menghasilkan **0 error dan 0 warning**.
 - [ ] `npm run format:check` lolos tanpa ada file yang belum terformat.
-- [ ] `npm test` lulus **100% (182/182 passed)**.
+- [ ] `npm test` lulus **100% (38 Suites, 298/298 passed)**.
+- [ ] Mematuhi aturan operasional di [`AGENTS.md`](AGENTS.md) dan [`SECURITY.md`](SECURITY.md).
 - [ ] Tidak menyertakan binary berukuran besar (`*.exe`, `ffmpeg.exe`, `node_modules/`) ke dalam git.
 - [ ] Menjelaskan secara singkat masalah yang diselesaikan dan solusi yang diimplementasikan pada deskripsi PR.
