@@ -43,6 +43,84 @@
   `;
 
   // =========================================================================
+  // 0. Adaptive Domain & DNA Detection Engine (Zero False Positive)
+  // =========================================================================
+
+  const ANOBOY_EXCLUDED_HOSTS = [
+    'google.',
+    'youtube.',
+    'github.',
+    'facebook.',
+    'twitter.',
+    'x.com',
+    'tiktok.',
+    'bilibili.',
+    'bstation.',
+    'wikipedia.',
+    'komiku.',
+    'shinigami.',
+    'kuramanime.',
+    'otakudesu.',
+    'samehadaku.',
+    'terabox.',
+    'pinterest.',
+    'cosplaytele.',
+    'dood.'
+  ];
+
+  function isAnoBoyExcluded(hostname) {
+    if (!hostname) return true;
+    const lower = String(hostname).toLowerCase();
+    return ANOBOY_EXCLUDED_HOSTS.some((h) => lower === h || lower.includes(h));
+  }
+
+  function isAnoBoyHost(hostname) {
+    if (!hostname) return false;
+    // TLD-Agnostic regex: matches anoboy.at, anoboy.quest, v2.anoboy.live, anoboy-stream.tv, etc.
+    return /(^|\.)anoboy(-[a-z0-9]+)?\.[a-z]{2,}(\.[a-z]{2,})?$/i.test(hostname);
+  }
+
+  function verifyAnoBoyDNA(doc = typeof document !== 'undefined' ? document : null) {
+    if (!doc || typeof doc.querySelectorAll !== 'function') return false;
+    // 3-Point Strict Conjunctive Gate (ALL 3 must be true)
+    // 1. Proprietary Typo ID: a#allmiror with data-video attribute
+    const hasTypoMirrors = doc.querySelectorAll('a#allmiror[data-video]').length > 0;
+    if (!hasTypoMirrors) return false;
+
+    // 2. Main video player wrapper: #mediaplayer
+    const hasMediaPlayer = doc.getElementById('mediaplayer') !== null;
+    if (!hasMediaPlayer) return false;
+
+    // 3. Proprietary parser script / endpoint: adsbatch
+    const hasAdsbatch =
+      doc.querySelector('iframe[src*="adsbatch"]') !== null ||
+      (doc.documentElement ? doc.documentElement.innerHTML.includes('adsbatch') : false);
+
+    return hasAdsbatch;
+  }
+
+  function detectAnoBoyPlatform(win = typeof window !== 'undefined' ? window : null) {
+    if (!win || !win.location) return false;
+    const host = win.location.hostname || '';
+
+    // Layer 1: Fast Blacklist Exit (< 0.01ms)
+    if (isAnoBoyExcluded(host)) return false;
+
+    // Layer 2: TLD-Agnostic Host Regex
+    if (isAnoBoyHost(host)) return true;
+
+    // Layer 3: Strict 3-Point DNA Conjunction (when domain changed without 'anoboy')
+    return verifyAnoBoyDNA(win.document);
+  }
+
+  function getActiveAnoBoyOrigin() {
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      return `${window.location.origin}/`;
+    }
+    return 'https://anoboy.at/';
+  }
+
+  // =========================================================================
   // 1. Windows NTFS Sanitization & Formatting
   // =========================================================================
 
@@ -481,6 +559,28 @@
     hideMiniProgressWidget();
   }
 
+  const ANOBOY_RESOLUTION_SIZE_ESTIMATES = {
+    '1080p': 420,
+    '720p': 230,
+    '480p': 125,
+    '360p': 80
+  };
+
+  function getEpisodeEstimatedSizeMb(resolution, serverMode = 'turbo') {
+    if (serverMode === 'turbo' && resolution === '1080p') {
+      return ANOBOY_RESOLUTION_SIZE_ESTIMATES['720p'];
+    }
+    return ANOBOY_RESOLUTION_SIZE_ESTIMATES[resolution] || 230;
+  }
+
+  function formatBytesHuman(megabytes) {
+    if (!megabytes || megabytes <= 0) return '0 MB';
+    if (megabytes >= 1024) {
+      return `~${(megabytes / 1024).toFixed(2)} GB`;
+    }
+    return `~${Math.round(megabytes)} MB`;
+  }
+
   function openBatchModal(currentData, allEpisodes) {
     if (batchModalEl) {
       batchModalEl.remove();
@@ -566,10 +666,10 @@
               <label for="mungil-ab-res-select" class="mungil-ab-config-label">KUALITAS / RESOLUSI</label>
               <div class="mungil-ab-select-wrap">
                 <select id="mungil-ab-res-select" class="mungil-ab-select">
-                  <option value="1080p">1080p (1K Ultra HD)</option>
-                  <option value="720p" selected>720p (HD Jernih)</option>
+                  <option value="720p" selected>⚡ 720p (HD Web Stream - Rekomendasi)</option>
                   <option value="480p">480p (Standar)</option>
                   <option value="360p">360p (Hemat Kuota)</option>
+                  <option value="1080p">1080p (Tidak Didukung Stream -> Otomatis 720p HD)</option>
                 </select>
               </div>
             </div>
@@ -584,6 +684,7 @@
               <input type="checkbox" class="mungil-ab-checkbox" data-eps="${ep.episodeNum}" data-url="${ep.url}" checked>
               <span class="mungil-ab-item-badge">EPS ${ep.episodeNum}</span>
               <span class="mungil-ab-item-title">${ep.title}</span>
+              <span class="mungil-ab-item-size" id="ab-size-${ep.episodeNum}">~230 MB</span>
               <span class="mungil-ab-item-status" id="ab-status-${ep.episodeNum}">Ready</span>
             </label>
           `
@@ -594,6 +695,7 @@
         <div class="mungil-ab-footer">
           <div class="mungil-ab-count-badge">
             <span id="mungil-ab-selected-count">${episodes.length}</span> / ${episodes.length} Episode Dipilih
+            <span class="mungil-ab-total-size-pill" id="mungil-ab-total-size">📦 Estimasi: ~${formatBytesHuman(episodes.length * 230)}</span>
           </div>
           <div class="mungil-ab-footer-btns">
             <button type="button" class="mungil-ab-btn mungil-ab-btn-ghost" id="mungil-ab-cancel-btn">Tutup</button>
@@ -635,12 +737,30 @@
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
     if (backdrop) backdrop.addEventListener('click', closeModal);
 
-    // Filters
+    // Filters & Estimates
     const checkboxes = modal.querySelectorAll('.mungil-ab-checkbox');
     const selectedCountEl = modal.querySelector('#mungil-ab-selected-count');
-    const updateCount = () => {
-      const checked = modal.querySelectorAll('.mungil-ab-checkbox:checked').length;
-      if (selectedCountEl) selectedCountEl.textContent = String(checked);
+    const totalSizeEl = modal.querySelector('#mungil-ab-total-size');
+    const resSelect = modal.querySelector('#mungil-ab-res-select');
+    const serverSelect = modal.querySelector('#mungil-ab-modal-server-select');
+
+    const updateEstimates = () => {
+      const mode = serverSelect ? serverSelect.value : 'turbo';
+      const res = resSelect ? resSelect.value : '720p';
+      const perEpMb = getEpisodeEstimatedSizeMb(res, mode);
+      const perEpText = formatBytesHuman(perEpMb);
+
+      modal.querySelectorAll('.mungil-ab-item-size').forEach((el) => {
+        el.textContent = perEpText;
+      });
+
+      const checkedCount = modal.querySelectorAll('.mungil-ab-checkbox:checked').length;
+      if (selectedCountEl) selectedCountEl.textContent = String(checkedCount);
+
+      const totalMb = checkedCount * perEpMb;
+      if (totalSizeEl) {
+        totalSizeEl.textContent = `📦 Estimasi: ${formatBytesHuman(totalMb)}`;
+      }
     };
 
     modal.querySelectorAll('.mungil-ab-chip').forEach((chip) => {
@@ -658,14 +778,14 @@
           else if (filter === 'next') cb.checked = num >= currentData.episodeNum;
           else if (filter === 'none') cb.checked = false;
         });
-        updateCount();
+        updateEstimates();
       });
     });
 
-    checkboxes.forEach((cb) => cb.addEventListener('change', updateCount));
+    checkboxes.forEach((cb) => cb.addEventListener('change', updateEstimates));
+    if (resSelect) resSelect.addEventListener('change', updateEstimates);
 
     // Dynamic Server Selector Mode
-    const serverSelect = modal.querySelector('#mungil-ab-modal-server-select');
     const startBtn = modal.querySelector('#mungil-ab-start-btn');
     const copyGofileBtn = modal.querySelector('#mungil-ab-copy-gofile-btn');
     const concCard = modal.querySelector('#mungil-ab-card-concurrency');
@@ -685,11 +805,13 @@
         if (copyGofileBtn) copyGofileBtn.style.display = 'none';
         if (concCard) concCard.style.display = 'flex';
       }
+      updateEstimates();
     }
     if (serverSelect) {
       serverSelect.addEventListener('change', updateServerMode);
       updateServerMode();
     }
+    updateEstimates();
 
     // Copy Gofile Links
     if (copyGofileBtn) {
@@ -706,7 +828,7 @@
         copyGofileBtn.innerHTML = `<span>Mengambil Link...</span>`;
 
         const resSelect = modal.querySelector('#mungil-ab-res-select');
-        const resolution = resSelect ? resSelect.value : '1080p';
+        const resolution = resSelect ? resSelect.value : '720p';
 
         const links = [];
         for (const ep of selected) {
@@ -821,7 +943,7 @@
 
     // Strict regex: domain must directly be *.googlevideo.com
     const re =
-      /https?:\/\/[a-zA-Z0-9.\-_]+?\.googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
+      /https?:\/\/(?:[a-zA-Z0-9.\-_]+\.)?googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
     let match;
     const streams = [];
 
@@ -844,7 +966,7 @@
 
     if (streams.length === 0) return null;
 
-    if (preferredRes && preferredRes.includes('720')) {
+    if (preferredRes && (preferredRes.includes('1080') || preferredRes.includes('720'))) {
       const s720 = streams.find((s) => s.itag === 22);
       if (s720) return s720.url;
     }
@@ -855,6 +977,84 @@
 
     streams.sort((a, b) => b.itag - a.itag);
     return streams[0].url;
+  }
+
+  function isValidAnoBoyToken(token) {
+    if (!token || typeof token !== 'string') return false;
+    const clean = token.trim().toLowerCase();
+    return (
+      clean !== 'none' &&
+      clean !== 'null' &&
+      clean !== 'undefined' &&
+      clean !== 'false' &&
+      clean.length >= 10
+    );
+  }
+
+  function extractAnoBoyCandidateTokens(html, preferredRes = '720p') {
+    if (!html || typeof html !== 'string') return [];
+    const isHd = !preferredRes || preferredRes.includes('720') || preferredRes.includes('1080');
+
+    // 1. Parse all <a ... id="allmiror" ...> elements
+    const mirrorRegex =
+      /<a[^>]*id=["']allmiror["'][^>]*data-video=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let m;
+    const mirrors = [];
+    while ((m = mirrorRegex.exec(html)) !== null) {
+      const videoData = m[1];
+      const label = m[2].trim();
+      const tokenM =
+        videoData.match(/url=([^&"'>\s]+)/i) || videoData.match(/token=([a-zA-Z0-9_-]+)/i);
+      if (tokenM && isValidAnoBoyToken(tokenM[1])) {
+        mirrors.push({ label, token: tokenM[1], videoData });
+      }
+    }
+
+    const candidateTokens = [];
+
+    // 2. If HD requested, prioritize mirrors matching 720 / HD with valid token
+    if (isHd) {
+      const m720 = mirrors.filter((x) => /720|hd/i.test(x.label));
+      m720.forEach((item) => {
+        if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+      });
+    }
+
+    // 3. Add 360 / SD mirrors
+    const m360 = mirrors.filter((x) => /360|sd/i.test(x.label));
+    m360.forEach((item) => {
+      if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+    });
+
+    // 4. Add any remaining mirrors with valid tokens
+    mirrors.forEach((item) => {
+      if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+    });
+
+    // 5. Check iframe #mediaplayer fallback
+    const mediaplayerMatch = html.match(
+      /id=["']mediaplayer["'][^>]*src=["'][^"']*url=([^&"'>\s]+)/i
+    );
+    if (mediaplayerMatch && isValidAnoBoyToken(mediaplayerMatch[1])) {
+      if (!candidateTokens.includes(mediaplayerMatch[1])) {
+        candidateTokens.push(mediaplayerMatch[1]);
+      }
+    }
+
+    // 6. Check adsbatch fallback
+    const generalMatch = html.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/i);
+    if (generalMatch && isValidAnoBoyToken(generalMatch[1])) {
+      if (!candidateTokens.includes(generalMatch[1])) {
+        candidateTokens.push(generalMatch[1]);
+      }
+    }
+
+    return candidateTokens;
+  }
+
+  function extractAnoBoyTokenFromHtml(html, preferredRes = '720p') {
+    const tokens = extractAnoBoyCandidateTokens(html, preferredRes);
+    return tokens.length > 0 ? tokens[0] : null;
   }
 
   async function resolveStreamUrlForEpisode(episodeUrl, preferredRes = '720p') {
@@ -879,16 +1079,11 @@
       if (!res.ok) return null;
       const html = await res.text();
 
-      let targetToken = null;
-      const tokenMatch =
-        html.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
-        html.match(/data-video=["'][^"']*url=([^&"'>\s]+)/) ||
-        html.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
-      if (tokenMatch && tokenMatch[1]) {
-        targetToken = tokenMatch[1];
-      }
+      const candidateTokens = extractAnoBoyCandidateTokens(html, preferredRes);
 
-      if (targetToken) {
+      for (const targetToken of candidateTokens) {
+        if (!isValidAnoBoyToken(targetToken)) continue;
+
         if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
           try {
             const tokenRes = await new Promise((resolve) => {
@@ -904,7 +1099,7 @@
         }
         try {
           const bRes = await fetch(`https://www.blogger.com/video.g?token=${targetToken}`, {
-            headers: { Referer: 'https://anoboy.at/' }
+            headers: { Referer: getActiveAnoBoyOrigin() }
           });
           if (bRes.ok) {
             const bHtml = await bRes.text();
@@ -914,27 +1109,9 @@
         } catch (_) {}
       }
 
-      // Check iframe #mediaplayer fallback
+      // Fallback: Check .udl mp4upload or gofile
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
-      const iframe = doc.querySelector('#mediaplayer');
-      if (iframe && iframe.src) {
-        const m =
-          iframe.src.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
-          iframe.src.match(/url=([^&]+)/);
-        if (m && m[1]) {
-          try {
-            const bRes = await fetch(`https://www.blogger.com/video.g?token=${m[1]}`);
-            if (bRes.ok) {
-              const bHtml = await bRes.text();
-              const direct = extractStreamFromBloggerHtml(bHtml, preferredRes);
-              if (direct) return direct;
-            }
-          } catch (_) {}
-        }
-      }
-
-      // Fallback: Check .udl mp4upload or gofile
       const udl = doc.querySelectorAll('a.udl');
       for (const a of udl) {
         const href = a.getAttribute('href');
@@ -1236,12 +1413,27 @@
                 return;
               }
 
-              taskInfo.renderStatus('downloading', '0%');
+              // Adaptive quality fallback check
+              let effectiveRes = resolution;
+              const isFallback360 =
+                streamUrl.includes('itag=18') &&
+                (resolution.includes('720') || resolution.includes('1080'));
+              if (isFallback360) {
+                effectiveRes = '360p';
+                const sizeBadge = modalEl?.querySelector(`#ab-size-${item.episodeNum}`);
+                if (sizeBadge) {
+                  sizeBadge.textContent = '~80 MB';
+                  sizeBadge.title = 'Kualitas 720p offline, otomatis fallback ke 360p SD';
+                  sizeBadge.style.color = '#38bdf8';
+                }
+              }
+
+              taskInfo.renderStatus('downloading', isFallback360 ? '360p SD' : '0%');
 
               const filename = formatAnoboyFilename({
                 animeTitle,
                 episodeNum: item.episodeNum,
-                resolution,
+                resolution: effectiveRes,
                 ext: 'mp4',
                 includeFolder: true
               });
@@ -1288,9 +1480,10 @@
                     action: 'DOWNLOAD_ANOBOY_NATIVE',
                     url: streamUrl,
                     filename,
+                    resolution,
                     title: `${animeTitle} - Episode ${item.episodeNum}`,
                     videoId,
-                    referer: 'https://anoboy.at/',
+                    referer: getActiveAnoBoyOrigin(),
                     userAgent: navigator.userAgent,
                     bloggerToken: item.bloggerToken || null,
                     episodeUrl: item.url || null
@@ -1577,12 +1770,22 @@
         singleBtn.disabled = true;
         singleBtn.innerHTML = `<span>Resolving...</span>`;
 
-        let streamUrl = await resolveStreamUrlForEpisode(data.currentUrl, '720p');
-        if (!streamUrl && data.servers.length > 0 && data.servers[0].bloggerToken) {
+        const preferredServer =
+          (data.servers &&
+            data.servers.find(
+              (s) => (s.label && s.label.includes('720')) || (s.url && s.url.includes('720'))
+            )) ||
+          (data.servers && data.servers.length > 0 ? data.servers[0] : null);
+
+        let streamUrl = null;
+        if (preferredServer && preferredServer.bloggerToken) {
           streamUrl = await resolveStreamUrlForEpisode(
-            `https://www.blogger.com/video.g?token=${data.servers[0].bloggerToken}`,
+            `https://www.blogger.com/video.g?token=${preferredServer.bloggerToken}`,
             '720p'
           );
+        }
+        if (!streamUrl) {
+          streamUrl = await resolveStreamUrlForEpisode(data.currentUrl, '720p');
         }
 
         if (streamUrl) {
@@ -1614,10 +1817,11 @@
               chrome.runtime.onMessage.addListener(progressListener);
             }
 
-            let bToken = data.servers && data.servers[0] ? data.servers[0].bloggerToken : null;
+            let bToken = preferredServer ? preferredServer.bloggerToken : null;
             if (!bToken && typeof document !== 'undefined') {
               const tm =
-                document.body.innerHTML.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
+                document.body.innerHTML.match(/adsbatch720\.php\?url=([^&"'>\s]+)/i) ||
+                document.body.innerHTML.match(/adsbatch\.php\?url=([^&"'>\s]+)/i) ||
                 document.body.innerHTML.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
               if (tm) bToken = tm[1];
             }
@@ -1627,8 +1831,9 @@
                 action: 'DOWNLOAD_ANOBOY_NATIVE',
                 url: streamUrl,
                 filename,
+                resolution: '720p',
                 title: `${data.animeTitle} - Episode ${data.episodeNum}`,
-                referer: 'https://anoboy.at/',
+                referer: getActiveAnoBoyOrigin(),
                 userAgent: navigator.userAgent,
                 bloggerToken: bToken || null,
                 episodeUrl: data.currentUrl || null
@@ -1697,6 +1902,8 @@
 
   function init() {
     if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    if (!detectAnoBoyPlatform()) return;
+
     const data = extractAnoboyPageData();
     if (!data) return;
 
@@ -1748,6 +1955,11 @@
   // Export for testing in Node environment
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
+      isAnoBoyExcluded,
+      isAnoBoyHost,
+      verifyAnoBoyDNA,
+      detectAnoBoyPlatform,
+      getActiveAnoBoyOrigin,
       sanitizeAnoboyTitle,
       formatAnoboyFilename,
       extractEpisodeNumber,
@@ -1755,10 +1967,16 @@
       parseEpisodesFromHtml,
       fetchSeriesEpisodes,
       extractStreamFromBloggerHtml,
+      isValidAnoBoyToken,
+      extractAnoBoyCandidateTokens,
+      extractAnoBoyTokenFromHtml,
       resolveStreamUrlForEpisode,
       resolveGofileUrlForEpisode,
       executeBatchTurbo,
-      renderFloatingBar
+      renderFloatingBar,
+      ANOBOY_RESOLUTION_SIZE_ESTIMATES,
+      getEpisodeEstimatedSizeMb,
+      formatBytesHuman
     };
   }
 })();

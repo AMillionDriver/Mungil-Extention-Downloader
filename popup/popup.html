@@ -219,6 +219,20 @@
           </div>
         </div>
 
+        <!-- State 11: Active Doodstream Video Detected -->
+        <div class="state-container" id="state-doodstream" style="display: none">
+          <div class="video-meta">
+            <div class="video-meta-header">
+              <span class="meta-label" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.35);">Doodstream Video</span>
+              <span class="status-chip" id="dood-status-chip">Ready</span>
+            </div>
+            <div class="video-author-group">
+              <span class="author-handle" id="dood-title">Doodstream Video</span>
+              <p class="video-desc" id="dood-desc">Direct CDN stream ready</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Universal Primary Action Button -->
         <button type="button" class="btn btn-primary" id="btn-download-active" style="display: none">
           <svg class="btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
@@ -246,29 +260,29 @@
             </p>
           </div>
           <div class="empty-action-group">
-            <button type="button" class="btn btn-secondary" id="btn-open-tiktok">
-              <span>Open TikTok Web</span>
+            <button type="button" class="btn btn-secondary platform-chip" id="btn-open-tiktok">
+              <span>TikTok Web</span>
               <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 11L11 3m0 0H5m6 0v6" />
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary" id="btn-open-bstation">
-              <span>Open Bstation Web</span>
+            <button type="button" class="btn btn-secondary platform-chip" id="btn-open-bstation">
+              <span>Bstation Web</span>
               <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 11L11 3m0 0H5m6 0v6" />
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary" id="btn-open-jwplyr">
-              <span>Open JWPlyr</span>
+            <button type="button" class="btn btn-secondary platform-chip" id="btn-open-jwplyr">
+              <span>JWPlyr</span>
               <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 11L11 3m0 0H5m6 0v6" />
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary" id="btn-open-youtube">
-              <span>Open YouTube Web</span>
+            <button type="button" class="btn btn-secondary platform-chip" id="btn-open-youtube">
+              <span>YouTube Web</span>
               <svg class="btn-icon-sm" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 11L11 3m0 0H5m6 0v6" />
@@ -365,13 +379,23 @@
         <span class="metric-number" id="download-count">0</span>
         <span class="metric-label">downloads</span>
       </div>
-      <button type="button" class="btn-icon-action" id="btn-open-downloads" title="Open Downloads Folder"
-        aria-label="Open Downloads Folder">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-          stroke-linejoin="round">
-          <path d="M1.5 3.5a1 1 0 0 1 1-1h3.5l1.5 2h6.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-12.5a1 1 0 0 1-1-1v-9z" />
-        </svg>
-      </button>
+      <div class="footer-actions-group">
+        <button type="button" class="btn-icon-action" id="btn-open-history" title="Riwayat &amp; Pelacak File"
+          aria-label="Buka Riwayat Unduhan">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            stroke-linejoin="round">
+            <circle cx="8" cy="8" r="6.5" />
+            <polyline points="8 4.5 8 8 10.5 9.5" />
+          </svg>
+        </button>
+        <button type="button" class="btn-icon-action" id="btn-open-downloads" title="Open Downloads Folder"
+          aria-label="Open Downloads Folder">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            stroke-linejoin="round">
+            <path d="M1.5 3.5a1 1 0 0 1 1-1h3.5l1.5 2h6.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-12.5a1 1 0 0 1-1-1v-9z" />
+          </svg>
+        </button>
+      </div>
     </footer>
   </div>
 

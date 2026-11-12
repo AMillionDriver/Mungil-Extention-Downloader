@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Simulasi Doodstream Test Sandbox</title>
+    <style>
+      body {
+        background: #0b0f19;
+        color: #f1f5f9;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+      .player-card {
+        position: relative;
+        width: 720px;
+        max-width: 100%;
+        height: 405px;
+        background: #111827;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      .play-icon {
+        width: 64px;
+        height: 64px;
+        fill: #6366f1;
+        opacity: 0.8;
+        cursor: pointer;
+      }
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 18px;
+      }
+      p {
+        color: #94a3b8;
+        font-size: 13px;
+        max-width: 600px;
+        text-align: center;
+        line-height: 1.5;
+      }
+      .badge {
+        display: inline-block;
+        padding: 4px 10px;
+        background: rgba(99, 102, 241, 0.2);
+        color: #818cf8;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="badge">Doodstream Custom CNAME / Embed Simulation</div>
+    <h2>Pemutar Video Anime / Film (Doodstream Engine)</h2>
+    <p>
+      Halaman lokal ini mereplikasi struktur inline script <code>/pass_md5/</code> Doodstream asli.
+      Ekstensi akan otomatis mendeteksi tanda tangan ini dan memunculkan tombol
+      <b>Download MP4</b> melayang di kanan atas.
+    </p>
+
+    <div class="player-card" id="os_player">
+      <svg class="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+      <div style="margin-top: 10px; color: #64748b; font-size: 14px">
+        Klik tombol 'Download MP4' di pojok kanan atas
+      </div>
+    </div>
+
+    <!-- Simulated Doodstream Pass Token Script -->
+    <script>
+      window.makePlay = function () {
+        return 'https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4';
+      };
+      // Doodstream inline pass_md5 token signature
+      const pass_md5_endpoint = '/pass_md5/a1b2c3d4e5f6g7h8/token_xyz987';
+    </script>
+  </body>
+</html>

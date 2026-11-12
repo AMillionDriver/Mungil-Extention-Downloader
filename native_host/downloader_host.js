@@ -14,7 +14,23 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const https = require('https');
-const { spawn } = require('child_process');
+const net = require('net');
+const { spawn, execSync } = require('child_process');
+
+// Dedicated persistent HTTP / HTTPS agent pool for range chunk socket reuse
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 32,
+  maxFreeSockets: 16,
+  timeout: 60000
+});
+
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 32,
+  maxFreeSockets: 16,
+  timeout: 60000
+});
 
 // Locate FFmpeg binary on Windows
 function findFfmpegBin() {
@@ -614,6 +630,23 @@ function handleIncomingMessage(msg) {
     return downloadWithRangeChunks(msg);
   }
 
+  // 5. Smart History & File Lifecycle Tracker Actions
+  if (action === 'AUDIT_FILE_STATUS_BATCH') {
+    return handleAuditFileStatusBatch(msg);
+  }
+
+  if (action === 'OPEN_FILE_LOCATION') {
+    return handleOpenFileLocation(msg);
+  }
+
+  if (action === 'PLAY_VIDEO_FILE') {
+    return handlePlayVideoFile(msg);
+  }
+
+  if (action === 'OPEN_RECYCLE_BIN') {
+    return handleOpenRecycleBin(msg);
+  }
+
   sendMessage({ success: false, error: 'Unknown action: ' + action });
 }
 
@@ -632,6 +665,277 @@ function formatDuration(sec) {
   return `${s}s`;
 }
 
+/**
+ * Security Gatekeeper: Validate that an IP or hostname is not targeting
+ * loopback, link-local, cloud metadata, or private RFC 1918 CIDRs (SSRF prevention).
+ */
+function isDisallowedHostOrIp(hostname) {
+  if (!hostname || typeof hostname !== 'string') return true;
+  const cleanHost = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+
+  if (cleanHost === 'localhost' || cleanHost.endsWith('.localhost') || cleanHost === '0.0.0.0') {
+    return true;
+  }
+
+  // Check numeric IP addresses
+  if (net.isIP(cleanHost)) {
+    if (cleanHost === '127.0.0.1' || cleanHost === '::1' || cleanHost === '::') {
+      return true;
+    }
+
+    // IPv4 checks
+    if (net.isIPv4(cleanHost)) {
+      const parts = cleanHost.split('.').map((p) => parseInt(p, 10));
+      if (parts.length !== 4 || parts.some(isNaN)) return true;
+      if (parts[0] === 127) return true; // 127.0.0.0/8 Loopback
+      if (parts[0] === 10) return true; // 10.0.0.0/8 Private
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true; // 172.16.0.0/12 Private
+      if (parts[0] === 192 && parts[1] === 168) return true; // 192.168.0.0/16 Private
+      if (parts[0] === 169 && parts[1] === 254) return true; // 169.254.0.0/16 Link-Local / Cloud Metadata
+      if (parts[0] === 0) return true; // 0.0.0.0/8 Current network
+      if (parts[0] >= 224) return true; // Multicast & Reserved
+    }
+
+    // IPv6 checks
+    if (net.isIPv6(cleanHost)) {
+      const lower = cleanHost.toLowerCase();
+      if (lower === '::1' || lower === '::') return true;
+      if (lower.startsWith('fe80:')) return true; // Link-local
+      if (lower.startsWith('fc00:') || lower.startsWith('fd00:')) return true; // Unique local
+      if (lower.startsWith('::ffff:')) {
+        // IPv4-mapped IPv6
+        const v4Part = lower.slice(7);
+        return isDisallowedHostOrIp(v4Part);
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Validates that a target URL is safe for transport:
+ * 1. Must use http: or https:
+ * 2. Cannot downgrade from https: to http:
+ * 3. Cannot target localhost, private IPs, or cloud metadata
+ */
+function validateSafeUrl(targetUrl, originalUrl = null) {
+  if (!targetUrl || typeof targetUrl !== 'string') {
+    throw new Error('Invalid URL string provided');
+  }
+  let parsed;
+  try {
+    parsed = new URL(targetUrl);
+  } catch (_err) {
+    throw new Error(`Malformed URL rejected: ${targetUrl}`);
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`Insecure or unsupported protocol rejected: ${parsed.protocol}`);
+  }
+
+  if (originalUrl) {
+    let orig = null;
+    try {
+      orig = new URL(originalUrl);
+    } catch (_) {}
+    if (orig && orig.protocol === 'https:' && parsed.protocol === 'http:') {
+      throw new Error(`Insecure protocol downgrade forbidden: ${orig.href} -> ${parsed.href}`);
+    }
+  }
+
+  if (isDisallowedHostOrIp(parsed.hostname)) {
+    throw new Error(`SSRF blocked: Disallowed destination host/IP: ${parsed.hostname}`);
+  }
+
+  return parsed;
+}
+
+/**
+ * Sanitizes header keys and values:
+ * 1. Strips CRLF (\r, \n) to prevent HTTP Request Splitting.
+ * 2. Removes forbidden browser/client-managed headers (Host, Connection, Transfer-Encoding, Content-Length).
+ */
+function sanitizeHeaders(headers) {
+  if (!headers || typeof headers !== 'object') return {};
+  const cleaned = {};
+  const forbiddenHeaders = new Set([
+    'host',
+    'connection',
+    'keep-alive',
+    'proxy-connection',
+    'transfer-encoding',
+    'content-length',
+    'upgrade'
+  ]);
+
+  for (const [rawKey, rawVal] of Object.entries(headers)) {
+    if (!rawKey || typeof rawKey !== 'string') continue;
+    const cleanKey = rawKey.replace(/[\r\n]/g, '').trim();
+    if (!cleanKey) continue;
+    if (forbiddenHeaders.has(cleanKey.toLowerCase())) continue;
+
+    let cleanVal = '';
+    if (typeof rawVal === 'string') {
+      cleanVal = rawVal.replace(/[\r\n]/g, '').trim();
+    } else if (rawVal !== null && rawVal !== undefined) {
+      cleanVal = String(rawVal)
+        .replace(/[\r\n]/g, '')
+        .trim();
+    }
+    cleaned[cleanKey] = cleanVal;
+  }
+  return cleaned;
+}
+
+/**
+ * Strips sensitive credentials (Cookie, Authorization, Proxy-Authorization)
+ * if following a redirect across origins.
+ */
+function isolateHeadersOnRedirect(headers, currentUrl, nextUrl) {
+  if (!headers || typeof headers !== 'object') return {};
+  const sanitized = sanitizeHeaders(headers);
+
+  try {
+    const curOrigin = new URL(currentUrl).origin;
+    const nextOrigin = new URL(nextUrl).origin;
+    if (curOrigin === nextOrigin) {
+      return sanitized;
+    }
+  } catch (_) {
+    // If URL parsing fails, fail closed by treating as cross-origin
+  }
+
+  // Cross-origin: strip sensitive authentication tokens and cookies
+  const isolated = {};
+  const sensitiveNames = new Set([
+    'cookie',
+    'cookie2',
+    'authorization',
+    'proxy-authorization',
+    'x-auth-token',
+    'token'
+  ]);
+
+  for (const [key, val] of Object.entries(sanitized)) {
+    if (!sensitiveNames.has(key.toLowerCase())) {
+      isolated[key] = val;
+    }
+  }
+  return isolated;
+}
+
+/**
+ * Slices total file size into granular 2MB–4MB chunks for dynamic work pooling.
+ */
+function generateGranularChunks(totalSize, defaultBlockSize = 2 * 1024 * 1024) {
+  if (!totalSize || totalSize <= 0) return [];
+  let blockSize = defaultBlockSize;
+  if (totalSize > 64 * 1024 * 1024) {
+    blockSize = 4 * 1024 * 1024;
+  }
+  const chunkCount = Math.max(4, Math.ceil(totalSize / blockSize));
+  const actualBlockSize = Math.ceil(totalSize / chunkCount);
+
+  const chunks = [];
+  for (let i = 0; i < chunkCount; i++) {
+    const start = i * actualBlockSize;
+    const end = i === chunkCount - 1 ? totalSize - 1 : (i + 1) * actualBlockSize - 1;
+    chunks.push({
+      index: i,
+      start,
+      end,
+      written: 0,
+      length: end - start + 1,
+      inFlight: false
+    });
+  }
+  return chunks;
+}
+
+/**
+ * Dynamic Work-Stealing: When no idle chunks remain in queue, finds an in-flight
+ * chunk with >= 2MB remaining unwritten and splits its remaining byte range in half.
+ */
+function stealWork(chunks) {
+  if (!Array.isArray(chunks) || chunks.length === 0) return null;
+
+  let bestCandidate = null;
+  let maxRemaining = 0;
+
+  for (const c of chunks) {
+    if (c.inFlight) {
+      const curPos = c.start + (c.written || 0);
+      const remaining = c.end - curPos + 1;
+      if (remaining >= 2 * 1024 * 1024 && remaining > maxRemaining) {
+        maxRemaining = remaining;
+        bestCandidate = c;
+      }
+    }
+  }
+
+  if (!bestCandidate) return null;
+
+  const curPos = bestCandidate.start + (bestCandidate.written || 0);
+  const halfRemaining = Math.floor(maxRemaining / 2);
+  const splitPoint = curPos + halfRemaining - 1;
+
+  const oldEnd = bestCandidate.end;
+  bestCandidate.end = splitPoint;
+  bestCandidate.length = bestCandidate.end - bestCandidate.start + 1;
+
+  const stolenChunk = {
+    index: chunks.length,
+    start: splitPoint + 1,
+    end: oldEnd,
+    written: 0,
+    length: oldEnd - (splitPoint + 1) + 1,
+    inFlight: false
+  };
+
+  chunks.push(stolenChunk);
+  return stolenChunk;
+}
+
+/**
+ * Adaptive AIMD Concurrency Controller for multi-connection HTTP chunking.
+ * Scales workers up (+1) on accelerating throughput and cuts concurrency (x0.75) on errors / 429.
+ */
+class AIMDConcurrencyController {
+  constructor(initial = 6, min = 2, max = 16) {
+    this.concurrency = initial;
+    this.min = min;
+    this.max = max;
+    this.lastThroughput = 0;
+    this.consecutiveSuccesses = 0;
+  }
+
+  recordError() {
+    this.concurrency = Math.max(this.min, Math.floor(this.concurrency * 0.75));
+    this.consecutiveSuccesses = 0;
+    return this.concurrency;
+  }
+
+  evaluateThroughput(currentThroughputBps) {
+    if (currentThroughputBps > 0) {
+      if (this.lastThroughput > 0 && currentThroughputBps > this.lastThroughput * 1.05) {
+        this.consecutiveSuccesses++;
+        if (this.consecutiveSuccesses >= 2 && this.concurrency < this.max) {
+          this.concurrency = Math.min(this.max, this.concurrency + 1);
+          this.consecutiveSuccesses = 0;
+        }
+      } else {
+        this.consecutiveSuccesses = 0;
+      }
+      this.lastThroughput = currentThroughputBps;
+    }
+    return this.concurrency;
+  }
+}
+
 function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retries = 5) {
   return new Promise((resolve, reject) => {
     function attempt(retryCount) {
@@ -640,17 +944,24 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
       }
 
       const activeUrl = job?.url || urlStr;
-      const parsed = new URL(activeUrl);
+      let parsed;
+      try {
+        parsed = validateSafeUrl(activeUrl);
+      } catch (secErr) {
+        return reject(secErr);
+      }
+
       const client = parsed.protocol === 'http:' ? http : https;
       const curStart = chunk.start + chunk.written;
       if (curStart > chunk.end) return resolve();
 
+      const sanitizedInputHeaders = sanitizeHeaders(headers);
       const reqHeaders = Object.assign(
         {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
         },
-        headers,
+        sanitizedInputHeaders,
         {
           Range: `bytes=${curStart}-${chunk.end}`
         }
@@ -660,7 +971,9 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
         parsed,
         {
           method: 'GET',
-          headers: reqHeaders
+          headers: reqHeaders,
+          family: 4,
+          agent: client === https ? httpsAgent : httpAgent
         },
         (res) => {
           if (job && job.status !== 'downloading') {
@@ -692,12 +1005,29 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
           });
 
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            const nextLoc = new URL(res.headers.location, activeUrl).href;
+            let nextLoc;
+            try {
+              nextLoc = new URL(res.headers.location, activeUrl).href;
+              validateSafeUrl(nextLoc, activeUrl);
+            } catch (redirErr) {
+              res.resume();
+              return reject(redirErr);
+            }
             res.resume();
-            return downloadChunkTask(nextLoc, chunk, headers, fd, onBytes, job, retryCount).then(
-              resolve,
-              reject
+            const safeRedirectHeaders = isolateHeadersOnRedirect(
+              sanitizedInputHeaders,
+              activeUrl,
+              nextLoc
             );
+            return downloadChunkTask(
+              nextLoc,
+              chunk,
+              safeRedirectHeaders,
+              fd,
+              onBytes,
+              job,
+              retryCount
+            ).then(resolve, reject);
           }
 
           // If token expired (403 or 410), refresh URL from episodeUrl or bloggerToken
@@ -710,14 +1040,16 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
                   freshUrl = await resolveBloggerStreamInNode(
                     job.msg.bloggerToken,
                     headers['Referer'],
-                    headers['User-Agent']
+                    headers['User-Agent'],
+                    job.msg.resolution || '720p'
                   );
                 }
                 if (!freshUrl && job?.msg?.episodeUrl) {
                   freshUrl = await resolveFromEpisodeUrlInNode(
                     job.msg.episodeUrl,
                     headers['Referer'],
-                    headers['User-Agent']
+                    headers['User-Agent'],
+                    job.msg.resolution || '720p'
                   );
                 }
                 if (freshUrl && job) {
@@ -736,7 +1068,31 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
             );
           }
 
-          if (res.statusCode !== 206 && res.statusCode !== 200) {
+          // If rate limited (429), trigger AIMD multiplicative decrease and backoff
+          if (res.statusCode === 429) {
+            res.resume();
+            if (job && job.aimd) job.aimd.recordError();
+            if (retryCount > 0 && (!job || job.status === 'downloading')) {
+              const backoffDelay = Math.min(
+                12000,
+                Math.pow(2, 5 - retryCount) * 1500 + Math.floor(Math.random() * 500)
+              );
+              return setTimeout(() => attempt(retryCount - 1), backoffDelay);
+            }
+            return reject(new Error(`Chunk ${chunk.index} HTTP 429 (Rate Limited by CDN)`));
+          }
+
+          // Strict 206 Partial Content Check: Reject HTTP 200 to prevent silent offset overwrite corruption
+          if (res.statusCode === 200) {
+            res.resume();
+            return reject(
+              new Error(
+                `Server returned HTTP 200 OK for Range request on chunk ${chunk.index}. Aborted to prevent chunk corruption.`
+              )
+            );
+          }
+
+          if (res.statusCode !== 206) {
             res.resume();
             if (retryCount > 0 && (!job || job.status === 'downloading')) {
               const backoffDelay = Math.min(
@@ -746,6 +1102,23 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
               return setTimeout(() => attempt(retryCount - 1), backoffDelay);
             }
             return reject(new Error(`Chunk ${chunk.index} HTTP ${res.statusCode}`));
+          }
+
+          // Content-Range boundary verification
+          const cr = res.headers['content-range'];
+          if (cr) {
+            const m = cr.match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i);
+            if (m) {
+              const rStart = parseInt(m[1], 10);
+              if (rStart !== curStart) {
+                res.resume();
+                return reject(
+                  new Error(
+                    `Content-Range offset mismatch on chunk ${chunk.index}: requested ${curStart}, got ${rStart}`
+                  )
+                );
+              }
+            }
           }
 
           res.on('data', (buf) => {
@@ -859,8 +1232,14 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
 function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
   return new Promise((resolve, reject) => {
     const cleanUrl = urlStr.replace(/\\+$/, '').trim();
-    const parsed = new URL(cleanUrl);
+    let parsed;
+    try {
+      parsed = validateSafeUrl(cleanUrl);
+    } catch (secErr) {
+      return reject(secErr);
+    }
     const client = parsed.protocol === 'http:' ? http : https;
+    const cleanHeaders = sanitizeHeaders(headers);
     const outStream = fs.createWriteStream(destPath);
     activeFilePath = destPath;
 
@@ -873,10 +1252,29 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
           },
-          headers
-        )
+          cleanHeaders
+        ),
+        family: 4
       },
       (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          try {
+            outStream.close();
+            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+            const redirectUrl = new URL(res.headers.location, cleanUrl).href;
+            validateSafeUrl(redirectUrl, cleanUrl);
+            const isolated = isolateHeadersOnRedirect(cleanHeaders, cleanUrl, redirectUrl);
+            res.resume();
+            return downloadSingleStream(redirectUrl, destPath, isolated, totalSize, msg).then(
+              resolve,
+              reject
+            );
+          } catch (redirErr) {
+            res.resume();
+            return reject(redirErr);
+          }
+        }
+
         if (res.statusCode >= 400) {
           try {
             outStream.close();
@@ -929,6 +1327,28 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
             } catch (_) {}
             return reject(new Error('Downloaded file is empty (0 bytes)'));
           }
+          if (downloaded < 1024) {
+            let errorText = '';
+            try {
+              if (fs.existsSync(destPath)) {
+                errorText = fs.readFileSync(destPath, 'utf8').trim();
+                fs.unlinkSync(destPath);
+              }
+            } catch (_) {}
+            return reject(
+              new Error(
+                `Server mengembalikan pesan error alih-alih video (${downloaded} B): ${errorText || 'Respon tidak valid'}`
+              )
+            );
+          }
+          if (totalSize > 0 && downloaded !== totalSize) {
+            try {
+              if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+            } catch (_) {}
+            return reject(
+              new Error(`Stream terputus prematur: baru ${downloaded}/${totalSize} byte`)
+            );
+          }
           sendMessage({
             success: true,
             status: 'complete',
@@ -952,8 +1372,84 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
   });
 }
 
-async function resolveBloggerStreamInNode(token, referer, userAgent) {
-  if (!token) return null;
+function isValidAnoBoyToken(token) {
+  if (!token || typeof token !== 'string') return false;
+  const clean = token.trim().toLowerCase();
+  return (
+    clean !== 'none' &&
+    clean !== 'null' &&
+    clean !== 'undefined' &&
+    clean !== 'false' &&
+    clean.length >= 10
+  );
+}
+
+function extractAnoBoyCandidateTokens(html, preferredRes = '720p') {
+  if (!html || typeof html !== 'string') return [];
+  const isHd = !preferredRes || preferredRes.includes('720') || preferredRes.includes('1080');
+
+  // 1. Parse all <a ... id="allmiror" ...> elements
+  const mirrorRegex =
+    /<a[^>]*id=["']allmiror["'][^>]*data-video=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  const mirrors = [];
+  while ((m = mirrorRegex.exec(html)) !== null) {
+    const videoData = m[1];
+    const label = m[2].trim();
+    const tokenM =
+      videoData.match(/url=([^&"'>\s]+)/i) || videoData.match(/token=([a-zA-Z0-9_-]+)/i);
+    if (tokenM && isValidAnoBoyToken(tokenM[1])) {
+      mirrors.push({ label, token: tokenM[1], videoData });
+    }
+  }
+
+  const candidateTokens = [];
+
+  // 2. If HD requested, prioritize mirrors matching 720 / HD with valid token
+  if (isHd) {
+    const m720 = mirrors.filter((x) => /720|hd/i.test(x.label));
+    m720.forEach((item) => {
+      if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+    });
+  }
+
+  // 3. Add 360 / SD mirrors
+  const m360 = mirrors.filter((x) => /360|sd/i.test(x.label));
+  m360.forEach((item) => {
+    if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+  });
+
+  // 4. Add any remaining mirrors with valid tokens
+  mirrors.forEach((item) => {
+    if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+  });
+
+  // 5. Check iframe #mediaplayer fallback
+  const mediaplayerMatch = html.match(/id=["']mediaplayer["'][^>]*src=["'][^"']*url=([^&"'>\s]+)/i);
+  if (mediaplayerMatch && isValidAnoBoyToken(mediaplayerMatch[1])) {
+    if (!candidateTokens.includes(mediaplayerMatch[1])) {
+      candidateTokens.push(mediaplayerMatch[1]);
+    }
+  }
+
+  // 6. Check adsbatch fallback
+  const generalMatch = html.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/i);
+  if (generalMatch && isValidAnoBoyToken(generalMatch[1])) {
+    if (!candidateTokens.includes(generalMatch[1])) {
+      candidateTokens.push(generalMatch[1]);
+    }
+  }
+
+  return candidateTokens;
+}
+
+function extractAnoBoyTokenFromHtml(html, preferredRes = '720p') {
+  const tokens = extractAnoBoyCandidateTokens(html, preferredRes);
+  return tokens.length > 0 ? tokens[0] : null;
+}
+
+async function resolveBloggerStreamInNode(token, referer, userAgent, preferredRes = '720p') {
+  if (!isValidAnoBoyToken(token)) return null;
   const ua =
     userAgent ||
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
@@ -967,7 +1463,7 @@ async function resolveBloggerStreamInNode(token, referer, userAgent) {
     if (!res.ok) return null;
     const html = await res.text();
     const re =
-      /https?:\/\/[a-zA-Z0-9.\-_]+?\.googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
+      /https?:\/\/(?:[a-zA-Z0-9.\-_]+\.)?googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
     let match;
     const streams = [];
     while ((match = re.exec(html)) !== null) {
@@ -983,6 +1479,14 @@ async function resolveBloggerStreamInNode(token, referer, userAgent) {
       if (itag > 0) streams.push({ itag, url: decoded });
     }
     if (streams.length === 0) return null;
+    if (preferredRes && (preferredRes.includes('1080') || preferredRes.includes('720'))) {
+      const s720 = streams.find((s) => s.itag === 22);
+      if (s720) return s720.url;
+    }
+    if (preferredRes && preferredRes.includes('360')) {
+      const s360 = streams.find((s) => s.itag === 18);
+      if (s360) return s360.url;
+    }
     const s720 = streams.find((s) => s.itag === 22);
     if (s720) return s720.url;
     const s360 = streams.find((s) => s.itag === 18);
@@ -994,7 +1498,7 @@ async function resolveBloggerStreamInNode(token, referer, userAgent) {
   }
 }
 
-async function resolveFromEpisodeUrlInNode(episodeUrl, referer, userAgent) {
+async function resolveFromEpisodeUrlInNode(episodeUrl, referer, userAgent, preferredRes = '720p') {
   if (!episodeUrl) return null;
   const ua =
     userAgent ||
@@ -1005,12 +1509,12 @@ async function resolveFromEpisodeUrlInNode(episodeUrl, referer, userAgent) {
     });
     if (!pageRes.ok) return null;
     const pageHtml = await pageRes.text();
-    const tokenMatch =
-      pageHtml.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
-      pageHtml.match(/data-video=["'][^"']*url=([^&"'>\s]+)/) ||
-      pageHtml.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
-    if (!tokenMatch || !tokenMatch[1]) return null;
-    return await resolveBloggerStreamInNode(tokenMatch[1], referer, userAgent);
+    const candidateTokens = extractAnoBoyCandidateTokens(pageHtml, preferredRes);
+    for (const token of candidateTokens) {
+      const stream = await resolveBloggerStreamInNode(token, referer, userAgent, preferredRes);
+      if (stream) return stream;
+    }
+    return null;
   } catch (_) {
     return null;
   }
@@ -1082,23 +1586,32 @@ async function downloadWithRangeChunks(msg) {
         return reject(new Error('PAUSED_OR_CANCELLED'));
       }
       if (maxRedir <= 0) return reject(new Error('Too many redirects'));
-      const parsed = new URL(urlStr);
+
+      let parsed;
+      try {
+        parsed = validateSafeUrl(urlStr);
+      } catch (urlErr) {
+        return reject(urlErr);
+      }
+
       const client = parsed.protocol === 'http:' ? http : https;
+      const cleanOptionsHeaders = sanitizeHeaders(options.headers || {});
       const defaultUa =
-        (options.headers && options.headers['User-Agent']) ||
+        cleanOptionsHeaders['User-Agent'] ||
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
       const headers = Object.assign(
         {
           'User-Agent': defaultUa
         },
-        options.headers || {}
+        cleanOptionsHeaders
       );
 
       const req = client.request(
         parsed,
         {
           method: options.method || 'GET',
-          headers
+          headers,
+          family: 4
         },
         (res) => {
           if (job.status !== 'downloading') {
@@ -1107,9 +1620,18 @@ async function downloadWithRangeChunks(msg) {
             return reject(new Error('PAUSED_OR_CANCELLED'));
           }
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            const redirectUrl = new URL(res.headers.location, urlStr).href;
+            let redirectUrl;
+            try {
+              redirectUrl = new URL(res.headers.location, urlStr).href;
+              validateSafeUrl(redirectUrl, urlStr);
+            } catch (redirErr) {
+              res.resume();
+              return reject(redirErr);
+            }
             res.resume();
-            return requestFollow(redirectUrl, options, maxRedir - 1).then(resolve, reject);
+            const safeRedirectHeaders = isolateHeadersOnRedirect(headers, urlStr, redirectUrl);
+            const redirectOptions = Object.assign({}, options, { headers: safeRedirectHeaders });
+            return requestFollow(redirectUrl, redirectOptions, maxRedir - 1).then(resolve, reject);
           }
           resolve({ res, url: urlStr });
         }
@@ -1176,14 +1698,16 @@ async function downloadWithRangeChunks(msg) {
         recoveredUrl = await resolveBloggerStreamInNode(
           msg.bloggerToken,
           customHeaders['Referer'],
-          customHeaders['User-Agent']
+          customHeaders['User-Agent'],
+          msg.resolution || '720p'
         );
       }
       if (!recoveredUrl && msg.episodeUrl) {
         recoveredUrl = await resolveFromEpisodeUrlInNode(
           msg.episodeUrl,
           customHeaders['Referer'],
-          customHeaders['User-Agent']
+          customHeaders['User-Agent'],
+          msg.resolution || '720p'
         );
       }
 
@@ -1198,11 +1722,14 @@ async function downloadWithRangeChunks(msg) {
       }
     }
 
-    return { res: probedRes, url: probedUrl };
+    const probedEtag = (probedRes.headers && probedRes.headers['etag']) || null;
+    const probedLastModified = (probedRes.headers && probedRes.headers['last-modified']) || null;
+
+    return { res: probedRes, url: probedUrl, etag: probedEtag, lastModified: probedLastModified };
   }
 
   probeAndStart()
-    .then(({ res, url: probedUrl }) => {
+    .then(({ res, url: probedUrl, etag: probedEtag, lastModified: probedLastModified }) => {
       if (job.status !== 'downloading') {
         if (res && typeof res.resume === 'function') res.resume();
         return;
@@ -1229,6 +1756,11 @@ async function downloadWithRangeChunks(msg) {
       res.resume();
 
       if (!supportsRange || totalSize < 2 * 1024 * 1024) {
+        if (totalSize > 0 && totalSize < 1024) {
+          throw new Error(
+            `Ukuran file tidak valid untuk video (${totalSize} B). Kemungkinan token ditolak oleh server.`
+          );
+        }
         return downloadSingleStream(probedUrl, finalDestPath, customHeaders, totalSize, msg);
       }
 
@@ -1241,7 +1773,9 @@ async function downloadWithRangeChunks(msg) {
       if (fs.existsSync(partPath) && fs.existsSync(metaPath)) {
         try {
           const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          const etagMismatch = meta.etag && probedEtag && meta.etag !== probedEtag;
           if (
+            !etagMismatch &&
             meta.totalSize === totalSize &&
             Array.isArray(meta.chunks) &&
             meta.chunks.length > 0
@@ -1257,6 +1791,13 @@ async function downloadWithRangeChunks(msg) {
             totalDownloaded = chunks.reduce((acc, c) => acc + (c.written || 0), 0);
             fd = fs.openSync(partPath, 'r+');
             isResuming = true;
+          } else if (etagMismatch) {
+            // ETag mismatch: Resource changed on server! Discard old chunks to prevent corruption
+            try {
+              if (fs.existsSync(partPath)) fs.unlinkSync(partPath);
+              if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+            } catch (_) {}
+            isResuming = false;
           }
         } catch (_) {
           isResuming = false;
@@ -1266,22 +1807,11 @@ async function downloadWithRangeChunks(msg) {
       if (!isResuming) {
         fd = fs.openSync(partPath, 'w+');
         fs.ftruncateSync(fd, totalSize);
-        const chunkCount = Math.min(16, Math.max(4, Math.floor(totalSize / (2 * 1024 * 1024))));
-        const chunkSize = Math.ceil(totalSize / chunkCount);
-        chunks = [];
-        for (let i = 0; i < chunkCount; i++) {
-          const start = i * chunkSize;
-          const end = i === chunkCount - 1 ? totalSize - 1 : (i + 1) * chunkSize - 1;
-          chunks.push({
-            index: i,
-            start,
-            end,
-            written: 0,
-            length: end - start + 1,
-            inFlight: false
-          });
-        }
+        chunks = generateGranularChunks(totalSize);
       }
+
+      const aimd = new AIMDConcurrencyController(6, 2, 16);
+      job.aimd = aimd;
 
       activeFd = fd;
       activeFilePath = partPath;
@@ -1294,6 +1824,8 @@ async function downloadWithRangeChunks(msg) {
             videoId: msg.videoId,
             filename: safeFilename,
             totalSize,
+            etag: probedEtag || null,
+            lastModified: probedLastModified || null,
             chunkCount: chunks.length,
             chunks: chunks.map((c) => ({
               index: c.index,
@@ -1345,14 +1877,19 @@ async function downloadWithRangeChunks(msg) {
         const deltaSec = (now - lastProgressTime) / 1000;
         if (deltaSec >= 0.35) {
           const speedBytes = bytesSinceLastProgress / deltaSec;
+          if (job.aimd) {
+            job.aimd.evaluateThroughput(speedBytes);
+          }
           const pct = Math.min(99, Math.round((totalDownloaded / totalSize) * 100));
           const remBytes = totalSize - totalDownloaded;
           const etaSec = speedBytes > 0 ? Math.round(remBytes / speedBytes) : 0;
+          const currentConcurrency = job.aimd ? job.aimd.concurrency : Math.min(chunks.length, 16);
 
           sendMessage({
             type: 'PROGRESS',
             status: 'downloading',
-            part: `Turbo Chunker (${chunks.length}x)`,
+            part: `Turbo Chunker (${currentConcurrency}x Adaptive)`,
+            concurrency: currentConcurrency,
             percent: pct,
             totalSize: formatBytes(totalSize),
             speed: `${formatBytes(speedBytes)}/s`,
@@ -1364,6 +1901,7 @@ async function downloadWithRangeChunks(msg) {
 
           bytesSinceLastProgress = 0;
           lastProgressTime = now;
+          if (job.startWorkers) job.startWorkers();
         }
       };
 
@@ -1372,6 +1910,10 @@ async function downloadWithRangeChunks(msg) {
           if (isFinished || job.status !== 'downloading') return;
 
           let incompleteChunk = chunks.find((c) => !c.inFlight && c.written < c.length);
+          if (!incompleteChunk) {
+            // Dynamic Work-Stealing: Split unwritten range of largest in-flight chunk
+            incompleteChunk = stealWork(chunks);
+          }
           if (!incompleteChunk) {
             if (job.activeWorkers === 0) {
               const allDone = chunks.every((c) => c.written >= c.length);
@@ -1443,10 +1985,18 @@ async function downloadWithRangeChunks(msg) {
 
         job.startWorkers = () => {
           if (isFinished || job.status !== 'downloading') return;
-          const maxConcurrency = Math.min(chunks.length, 16);
+          const maxConcurrency = job.aimd ? job.aimd.concurrency : Math.min(chunks.length, 16);
           const needed = maxConcurrency - job.activeWorkers;
           for (let i = 0; i < needed; i++) {
-            startNextWorker();
+            if (i === 0) {
+              startNextWorker();
+            } else {
+              setTimeout(() => {
+                if (!isFinished && job.status === 'downloading') {
+                  startNextWorker();
+                }
+              }, i * 50);
+            }
           }
         };
 
@@ -1461,21 +2011,30 @@ async function downloadWithRangeChunks(msg) {
         if (activeFd === fd) activeFd = null;
         activeFilePath = null;
 
-        // Atomic rename .part -> finalDestPath
-        try {
-          if (fs.existsSync(partPath)) {
-            if (fs.existsSync(finalDestPath)) {
-              try {
-                fs.unlinkSync(finalDestPath);
-              } catch (_) {}
-            }
-            fs.renameSync(partPath, finalDestPath);
+        // Strict Pre-Rename Integrity Guard
+        const allChunksDone = chunks.every((c) => c.written >= c.length);
+        if (!allChunksDone) {
+          throw new Error('Incomplete download: beberapa chunk belum selesai');
+        }
+        if (fs.existsSync(partPath)) {
+          const stat = fs.statSync(partPath);
+          if (totalSize > 0 && stat.size !== totalSize) {
+            throw new Error(
+              `Integrity check failed: ${stat.size} bytes (expected ${totalSize} bytes)`
+            );
           }
-        } catch (_) {
+          // Atomic rename .part -> finalDestPath
+          if (fs.existsSync(finalDestPath)) {
+            try {
+              fs.unlinkSync(finalDestPath);
+            } catch (_) {}
+          }
           try {
+            fs.renameSync(partPath, finalDestPath);
+          } catch (_) {
             fs.copyFileSync(partPath, finalDestPath);
             fs.unlinkSync(partPath);
-          } catch (_) {}
+          }
         }
 
         // Clean up companion .part.meta
@@ -1536,4 +2095,270 @@ async function downloadWithRangeChunks(msg) {
         taskId
       });
     });
+}
+
+// =========================================================================
+// 5. Smart History & File Lifecycle Tracker Helpers
+// =========================================================================
+
+function findMovedFile(filename, sizeBytes, originalPath, customRoots = null) {
+  if (!filename) return null;
+  const candidateRoots =
+    Array.isArray(customRoots) && customRoots.length > 0
+      ? customRoots
+      : [
+          'D:\\Anime',
+          'D:\\',
+          'C:\\Anime',
+          path.join(os.homedir(), 'Downloads'),
+          path.join(os.homedir(), 'Videos'),
+          path.join(os.homedir(), 'Desktop'),
+          path.join(os.homedir(), 'Documents')
+        ];
+
+  for (const root of candidateRoots) {
+    if (!fs.existsSync(root)) continue;
+    try {
+      const direct = path.join(root, filename);
+      if (direct !== originalPath && fs.existsSync(direct)) {
+        const st = fs.statSync(direct);
+        if (!sizeBytes || Math.abs(st.size - sizeBytes) < 4096) {
+          return { path: direct, size: st.size };
+        }
+      }
+      const entries = fs.readdirSync(root, { withFileTypes: true });
+      for (const ent of entries) {
+        if (ent.isDirectory()) {
+          const subPath = path.join(root, ent.name, filename);
+          if (subPath !== originalPath && fs.existsSync(subPath)) {
+            const st = fs.statSync(subPath);
+            if (!sizeBytes || Math.abs(st.size - sizeBytes) < 4096) {
+              return { path: subPath, size: st.size };
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+function getRecycleBinFilenames() {
+  try {
+    const cmd = `powershell -NoProfile -NonInteractive -Command "(New-Object -ComObject Shell.Application).Namespace(10).Items() | ForEach-Object { $_.Name }"`;
+    const out = execSync(cmd, { encoding: 'utf8', timeout: 4000, windowsHide: true });
+    return out
+      .split(/\r?\n/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+function auditSingleFile(item, binFiles = [], customRoots = null) {
+  if (!item || typeof item !== 'object') {
+    return {
+      status: 'PERMANENTLY_DELETED',
+      state: 'PERMANENTLY_DELETED',
+      fileStatus: 'PERMANENTLY_DELETED',
+      currentPath: null,
+      originalPath: null,
+      sizeBytes: 0,
+      lastChecked: Date.now()
+    };
+  }
+
+  const originalPath =
+    item.originalPath ||
+    item.filePath ||
+    (item.folder && item.filename ? path.join(item.folder, item.filename) : null);
+  const filename = item.filename || (originalPath ? path.basename(originalPath) : '');
+  const sizeBytes = typeof item.sizeBytes === 'number' ? item.sizeBytes : null;
+
+  // 1. Check if file still exists in original location
+  if (originalPath && fs.existsSync(originalPath)) {
+    try {
+      const st = fs.statSync(originalPath);
+      return {
+        id: item.id,
+        status: 'EXISTS_ORIGINAL',
+        state: 'EXISTS_ORIGINAL',
+        fileStatus: 'EXISTS_ORIGINAL',
+        inRecycleBin: false,
+        currentPath: originalPath,
+        originalPath,
+        sizeBytes: st.size,
+        lastChecked: Date.now()
+      };
+    } catch (_) {}
+  }
+
+  // 2. Check if file was moved elsewhere on drive
+  const moved = findMovedFile(filename, sizeBytes, originalPath, customRoots);
+  if (moved) {
+    return {
+      id: item.id,
+      status: 'MOVED',
+      state: 'MOVED',
+      fileStatus: 'MOVED',
+      inRecycleBin: false,
+      currentPath: moved.path,
+      originalPath,
+      sizeBytes: moved.size,
+      lastChecked: Date.now()
+    };
+  }
+
+  // 3. Check if file is in Windows Recycle Bin
+  const binArr = Array.isArray(binFiles)
+    ? binFiles
+    : binFiles instanceof Set
+      ? Array.from(binFiles)
+      : binFiles && typeof binFiles[Symbol.iterator] === 'function'
+        ? Array.from(binFiles)
+        : [];
+
+  const lowerName = filename.toLowerCase();
+  const lowerBaseNoExt = path.parse(filename).name.toLowerCase();
+  const isInBin = binArr.some((bf) => {
+    const s = String(bf).toLowerCase();
+    return s === lowerName || s === lowerBaseNoExt || s.includes(lowerBaseNoExt);
+  });
+
+  if (isInBin) {
+    return {
+      id: item.id,
+      status: 'IN_RECYCLE_BIN',
+      state: 'IN_RECYCLE_BIN',
+      fileStatus: 'IN_RECYCLE_BIN',
+      inRecycleBin: true,
+      currentPath: null,
+      originalPath,
+      sizeBytes,
+      lastChecked: Date.now()
+    };
+  }
+
+  // 4. File is permanently deleted or missing
+  return {
+    id: item.id,
+    status: 'PERMANENTLY_DELETED',
+    state: 'PERMANENTLY_DELETED',
+    fileStatus: 'PERMANENTLY_DELETED',
+    inRecycleBin: false,
+    currentPath: null,
+    originalPath,
+    sizeBytes,
+    lastChecked: Date.now()
+  };
+}
+
+function handleAuditFileStatusBatch(msg) {
+  const items = Array.isArray(msg.items) ? msg.items : [];
+  let binFiles = [];
+  const hasPotentiallyMissing = items.some((it) => {
+    const p =
+      it.originalPath ||
+      it.filePath ||
+      (it.folder && it.filename ? path.join(it.folder, it.filename) : null);
+    return !p || !fs.existsSync(p);
+  });
+
+  if (hasPotentiallyMissing) {
+    binFiles = getRecycleBinFilenames();
+  }
+
+  const results = items.map((it) => auditSingleFile(it, binFiles));
+  sendMessage({
+    success: true,
+    action: 'AUDIT_FILE_STATUS_BATCH',
+    results
+  });
+}
+
+function handleOpenFileLocation(msg) {
+  const targetPath = msg.filePath || msg.path || msg.currentPath || msg.originalPath;
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return sendMessage({
+      success: false,
+      action: 'OPEN_FILE_LOCATION',
+      error: 'File tidak ditemukan di disk: ' + (targetPath || '')
+    });
+  }
+
+  try {
+    const cleanPath = path.normalize(targetPath);
+    spawn('explorer.exe', ['/select,', cleanPath], {
+      windowsHide: true,
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    sendMessage({ success: true, action: 'OPEN_FILE_LOCATION', path: cleanPath });
+  } catch (err) {
+    sendMessage({ success: false, action: 'OPEN_FILE_LOCATION', error: err.message });
+  }
+}
+
+function handlePlayVideoFile(msg) {
+  const targetPath = msg.filePath || msg.path || msg.currentPath || msg.originalPath;
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return sendMessage({
+      success: false,
+      action: 'PLAY_VIDEO_FILE',
+      error: 'File video tidak ditemukan di disk: ' + (targetPath || '')
+    });
+  }
+
+  try {
+    const cleanPath = path.normalize(targetPath);
+    spawn('cmd.exe', ['/c', 'start', '""', cleanPath], {
+      windowsHide: true,
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    sendMessage({ success: true, action: 'PLAY_VIDEO_FILE', path: cleanPath });
+  } catch (err) {
+    sendMessage({ success: false, action: 'PLAY_VIDEO_FILE', error: err.message });
+  }
+}
+
+function handleOpenRecycleBin() {
+  try {
+    spawn('explorer.exe', ['shell:RecycleBinFolder'], {
+      windowsHide: true,
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    sendMessage({ success: true, action: 'OPEN_RECYCLE_BIN' });
+  } catch (err) {
+    sendMessage({ success: false, action: 'OPEN_RECYCLE_BIN', error: err.message });
+  }
+}
+
+// Node export for unit tests
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    findMovedFile,
+    getRecycleBinFilenames,
+    auditSingleFile,
+    handleAuditFileStatusBatch,
+    handleOpenFileLocation,
+    handlePlayVideoFile,
+    handleOpenRecycleBin,
+    isDisallowedHostOrIp,
+    validateSafeUrl,
+    sanitizeHeaders,
+    isolateHeadersOnRedirect,
+    generateGranularChunks,
+    stealWork,
+    AIMDConcurrencyController,
+    httpAgent,
+    httpsAgent,
+    isValidAnoBoyToken,
+    extractAnoBoyCandidateTokens,
+    resolveBloggerStreamInNode,
+    extractAnoBoyTokenFromHtml,
+    resolveFromEpisodeUrlInNode
+  };
 }

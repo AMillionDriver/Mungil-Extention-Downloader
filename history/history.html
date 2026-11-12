@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Riwayat &amp; Pelacak File — Direct Downloader</title>
+    <link rel="stylesheet" href="history.css" />
+  </head>
+
+  <body>
+    <div class="dashboard-layout">
+      <!-- Top Header -->
+      <header class="dashboard-header">
+        <div class="header-left">
+          <div class="header-logo" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </div>
+          <div class="header-titles">
+            <h1>Riwayat Unduhan &amp; Pelacak File</h1>
+            <p class="header-subtitle">
+              Audit otomatis lokasi fisik file di Windows &amp; Recycle Bin
+            </p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            id="btn-open-recycle-bin"
+            title="Buka Recycle Bin Windows"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path
+                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+              />
+            </svg>
+            <span>Recycle Bin</span>
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-audit-now">
+            <svg
+              class="spin-icon"
+              id="audit-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            <span id="audit-text">Periksa Status File</span>
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger-outline"
+            id="btn-clear-history"
+            title="Hapus seluruh riwayat unduhan"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+            <span>Bersihkan</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Metrics Cards Banner -->
+      <section class="metrics-grid">
+        <div class="metric-card">
+          <span class="metric-label">Total Video Diunduh</span>
+          <span class="metric-value" id="metric-total-count">0</span>
+          <span class="metric-sub" id="metric-total-size">0 MB Data</span>
+        </div>
+        <div class="metric-card border-green" id="filter-card-original" role="button" tabindex="0">
+          <span class="metric-label">Lokasi Asli (Downloads)</span>
+          <span class="metric-value text-green" id="metric-count-original">0</span>
+          <span class="metric-sub">File utuh di folder asal</span>
+        </div>
+        <div class="metric-card border-blue" id="filter-card-moved" role="button" tabindex="0">
+          <span class="metric-label">Dipindah ke Folder Lain</span>
+          <span class="metric-value text-blue" id="metric-count-moved">0</span>
+          <span class="metric-sub">Ditemukan di D:\Anime / Disk</span>
+        </div>
+        <div class="metric-card border-yellow" id="filter-card-bin" role="button" tabindex="0">
+          <span class="metric-label">Di Recycle Bin</span>
+          <span class="metric-value text-yellow" id="metric-count-bin">0</span>
+          <span class="metric-sub">Bisa dipulihkan di Windows</span>
+        </div>
+        <div class="metric-card border-red" id="filter-card-deleted" role="button" tabindex="0">
+          <span class="metric-label">Dihapus Permanen</span>
+          <span class="metric-value text-red" id="metric-count-deleted">0</span>
+          <span class="metric-sub">Tidak ditemukan di drive</span>
+        </div>
+      </section>
+
+      <!-- Filters & Search Toolbar -->
+      <section class="toolbar-section">
+        <div class="search-box">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Cari judul anime, nama file, atau domain..."
+          />
+          <button type="button" id="btn-clear-search" style="display: none">&times;</button>
+        </div>
+
+        <div class="filter-group">
+          <label for="platform-filter">Platform:</label>
+          <select id="platform-filter">
+            <option value="ALL">Semua Platform</option>
+            <option value="anoboy">AnoBoy</option>
+            <option value="doodstream">Doodstream</option>
+            <option value="youtube">YouTube</option>
+            <option value="bstation">Bstation</option>
+            <option value="tiktok">TikTok</option>
+            <option value="terabox">TeraBox</option>
+            <option value="jwplyr">JWPlyr</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="status-filter">Status File:</label>
+          <select id="status-filter">
+            <option value="ALL">Semua Status</option>
+            <option value="EXISTS_ORIGINAL">Lokasi Asli (Downloads)</option>
+            <option value="MOVED">Dipindah ke Folder Lain</option>
+            <option value="IN_RECYCLE_BIN">Di Recycle Bin</option>
+            <option value="PERMANENTLY_DELETED">Dihapus Permanen</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- History Feed Cards -->
+      <main class="feed-section">
+        <div id="loading-state" class="state-placeholder" style="display: none">
+          <div class="spinner"></div>
+          <p>Memuat riwayat unduhan &amp; mengaudit status file...</p>
+        </div>
+
+        <div id="empty-state" class="state-placeholder" style="display: none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <polyline points="10 9 9 9 8 9" />
+          </svg>
+          <h3>Belum Ada Riwayat Unduhan</h3>
+          <p>
+            Unduh video dari AnoBoy, Doodstream, YouTube, atau TikTok untuk mulai melacak file di
+            sini.
+          </p>
+        </div>
+
+        <div id="history-list" class="history-list">
+          <!-- Rendered dynamically -->
+        </div>
+      </main>
+    </div>
+
+    <script src="history.js"></script>
+  </body>
+</html>

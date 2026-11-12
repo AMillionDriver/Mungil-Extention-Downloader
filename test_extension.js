@@ -844,6 +844,7 @@ async function runAllSuites() {
         'content/platforms/pinterest.js',
         'content/platforms/anoboy.js',
         'content/platforms/comic_translator.js',
+        'content/platforms/doodstream.js',
         'test_extension.js',
         'test_adversarial_bstation.js'
       ];
@@ -8150,6 +8151,1155 @@ async function runAllSuites() {
           merged[0].translatedText.includes('Survei lengkap') &&
             merged[0].translatedText.includes('Pengumuman Hasil'),
           'Merged text should preserve both lines'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 32: Doodstream Platform Registration, NTFS Sanitization & 3-System Handshake
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 32: Doodstream Platform Registration, NTFS Sanitization & 3-System Handshake',
+    async ({ test }) => {
+      test('Manifest V3 registers Doodstream mirrors and content script with all_frames', () => {
+        const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('dood.to')),
+          'dood.to must be in host_permissions'
+        );
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('ds2play.com')),
+          'ds2play.com must be in host_permissions'
+        );
+        assert.ok(
+          manifest.host_permissions.some((p) => p.includes('dood.video')),
+          'dood.video must be in host_permissions'
+        );
+
+        const doodScript = manifest.content_scripts.find(
+          (cs) => cs.js && cs.js.includes('content/platforms/doodstream.js')
+        );
+        assert.ok(doodScript, 'doodstream.js must be registered in content_scripts');
+        assert.strictEqual(
+          doodScript.all_frames,
+          true,
+          'all_frames must be true for embed support'
+        );
+        assert.ok(
+          doodScript.matches.some((m) => m.includes('dood.to')),
+          'dood.to must be matched'
+        );
+      });
+
+      test('doodstream.js and doodstream.css exist on disk with non-zero size', () => {
+        const jsPath = path.join(PROJECT_ROOT, 'content/platforms/doodstream.js');
+        const cssPath = path.join(PROJECT_ROOT, 'content/styles/doodstream.css');
+        assert.ok(fs.existsSync(jsPath), 'doodstream.js must exist');
+        assert.ok(fs.statSync(jsPath).size > 100, 'doodstream.js must have non-trivial size');
+        assert.ok(fs.existsSync(cssPath), 'doodstream.css must exist');
+        assert.ok(fs.statSync(cssPath).size > 100, 'doodstream.css must have non-trivial size');
+      });
+
+      test('Strict DOM Button Creation Hygiene in doodstream.js', () => {
+        const jsContent = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'),
+          'utf8'
+        );
+        const buttonCount = (jsContent.match(/document\.createElement\(['"]button['"]\)/g) || [])
+          .length;
+        const typeCount = (jsContent.match(/\.type\s*=\s*['"]button['"]/g) || []).length;
+        assert.ok(buttonCount > 0, 'Buttons must be created in doodstream.js');
+        assert.strictEqual(
+          typeCount,
+          buttonCount,
+          `Every button in doodstream.js must explicitly declare type="button" (${typeCount}/${buttonCount})`
+        );
+      });
+
+      test('isDoodHost accurately matches official mirror domains and rejects others', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        assert.strictEqual(typeof dood.isDoodHost, 'function');
+        assert.strictEqual(dood.isDoodHost('dood.to'), true);
+        assert.strictEqual(dood.isDoodHost('sub.dood.to'), true);
+        assert.strictEqual(dood.isDoodHost('ds2play.com'), true);
+        assert.strictEqual(dood.isDoodHost('do0od.co'), true);
+        assert.strictEqual(dood.isDoodHost('doodstream.com'), true);
+        assert.strictEqual(dood.isDoodHost('youtube.com'), false);
+        assert.strictEqual(dood.isDoodHost('anoboy.at'), false);
+      });
+
+      test('Windows NTFS sanitization formats safe Doodstream filename', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        assert.strictEqual(
+          dood.formatDoodFilename('Bleach: Thousand-Year Blood War / Ep 01'),
+          'Bleach - Thousand - Year Blood War - Ep 01.mp4'
+        );
+        assert.strictEqual(
+          dood.formatDoodFilename('Illegal*Chars? <Test> | "Quote"', 'xyz123'),
+          'IllegalChars Test - Quote.mp4'
+        );
+        assert.strictEqual(dood.formatDoodFilename('', 'xyz123'), 'dood_xyz123.mp4');
+      });
+
+      test('generateDoodSalt produces random 10-char alphanumeric string', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        const salt1 = dood.generateDoodSalt(10);
+        const salt2 = dood.generateDoodSalt(10);
+        assert.strictEqual(salt1.length, 10);
+        assert.strictEqual(salt2.length, 10);
+        assert.ok(/^[a-zA-Z0-9]{10}$/.test(salt1));
+        assert.notStrictEqual(salt1, salt2, 'Salts should be non-deterministic');
+      });
+
+      test('buildDoodFinalUrl synthesizes direct CDN URL with token and expiry', () => {
+        const dood = require(path.join(PROJECT_ROOT, 'content/platforms/doodstream.js'));
+        const base = 'https://n40.dood.video/xyz123~';
+        const token = 'pass_token_abc';
+        const finalUrl = dood.buildDoodFinalUrl(base, token);
+        assert.ok(finalUrl.startsWith('https://n40.dood.video/xyz123~'));
+        assert.ok(finalUrl.includes('?token=pass_token_abc'));
+        assert.ok(finalUrl.includes('&expiry='));
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 33: AnoBoy Adaptive Engine & Anti-False-Positive Conjunction
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 33: AnoBoy Adaptive Engine & Anti-False-Positive Conjunction',
+    async ({ test }) => {
+      const anoboy = require(path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'));
+
+      test('Manifest V3 registers global fallback match for anoboy.js with document_idle', () => {
+        const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        const anoboyScript = manifest.content_scripts.find(
+          (cs) => cs.js && cs.js.includes('content/platforms/anoboy.js')
+        );
+        assert.ok(anoboyScript, 'anoboy.js must be registered in content_scripts');
+        assert.ok(
+          anoboyScript.matches.includes('*://*/*'),
+          '*://*/* must be included for adaptive domain rotation'
+        );
+        assert.strictEqual(
+          anoboyScript.run_at,
+          'document_idle',
+          'run_at must be document_idle for reliable DOM fingerprinting'
+        );
+      });
+
+      test('Layer 1 (Blacklist Guard) instantly rejects common platforms and foreign sites', () => {
+        assert.strictEqual(typeof anoboy.isAnoBoyExcluded, 'function');
+        assert.strictEqual(anoboy.isAnoBoyExcluded('youtube.com'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('www.google.com'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('github.com'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('v20.kuramanime.ing'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('otakudesu.cloud'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('samehadaku.care'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('shinigami.asia'), true);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('anoboy.quest'), false);
+        assert.strictEqual(anoboy.isAnoBoyExcluded('anoboy.at'), false);
+      });
+
+      test('Layer 2 (TLD-Agnostic Regex) matches all valid AnoBoy domain variants', () => {
+        assert.strictEqual(typeof anoboy.isAnoBoyHost, 'function');
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.at'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.quest'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.online'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.live'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.show'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy.tv'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('v2.anoboy.ninja'), true);
+        assert.strictEqual(anoboy.isAnoBoyHost('anoboy-stream.com'), true);
+        // Rejects non-anoboy domains
+        assert.strictEqual(anoboy.isAnoBoyHost('anotherboy.com'), false);
+        assert.strictEqual(anoboy.isAnoBoyHost('boyano.org'), false);
+        assert.strictEqual(anoboy.isAnoBoyHost('google.com'), false);
+      });
+
+      test('Layer 3 (Strict 3-Point DNA Conjunction) accepts only when all 3 authentic markers exist', () => {
+        assert.strictEqual(typeof anoboy.verifyAnoBoyDNA, 'function');
+
+        // Case A: Complete AnoBoy DNA -> PASS
+        const mockValidDoc = {
+          querySelectorAll: (sel) => (sel === 'a#allmiror[data-video]' ? [{}] : []),
+          getElementById: (id) => (id === 'mediaplayer' ? {} : null),
+          querySelector: (sel) => (sel.includes('adsbatch') ? {} : null),
+          documentElement: { innerHTML: '<html>...adsbatch.php...</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockValidDoc), true);
+
+        // Case B: Missing typo mirror (a#allmiror) -> FAIL (0% false positive)
+        const mockMissingMirror = {
+          querySelectorAll: () => [],
+          getElementById: (id) => (id === 'mediaplayer' ? {} : null),
+          querySelector: (sel) => (sel.includes('adsbatch') ? {} : null),
+          documentElement: { innerHTML: '<html>...adsbatch.php...</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockMissingMirror), false);
+
+        // Case C: Missing mediaplayer -> FAIL
+        const mockMissingPlayer = {
+          querySelectorAll: (sel) => (sel === 'a#allmiror[data-video]' ? [{}] : []),
+          getElementById: () => null,
+          querySelector: (sel) => (sel.includes('adsbatch') ? {} : null),
+          documentElement: { innerHTML: '<html>...adsbatch.php...</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockMissingPlayer), false);
+
+        // Case D: Missing adsbatch endpoint -> FAIL
+        const mockMissingAdsbatch = {
+          querySelectorAll: (sel) => (sel === 'a#allmiror[data-video]' ? [{}] : []),
+          getElementById: (id) => (id === 'mediaplayer' ? {} : null),
+          querySelector: () => null,
+          documentElement: { innerHTML: '<html>generic player</html>' }
+        };
+        assert.strictEqual(anoboy.verifyAnoBoyDNA(mockMissingAdsbatch), false);
+      });
+
+      test('detectAnoBoyPlatform orchestrates 3 layers flawlessly', () => {
+        assert.strictEqual(typeof anoboy.detectAnoBoyPlatform, 'function');
+
+        // Blacklisted host -> False
+        assert.strictEqual(
+          anoboy.detectAnoBoyPlatform({
+            location: { hostname: 'www.youtube.com' }
+          }),
+          false
+        );
+
+        // Known anoboy variant -> True
+        assert.strictEqual(
+          anoboy.detectAnoBoyPlatform({
+            location: { hostname: 'anoboy.quest' }
+          }),
+          true
+        );
+
+        // Unrelated domain without DNA -> False
+        assert.strictEqual(
+          anoboy.detectAnoBoyPlatform({
+            location: { hostname: 'random-domain.io' },
+            document: {
+              querySelectorAll: () => [],
+              getElementById: () => null,
+              querySelector: () => null
+            }
+          }),
+          false
+        );
+      });
+
+      test('getActiveAnoBoyOrigin dynamically resolves current origin with trailing slash', () => {
+        assert.strictEqual(typeof anoboy.getActiveAnoBoyOrigin, 'function');
+        const origOrigin = anoboy.getActiveAnoBoyOrigin();
+        assert.ok(origOrigin.endsWith('/'));
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 34: Smart History & File Lifecycle Tracker (Windows Filesystem & Recycle Bin)
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 34: Smart History & File Lifecycle Tracker (Windows Filesystem & Recycle Bin)',
+    async ({ test, testAsync }) => {
+      const downloaderHost = require(path.join(PROJECT_ROOT, 'native_host/downloader_host.js'));
+
+      test('downloader_host exports file lifecycle audit functions', () => {
+        assert.strictEqual(typeof downloaderHost.auditSingleFile, 'function');
+        assert.strictEqual(typeof downloaderHost.findMovedFile, 'function');
+        assert.strictEqual(typeof downloaderHost.getRecycleBinFilenames, 'function');
+      });
+
+      test('auditSingleFile accurately detects EXISTS_ORIGINAL when file exists in place', () => {
+        const tempFile = path.join(PROJECT_ROOT, 'temp_test_history_orig.mp4');
+        fs.writeFileSync(tempFile, 'test file content');
+        try {
+          const res = downloaderHost.auditSingleFile({
+            filename: 'temp_test_history_orig.mp4',
+            originalPath: tempFile,
+            sizeBytes: 17
+          });
+          assert.strictEqual(res.status, 'EXISTS_ORIGINAL');
+          assert.strictEqual(res.currentPath, tempFile);
+        } finally {
+          if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        }
+      });
+
+      test('auditSingleFile accurately detects MOVED when file is found in another location', () => {
+        const movedTarget = path.join(PROJECT_ROOT, 'temp_moved_target.mp4');
+        fs.writeFileSync(movedTarget, 'moved file content bytes');
+        const originalMissing = path.join(PROJECT_ROOT, 'downloads', 'temp_moved_target.mp4');
+
+        try {
+          const res = downloaderHost.auditSingleFile(
+            {
+              filename: 'temp_moved_target.mp4',
+              originalPath: originalMissing,
+              sizeBytes: 24
+            },
+            new Set(),
+            [PROJECT_ROOT]
+          );
+          assert.strictEqual(res.status, 'MOVED');
+          assert.strictEqual(res.currentPath, movedTarget);
+
+          const found = downloaderHost.findMovedFile('temp_moved_target.mp4', 24, originalMissing, [
+            PROJECT_ROOT
+          ]);
+          assert.ok(found !== null);
+          assert.strictEqual(found.path, movedTarget);
+        } finally {
+          if (fs.existsSync(movedTarget)) fs.unlinkSync(movedTarget);
+        }
+      });
+
+      test('auditSingleFile accurately detects IN_RECYCLE_BIN when in bin set', () => {
+        const binSet = new Set(['my_deleted_anime.mp4', 'another_video.mp4']);
+        const res = downloaderHost.auditSingleFile(
+          {
+            filename: 'my_deleted_anime.mp4',
+            originalPath: 'C:\\Users\\flami\\Downloads\\my_deleted_anime.mp4',
+            sizeBytes: 1024
+          },
+          binSet
+        );
+        assert.strictEqual(res.status, 'IN_RECYCLE_BIN');
+        assert.strictEqual(res.inRecycleBin, true);
+      });
+
+      test('auditSingleFile accurately detects PERMANENTLY_DELETED when nowhere found', () => {
+        const binSet = new Set(['some_other.mp4']);
+        const res = downloaderHost.auditSingleFile(
+          {
+            filename: 'completely_vanished_file_9999.mp4',
+            originalPath: 'C:\\NonExistentPath\\Folder\\completely_vanished_file_9999.mp4',
+            sizeBytes: 5000000
+          },
+          binSet
+        );
+        assert.strictEqual(res.status, 'PERMANENTLY_DELETED');
+        assert.strictEqual(res.currentPath, null);
+      });
+
+      test('history UI bundle (HTML, CSS, JS) exists with full semantic architecture', () => {
+        const htmlPath = path.join(PROJECT_ROOT, 'history/history.html');
+        const cssPath = path.join(PROJECT_ROOT, 'history/history.css');
+        const jsPath = path.join(PROJECT_ROOT, 'history/history.js');
+
+        assert.ok(fs.existsSync(htmlPath), 'history.html exists');
+        assert.ok(fs.existsSync(cssPath), 'history.css exists');
+        assert.ok(fs.existsSync(jsPath), 'history.js exists');
+
+        const html = fs.readFileSync(htmlPath, 'utf8');
+        assert.ok(html.includes('id="history-list"'));
+        assert.ok(html.includes('id="metric-total-count"'));
+        assert.ok(html.includes('id="btn-audit-now"'));
+        assert.ok(html.includes('id="btn-open-recycle-bin"'));
+
+        const js = fs.readFileSync(jsPath, 'utf8');
+        assert.ok(js.includes('GET_SMART_HISTORY'));
+        assert.ok(js.includes('AUDIT_ALL_HISTORY_FILES'));
+        assert.ok(js.includes('OPEN_FILE_LOCATION'));
+        assert.ok(js.includes('OPEN_RECYCLE_BIN'));
+      });
+
+      test('popup integrates History launcher button and click handler', () => {
+        const popHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.html'), 'utf8');
+        const popJs = fs.readFileSync(path.join(PROJECT_ROOT, 'popup/popup.js'), 'utf8');
+
+        assert.ok(popHtml.includes('id="btn-open-history"'), 'popup.html has btn-open-history');
+        assert.ok(popJs.includes('btnOpenHistory'), 'popup.js binds btnOpenHistory');
+        assert.ok(popJs.includes('history/history.html'), 'popup.js opens history page');
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 35: Transport Security, Header Hygiene & Download Integrity
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 35: Transport Security, Header Hygiene & Download Integrity',
+    async ({ test, testAsync }) => {
+      const downloaderHost = require(path.join(PROJECT_ROOT, 'native_host/downloader_host.js'));
+
+      test('downloader_host exports security and integrity gatekeeper functions', () => {
+        assert.strictEqual(typeof downloaderHost.isDisallowedHostOrIp, 'function');
+        assert.strictEqual(typeof downloaderHost.validateSafeUrl, 'function');
+        assert.strictEqual(typeof downloaderHost.sanitizeHeaders, 'function');
+        assert.strictEqual(typeof downloaderHost.isolateHeadersOnRedirect, 'function');
+      });
+
+      test('isDisallowedHostOrIp rejects loopback, RFC 1918, link-local, cloud metadata, and IPv6', () => {
+        const { isDisallowedHostOrIp } = downloaderHost;
+
+        // Loopback & Localhost
+        assert.strictEqual(isDisallowedHostOrIp('localhost'), true);
+        assert.strictEqual(isDisallowedHostOrIp('sub.localhost'), true);
+        assert.strictEqual(isDisallowedHostOrIp('127.0.0.1'), true);
+        assert.strictEqual(isDisallowedHostOrIp('127.255.0.1'), true);
+        assert.strictEqual(isDisallowedHostOrIp('0.0.0.0'), true);
+
+        // RFC 1918 Private Networks
+        assert.strictEqual(isDisallowedHostOrIp('10.0.0.1'), true);
+        assert.strictEqual(isDisallowedHostOrIp('10.255.255.255'), true);
+        assert.strictEqual(isDisallowedHostOrIp('172.16.0.1'), true);
+        assert.strictEqual(isDisallowedHostOrIp('172.31.255.255'), true);
+        assert.strictEqual(isDisallowedHostOrIp('192.168.1.1'), true);
+        assert.strictEqual(isDisallowedHostOrIp('192.168.254.254'), true);
+
+        // RFC 3927 Link-Local & Cloud Metadata (AWS/GCP/Azure)
+        assert.strictEqual(isDisallowedHostOrIp('169.254.169.254'), true);
+        assert.strictEqual(isDisallowedHostOrIp('169.254.1.1'), true);
+
+        // IPv6 Loopback & Link-local
+        assert.strictEqual(isDisallowedHostOrIp('[::1]'), true);
+        assert.strictEqual(isDisallowedHostOrIp('::1'), true);
+        assert.strictEqual(isDisallowedHostOrIp('[fe80::1]'), true);
+        assert.strictEqual(isDisallowedHostOrIp('[fc00::1]'), true);
+        assert.strictEqual(isDisallowedHostOrIp('[fd00::1]'), true);
+        assert.strictEqual(isDisallowedHostOrIp('::ffff:127.0.0.1'), true);
+
+        // Public IPs & CDNs (Must be allowed)
+        assert.strictEqual(isDisallowedHostOrIp('google.com'), false);
+        assert.strictEqual(isDisallowedHostOrIp('v16-webapp-prime.tiktokcdn.com'), false);
+        assert.strictEqual(isDisallowedHostOrIp('8.8.8.8'), false);
+        assert.strictEqual(isDisallowedHostOrIp('1.1.1.1'), false);
+      });
+
+      test('validateSafeUrl enforces valid protocols, blocks SSRF hosts, and prevents HTTPS downgrade', () => {
+        const { validateSafeUrl } = downloaderHost;
+
+        // Valid URLs
+        const validHttps = validateSafeUrl('https://cf-st.tiktokcdn.com/video/mp4/123');
+        assert.strictEqual(validHttps.hostname, 'cf-st.tiktokcdn.com');
+
+        const validHttp = validateSafeUrl('http://public-mirror.org/video.mp4');
+        assert.strictEqual(validHttp.hostname, 'public-mirror.org');
+
+        // Dangerous / Unsupported Schemes
+        assert.throws(
+          () => validateSafeUrl('file:///C:/Windows/win.ini'),
+          /Insecure or unsupported protocol/
+        );
+        assert.throws(
+          () => validateSafeUrl('javascript:alert(1)'),
+          /Insecure or unsupported protocol/
+        );
+        assert.throws(
+          () => validateSafeUrl('data:text/html;base64,...'),
+          /Insecure or unsupported protocol/
+        );
+        assert.throws(
+          () => validateSafeUrl('gopher://127.0.0.1/'),
+          /Insecure or unsupported protocol/
+        );
+
+        // SSRF Target Rejection
+        assert.throws(() => validateSafeUrl('http://127.0.0.1:8080/admin'), /SSRF blocked/);
+        assert.throws(() => validateSafeUrl('http://localhost:3000/api'), /SSRF blocked/);
+        assert.throws(
+          () => validateSafeUrl('http://169.254.169.254/latest/meta-data/'),
+          /SSRF blocked/
+        );
+        assert.throws(() => validateSafeUrl('http://192.168.1.1/router'), /SSRF blocked/);
+
+        // Scheme Downgrade Prevention
+        assert.throws(
+          () => validateSafeUrl('http://mirror.com/stream', 'https://secure.tiktok.com/stream'),
+          /Insecure protocol downgrade forbidden/
+        );
+
+        // Same scheme or upgrade is allowed
+        assert.doesNotThrow(() =>
+          validateSafeUrl('https://cdn2.tiktok.com/stream', 'https://origin.tiktok.com/stream')
+        );
+        assert.doesNotThrow(() =>
+          validateSafeUrl('https://secure.org/stream', 'http://insecure.org/stream')
+        );
+      });
+
+      test('sanitizeHeaders strips CRLF injection and removes forbidden browser-managed headers', () => {
+        const { sanitizeHeaders } = downloaderHost;
+
+        const dirtyHeaders = {
+          'User-Agent': 'Mozilla/5.0\r\nInjected-Header: evil',
+          'Referer\r\nEvil': 'https://tiktok.com/',
+          Host: 'attacker.com',
+          Connection: 'close',
+          'Transfer-Encoding': 'chunked',
+          'Content-Length': '9999',
+          Range: 'bytes=0-1000'
+        };
+
+        const cleaned = sanitizeHeaders(dirtyHeaders);
+
+        // CRLF stripped
+        assert.strictEqual(cleaned['User-Agent'], 'Mozilla/5.0Injected-Header: evil');
+        assert.strictEqual(cleaned['RefererEvil'], 'https://tiktok.com/');
+        assert.strictEqual(cleaned['Range'], 'bytes=0-1000');
+
+        // Forbidden browser-managed headers purged
+        assert.strictEqual(cleaned['Host'], undefined);
+        assert.strictEqual(cleaned['Connection'], undefined);
+        assert.strictEqual(cleaned['Transfer-Encoding'], undefined);
+        assert.strictEqual(cleaned['Content-Length'], undefined);
+      });
+
+      test('isolateHeadersOnRedirect strips Cookie and Authorization across cross-origin redirects', () => {
+        const { isolateHeadersOnRedirect } = downloaderHost;
+
+        const originalHeaders = {
+          'User-Agent': 'Mozilla/5.0 Chrome/128.0',
+          Cookie: 'session_token=secret123; tracking=xyz',
+          Authorization: 'Bearer my-top-secret-jwt',
+          Range: 'bytes=0-1000',
+          Referer: 'https://origin-platform.com/'
+        };
+
+        // Same origin: retain credentials
+        const sameOriginResult = isolateHeadersOnRedirect(
+          originalHeaders,
+          'https://origin-platform.com/api/v1/stream',
+          'https://origin-platform.com/cdn/part2'
+        );
+        assert.strictEqual(sameOriginResult['Cookie'], 'session_token=secret123; tracking=xyz');
+        assert.strictEqual(sameOriginResult['Authorization'], 'Bearer my-top-secret-jwt');
+        assert.strictEqual(sameOriginResult['User-Agent'], 'Mozilla/5.0 Chrome/128.0');
+
+        // Cross origin: strip Cookie and Authorization
+        const crossOriginResult = isolateHeadersOnRedirect(
+          originalHeaders,
+          'https://origin-platform.com/api/v1/stream',
+          'https://untrusted-external-mirror.com/cdn/part2'
+        );
+        assert.strictEqual(crossOriginResult['Cookie'], undefined);
+        assert.strictEqual(crossOriginResult['Authorization'], undefined);
+        assert.strictEqual(crossOriginResult['User-Agent'], 'Mozilla/5.0 Chrome/128.0');
+        assert.strictEqual(crossOriginResult['Range'], 'bytes=0-1000');
+      });
+
+      test('strict 206 Partial Content requirement and Content-Range validation present in host', () => {
+        const hostSrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'native_host/downloader_host.js'),
+          'utf8'
+        );
+
+        // Assert 200 OK check exists and aborts chunk download
+        assert.ok(
+          hostSrc.includes('res.statusCode === 200') &&
+            hostSrc.includes('Server returned HTTP 200 OK for Range request on chunk'),
+          'Host rejects 200 OK for range chunk to prevent silent overwrite corruption'
+        );
+
+        // Assert 206 status is strictly checked
+        assert.ok(
+          hostSrc.includes('res.statusCode !== 206'),
+          'Host asserts res.statusCode === 206 for range chunks'
+        );
+
+        // Assert Content-Range offset validation
+        assert.ok(
+          hostSrc.includes("res.headers['content-range']") &&
+            hostSrc.includes('Content-Range offset mismatch on chunk'),
+          'Host validates Content-Range starting offset against curStart'
+        );
+      });
+
+      test('ETag / Last-Modified resume validation and invalidation present in host', () => {
+        const hostSrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'native_host/downloader_host.js'),
+          'utf8'
+        );
+
+        // Assert etag and lastModified capture during probe
+        assert.ok(hostSrc.includes('probedEtag'), 'Host captures probedEtag');
+        assert.ok(hostSrc.includes('probedLastModified'), 'Host captures probedLastModified');
+
+        // Assert etagMismatch check invalidates stale .part file
+        assert.ok(
+          hostSrc.includes('etagMismatch') && hostSrc.includes('fs.unlinkSync(partPath)'),
+          'Host invalidates stale .part when ETag changes on server'
+        );
+      });
+
+      test('final file size exact integrity assertion present in host', () => {
+        const hostSrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'native_host/downloader_host.js'),
+          'utf8'
+        );
+
+        assert.ok(
+          hostSrc.includes('stat.size !== totalSize') &&
+            hostSrc.includes('Integrity check failed:'),
+          'Host strictly asserts stat.size === totalSize before renaming .part to final file'
+        );
+      });
+
+      test('service_worker enforces protocol security and CRLF sanitization on native chunker payloads', () => {
+        const swSrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'background/service_worker.js'),
+          'utf8'
+        );
+
+        // Assert streamUrl validation
+        assert.ok(
+          swSrc.includes('Protokol tidak aman atau tidak didukung') &&
+            swSrc.includes("p.protocol !== 'https:' && p.protocol !== 'http:'"),
+          'Service worker blocks unsafe URL protocols before dispatching to native host'
+        );
+
+        // Assert header CRLF sanitization
+        assert.ok(
+          swSrc.includes("replace(/[\\r\\n]/g, '')") &&
+            swSrc.includes('forwardHeaders[cleanK] = cleanV'),
+          'Service worker cleans CRLF in forwardHeaders'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 36: Dynamic Chunk Auto-Tuning & Adaptive Concurrency
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 36: Dynamic Chunk Auto-Tuning & Adaptive Concurrency',
+    async ({ test, testAsync }) => {
+      const downloaderHost = require(path.join(PROJECT_ROOT, 'native_host/downloader_host.js'));
+
+      test('downloader_host exports chunk auto-tuning and concurrency classes', () => {
+        assert.strictEqual(typeof downloaderHost.generateGranularChunks, 'function');
+        assert.strictEqual(typeof downloaderHost.stealWork, 'function');
+        assert.strictEqual(typeof downloaderHost.AIMDConcurrencyController, 'function');
+        assert.ok(downloaderHost.httpAgent, 'httpAgent is exported');
+        assert.ok(downloaderHost.httpsAgent, 'httpsAgent is exported');
+      });
+
+      test('generateGranularChunks slices total size into contiguous non-overlapping 2-4MB blocks', () => {
+        const { generateGranularChunks } = downloaderHost;
+
+        // 10MB file -> 5 chunks of 2MB
+        const chunks10M = generateGranularChunks(10 * 1024 * 1024);
+        assert.ok(chunks10M.length >= 4, 'Has at least 4 chunks');
+        assert.strictEqual(chunks10M[0].start, 0);
+        assert.strictEqual(chunks10M[chunks10M.length - 1].end, 10 * 1024 * 1024 - 1);
+
+        // Verify continuity across all chunks
+        for (let i = 0; i < chunks10M.length - 1; i++) {
+          assert.strictEqual(chunks10M[i].end + 1, chunks10M[i + 1].start);
+          assert.strictEqual(chunks10M[i].length, chunks10M[i].end - chunks10M[i].start + 1);
+        }
+
+        // 100MB file -> scales block size to ~4MB
+        const chunks100M = generateGranularChunks(100 * 1024 * 1024);
+        assert.strictEqual(chunks100M[0].start, 0);
+        assert.strictEqual(chunks100M[chunks100M.length - 1].end, 100 * 1024 * 1024 - 1);
+        assert.strictEqual(
+          chunks100M.reduce((acc, c) => acc + c.length, 0),
+          100 * 1024 * 1024
+        );
+      });
+
+      test('stealWork dynamically splits in-flight chunk with >= 2MB remaining cleanly', () => {
+        const { stealWork } = downloaderHost;
+
+        const chunks = [
+          {
+            index: 0,
+            start: 0,
+            end: 8 * 1024 * 1024 - 1,
+            written: 1024 * 1024, // 1MB written, 7MB remaining
+            length: 8 * 1024 * 1024,
+            inFlight: true
+          }
+        ];
+
+        const originalTotal = chunks[0].length;
+        const stolen = stealWork(chunks);
+
+        assert.ok(stolen !== null, 'Stolen chunk was created');
+        assert.strictEqual(stolen.index, 1);
+        assert.strictEqual(
+          chunks[0].end + 1,
+          stolen.start,
+          'Parent end and child start are contiguous'
+        );
+        assert.strictEqual(stolen.end, 8 * 1024 * 1024 - 1, 'Child end matches original end');
+        assert.strictEqual(
+          chunks[0].length + stolen.length,
+          originalTotal,
+          'Total byte sum preserved'
+        );
+        assert.strictEqual(stolen.written, 0, 'New chunk written starts at 0');
+        assert.strictEqual(stolen.inFlight, false, 'New chunk starts available for worker');
+      });
+
+      test('stealWork returns null when no candidate has >= 2MB remaining', () => {
+        const { stealWork } = downloaderHost;
+
+        const chunks = [
+          {
+            index: 0,
+            start: 0,
+            end: 2 * 1024 * 1024 - 1,
+            written: 1.5 * 1024 * 1024, // only 0.5MB remaining
+            length: 2 * 1024 * 1024,
+            inFlight: true
+          },
+          {
+            index: 1,
+            start: 2 * 1024 * 1024,
+            end: 4 * 1024 * 1024 - 1,
+            written: 0,
+            length: 2 * 1024 * 1024,
+            inFlight: false // not in flight
+          }
+        ];
+
+        const stolen = stealWork(chunks);
+        assert.strictEqual(stolen, null, 'Returns null when remaining bytes < 2MB');
+      });
+
+      test('AIMDConcurrencyController scales up on accelerating throughput and cuts on errors', () => {
+        const { AIMDConcurrencyController } = downloaderHost;
+        const aimd = new AIMDConcurrencyController(4, 2, 16);
+
+        assert.strictEqual(aimd.concurrency, 4, 'Starts at initial concurrency 4');
+
+        // Consecutive throughput acceleration
+        aimd.evaluateThroughput(1000000); // 1 MB/s
+        assert.strictEqual(aimd.concurrency, 4);
+
+        aimd.evaluateThroughput(1200000); // 1.2 MB/s (increase 1)
+        assert.strictEqual(aimd.concurrency, 4);
+
+        aimd.evaluateThroughput(1500000); // 1.5 MB/s (increase 2 -> triggers scale up)
+        assert.strictEqual(aimd.concurrency, 5, 'Scales up from 4 to 5');
+
+        // Multiplicative decrease on error / 429
+        aimd.recordError();
+        assert.strictEqual(aimd.concurrency, 3, 'Floor(5 * 0.75) = 3');
+
+        aimd.recordError();
+        assert.strictEqual(aimd.concurrency, 2, 'Floor(3 * 0.75) = 2 (respects min bound 2)');
+
+        aimd.recordError();
+        assert.strictEqual(aimd.concurrency, 2, 'Does not drop below min bound 2');
+      });
+
+      test('Persistent HTTP/HTTPS agents have keepAlive enabled with proper socket limits', () => {
+        const { httpAgent, httpsAgent } = downloaderHost;
+
+        assert.strictEqual(httpAgent.keepAlive, true, 'httpAgent has keepAlive enabled');
+        assert.strictEqual(httpsAgent.keepAlive, true, 'httpsAgent has keepAlive enabled');
+        assert.strictEqual(httpAgent.maxSockets, 32, 'httpAgent maxSockets is 32');
+        assert.strictEqual(httpsAgent.maxSockets, 32, 'httpsAgent maxSockets is 32');
+        assert.strictEqual(httpAgent.maxFreeSockets, 16, 'httpAgent maxFreeSockets is 16');
+        assert.strictEqual(httpsAgent.maxFreeSockets, 16, 'httpsAgent maxFreeSockets is 16');
+      });
+
+      test('service_worker integrates adaptive concurrency telemetry in progress broadcasts', () => {
+        const swSrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'background/service_worker.js'),
+          'utf8'
+        );
+
+        assert.ok(
+          swSrc.includes('msg.concurrency') &&
+            swSrc.includes('activeDownloads[videoId].concurrency'),
+          'Service worker caches and forwards adaptive concurrency telemetry'
+        );
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 37: AnoBoy HD Stream Resolution & Token Priority Validation
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 37: AnoBoy HD Stream Resolution & Token Priority Validation',
+    async ({ test, testAsync }) => {
+      const anoboy = require(path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'));
+      const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+      const downloaderHost = require(path.join(PROJECT_ROOT, 'native_host/downloader_host.js'));
+
+      const sampleBloggerHtml = `
+        <!DOCTYPE html>
+        <html><body>
+          <script>
+            var VIDEO_CONFIG = {
+              "streams": [
+                {"itag": 18, "url": "https://rr1---sn-4g5edn6r.googlevideo.com/videoplayback?itag=18&source=blogger&id=360p_stream"},
+                {"itag": 22, "url": "https://rr1---sn-4g5edn6r.googlevideo.com/videoplayback?itag=22&source=blogger&id=720p_stream"}
+              ]
+            };
+          </script>
+        </body></html>
+      `;
+
+      test('anoboy.js extractStreamFromBloggerHtml maps 1080p and 720p to itag=22 HD stream', () => {
+        const url1080 = anoboy.extractStreamFromBloggerHtml(sampleBloggerHtml, '1080p');
+        assert.ok(url1080 && url1080.includes('itag=22'), '1080p maps to itag=22 HD stream');
+
+        const url720 = anoboy.extractStreamFromBloggerHtml(sampleBloggerHtml, '720p');
+        assert.ok(url720 && url720.includes('itag=22'), '720p maps to itag=22 HD stream');
+
+        const url360 = anoboy.extractStreamFromBloggerHtml(sampleBloggerHtml, '360p');
+        assert.ok(url360 && url360.includes('itag=18'), '360p maps to itag=18 SD stream');
+      });
+
+      test('service_worker.js extractStreamFromBloggerHtml maps 1080p and 720p to itag=22 HD stream', () => {
+        const url1080 = sw.extractStreamFromBloggerHtml(sampleBloggerHtml, '1080p');
+        assert.ok(
+          url1080 && url1080.includes('itag=22'),
+          '1080p maps to itag=22 in service_worker'
+        );
+
+        const url720 = sw.extractStreamFromBloggerHtml(sampleBloggerHtml, '720p');
+        assert.ok(url720 && url720.includes('itag=22'), '720p maps to itag=22 in service_worker');
+
+        const url360 = sw.extractStreamFromBloggerHtml(sampleBloggerHtml, '360p');
+        assert.ok(url360 && url360.includes('itag=18'), '360p maps to itag=18 in service_worker');
+      });
+
+      // Real-world AnoBoy HTML where #mediaplayer uses adsbatch720.php for 360p embed
+      const mockAnoBoyEpisodeHtml = `
+        <div id="mediaplayer">
+          <iframe src="/uploads/adsbatch720.php?url=TOKEN_360_SD&origin=gghhssaa.blogspot.com" width="100%"></iframe>
+        </div>
+        <div id="colombir">
+          <a class="active" id="allmiror" data-video="/uploads/adsbatch720.php?url=TOKEN_360_SD&origin=gghhssaa.blogspot.com">360</a>
+          <a id="allmiror" data-video="/uploads/adsbatch720.php?url=TOKEN_720_HD&origin=gghhssaa.blogspot.com">PC 720</a>
+        </div>
+      `;
+
+      await testAsync(
+        'service_worker.js resolveAnoboyStream prioritizes adsbatch720 token for 1080p & 720p',
+        async () => {
+          const originalFetch = global.fetch;
+          const fetchHistory = [];
+
+          global.fetch = async (url) => {
+            fetchHistory.push(url);
+            if (url.includes('anoboy.at/episode-1')) {
+              return {
+                ok: true,
+                status: 200,
+                text: async () => mockAnoBoyEpisodeHtml
+              };
+            }
+            if (url.includes('token=TOKEN_720_HD')) {
+              return {
+                ok: true,
+                status: 200,
+                text: async () => sampleBloggerHtml
+              };
+            }
+            if (url.includes('token=TOKEN_360_SD')) {
+              return {
+                ok: true,
+                status: 200,
+                text: async () => `
+                  <script>
+                    var VIDEO_CONFIG = {
+                      "streams": [{"itag": 18, "url": "https://rr1---sn-4g5edn6r.googlevideo.com/videoplayback?itag=18&id=only_360"}]
+                    };
+                  </script>
+                `
+              };
+            }
+            return { ok: false, status: 404, text: async () => '' };
+          };
+
+          try {
+            // Test 1080p: should fetch TOKEN_720_HD
+            const res1080 = await sw.resolveAnoboyStream({
+              url: 'https://anoboy.at/episode-1',
+              preferredRes: '1080p'
+            });
+            assert.strictEqual(res1080.success, true);
+            assert.ok(
+              res1080.streamUrl.includes('itag=22'),
+              '1080p extracts authentic 720p HD stream URL'
+            );
+            assert.ok(
+              fetchHistory.some((u) => u.includes('TOKEN_720_HD')),
+              'Requested TOKEN_720_HD from Blogger'
+            );
+
+            // Test 360p: should fetch TOKEN_360_SD
+            const res360 = await sw.resolveAnoboyStream({
+              url: 'https://anoboy.at/episode-1',
+              preferredRes: '360p'
+            });
+            assert.strictEqual(res360.success, true);
+            assert.ok(
+              res360.streamUrl.includes('itag=18'),
+              '360p extracts authentic 360p SD stream URL'
+            );
+          } finally {
+            global.fetch = originalFetch;
+          }
+        }
+      );
+
+      await testAsync(
+        'native_host resolveFromEpisodeUrlInNode prioritizes adsbatch720 token for HD',
+        async () => {
+          const originalFetch = global.fetch;
+
+          global.fetch = async (url) => {
+            if (url.includes('anoboy.at/episode-1')) {
+              return {
+                ok: true,
+                status: 200,
+                text: async () => mockAnoBoyEpisodeHtml
+              };
+            }
+            if (url.includes('token=TOKEN_720_HD')) {
+              return {
+                ok: true,
+                status: 200,
+                text: async () => sampleBloggerHtml
+              };
+            }
+            if (url.includes('token=TOKEN_360_SD')) {
+              return {
+                ok: true,
+                status: 200,
+                text: async () => `
+                  <script>
+                    var VIDEO_CONFIG = {
+                      "streams": [{"itag": 18, "url": "https://rr1---sn-4g5edn6r.googlevideo.com/videoplayback?itag=18&id=only_360"}]
+                    };
+                  </script>
+                `
+              };
+            }
+            return { ok: false, status: 404, text: async () => '' };
+          };
+
+          try {
+            const stream1080 = await downloaderHost.resolveFromEpisodeUrlInNode(
+              'https://anoboy.at/episode-1',
+              'https://anoboy.at/',
+              'Mozilla/5.0',
+              '1080p'
+            );
+            assert.ok(
+              stream1080 && stream1080.includes('itag=22'),
+              'Node resolver returns itag=22 for 1080p'
+            );
+
+            const stream360 = await downloaderHost.resolveFromEpisodeUrlInNode(
+              'https://anoboy.at/episode-1',
+              'https://anoboy.at/',
+              'Mozilla/5.0',
+              '360p'
+            );
+            assert.ok(
+              stream360 && stream360.includes('itag=18'),
+              'Node resolver returns itag=18 for 360p'
+            );
+          } finally {
+            global.fetch = originalFetch;
+          }
+        }
+      );
+
+      test('anoboy.js UI modal options provide clear resolution fallback notice for 1080p', () => {
+        const anoboySrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'),
+          'utf8'
+        );
+        assert.ok(
+          anoboySrc.includes('1080p (Tidak Didukung Stream -> Otomatis 720p HD)'),
+          'Dropdown clarifies 1080p is unsupported on stream with auto-720p fallback'
+        );
+        assert.ok(
+          anoboySrc.includes('720p (HD Web Stream - Rekomendasi)'),
+          'Dropdown sets 720p recommended HD stream as default'
+        );
+      });
+
+      await testAsync(
+        'AnoBoy token extractor filters token="none" and gracefully falls back to valid 360p stream',
+        async () => {
+          const anoboy = require(path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'));
+          const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+          const downloaderHost = require(path.join(PROJECT_ROOT, 'native_host/downloader_host.js'));
+
+          const mockHtmlWithNoneToken = `
+            <div id="mediaplayer"></div>
+            <a id="allmiror" data-video="/uploads/adsbatch720.php?url=VALID_360_FALLBACK_TOKEN">360</a>
+            <a id="allmiror" data-video="/uploads/adsbatch720.php?url=none">PC 720</a>
+            <a id="allmiror" data-video="/uploads/yup/data.php?data=abc">240-720</a>
+          `;
+
+          // 1. Unit check isValidAnoBoyToken
+          assert.strictEqual(anoboy.isValidAnoBoyToken('none'), false, '"none" is invalid');
+          assert.strictEqual(anoboy.isValidAnoBoyToken('null'), false, '"null" is invalid');
+          assert.strictEqual(
+            anoboy.isValidAnoBoyToken('undefined'),
+            false,
+            '"undefined" is invalid'
+          );
+          assert.strictEqual(anoboy.isValidAnoBoyToken('short'), false, 'short tokens are invalid');
+          assert.strictEqual(
+            anoboy.isValidAnoBoyToken('VALID_360_FALLBACK_TOKEN'),
+            true,
+            'real tokens are valid'
+          );
+
+          // 2. Candidate extraction ignores "none" and returns valid fallback
+          const candidates = anoboy.extractAnoBoyCandidateTokens(mockHtmlWithNoneToken, '720p');
+          assert.deepStrictEqual(
+            candidates,
+            ['VALID_360_FALLBACK_TOKEN'],
+            'Ignored PC 720 url=none and extracted VALID_360_FALLBACK_TOKEN'
+          );
+
+          // 3. Service worker end-to-end resolution with fallback
+          const originalFetch = global.fetch;
+          global.fetch = async (url) => {
+            if (url.includes('anoboy.at/none-episode')) {
+              return { ok: true, status: 200, text: async () => mockHtmlWithNoneToken };
+            }
+            if (url.includes('token=none')) {
+              return { ok: false, status: 403, text: async () => 'Forbidden' };
+            }
+            if (url.includes('token=VALID_360_FALLBACK_TOKEN')) {
+              return {
+                ok: true,
+                status: 200,
+                text: async () => `
+                  <script>
+                    var VIDEO_CONFIG = {
+                      "streams": [{"itag": 18, "url": "https://rr3---sn-sn.googlevideo.com/videoplayback?itag=18&fallback=true"}]
+                    };
+                  </script>
+                `
+              };
+            }
+            return { ok: false, status: 404, text: async () => '' };
+          };
+
+          try {
+            const res = await sw.resolveAnoboyStream({
+              url: 'https://anoboy.at/none-episode',
+              preferredRes: '720p'
+            });
+            assert.strictEqual(res.success, true);
+            assert.ok(
+              res.streamUrl.includes('itag=18'),
+              'Stream gracefully fell back to 360p (itag 18) instead of failing with 403'
+            );
+            assert.strictEqual(res.isFallback, true, 'isFallback flag is set to true');
+
+            // 4. Node host resolver also gracefully falls back
+            const nodeStream = await downloaderHost.resolveFromEpisodeUrlInNode(
+              'https://anoboy.at/none-episode',
+              'https://anoboy.at/',
+              'Mozilla/5.0',
+              '720p'
+            );
+            assert.ok(
+              nodeStream && nodeStream.includes('itag=18'),
+              'Node host resolver also returns itag 18 fallback stream'
+            );
+          } finally {
+            global.fetch = originalFetch;
+          }
+        }
+      );
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 38: AnoBoy Batch Downloader Estimated Size Calculator Validation
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 38: AnoBoy Batch Downloader Estimated Size Calculator Validation',
+    async ({ test }) => {
+      const anoboy = require(path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'));
+
+      test('ANOBOY_RESOLUTION_SIZE_ESTIMATES defines verified empirical bitrates', () => {
+        const { ANOBOY_RESOLUTION_SIZE_ESTIMATES } = anoboy;
+        assert.strictEqual(
+          ANOBOY_RESOLUTION_SIZE_ESTIMATES['720p'],
+          230,
+          '720p estimated at 230MB'
+        );
+        assert.strictEqual(ANOBOY_RESOLUTION_SIZE_ESTIMATES['360p'], 80, '360p estimated at 80MB');
+        assert.strictEqual(
+          ANOBOY_RESOLUTION_SIZE_ESTIMATES['480p'],
+          125,
+          '480p estimated at 125MB'
+        );
+        assert.strictEqual(
+          ANOBOY_RESOLUTION_SIZE_ESTIMATES['1080p'],
+          420,
+          '1080p estimated at 420MB'
+        );
+      });
+
+      test('getEpisodeEstimatedSizeMb adjusts estimates based on resolution and server mode', () => {
+        const { getEpisodeEstimatedSizeMb } = anoboy;
+        assert.strictEqual(getEpisodeEstimatedSizeMb('720p', 'turbo'), 230);
+        assert.strictEqual(getEpisodeEstimatedSizeMb('360p', 'turbo'), 80);
+        assert.strictEqual(getEpisodeEstimatedSizeMb('480p', 'turbo'), 125);
+        // 1080p on Turbo falls back to 720p stream limit (230MB)
+        assert.strictEqual(getEpisodeEstimatedSizeMb('1080p', 'turbo'), 230);
+        // 1080p on Gofile uses authentic 1K file size (420MB)
+        assert.strictEqual(getEpisodeEstimatedSizeMb('1080p', 'gofile'), 420);
+      });
+
+      test('formatBytesHuman scales units accurately between MB and GB', () => {
+        const { formatBytesHuman } = anoboy;
+        assert.strictEqual(formatBytesHuman(0), '0 MB');
+        assert.strictEqual(formatBytesHuman(null), '0 MB');
+        assert.strictEqual(formatBytesHuman(80), '~80 MB');
+        assert.strictEqual(formatBytesHuman(230), '~230 MB');
+        assert.strictEqual(formatBytesHuman(920), '~920 MB');
+        assert.strictEqual(formatBytesHuman(1024), '~1.00 GB');
+        assert.strictEqual(formatBytesHuman(1380), '~1.35 GB');
+        assert.strictEqual(formatBytesHuman(2300), '~2.25 GB');
+      });
+
+      test('anoboy.js embeds per-episode size badge and total estimated size badge in batch modal markup', () => {
+        const anoboySrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'),
+          'utf8'
+        );
+        assert.ok(
+          anoboySrc.includes('mungil-ab-item-size') &&
+            anoboySrc.includes('mungil-ab-total-size-pill'),
+          'anoboy.js incorporates per-item and footer total size badge elements'
+        );
+        assert.ok(
+          anoboySrc.includes('updateEstimates'),
+          'anoboy.js contains reactive updateEstimates controller'
+        );
+      });
+
+      test('anoboy.css declares dedicated styling for per-episode badge and total size pill', () => {
+        const anoboyCss = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/styles/anoboy.css'),
+          'utf8'
+        );
+        assert.ok(
+          anoboyCss.includes('.mungil-ab-item-size'),
+          'anoboy.css styles .mungil-ab-item-size'
+        );
+        assert.ok(
+          anoboyCss.includes('.mungil-ab-total-size-pill'),
+          'anoboy.css styles .mungil-ab-total-size-pill with emerald theme'
         );
       });
     }

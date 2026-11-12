@@ -1,0 +1,220 @@
+/**
+ * Doodstream Direct Downloader - Stylesheet & Glassmorphism Design System
+ * 3-Tier Token Architecture matching Doodstream modern player aesthetic:
+ * - Primitive Tokens: Indigo/Violet accents, Obsidian darks, status colors
+ * - Semantic Tokens: Surfaces, borders, text, state indicators
+ * - Component Tokens: In-player button, floating action button, mini-progress card
+ */
+
+:root {
+  /* Primitive Tokens */
+  --dood-accent-400: #818cf8;
+  --dood-accent-500: #6366f1;
+  --dood-accent-600: #4f46e5;
+  --dood-accent-glow: rgba(99, 102, 241, 0.35);
+
+  --dood-bg-obsidian: rgba(15, 23, 42, 0.88);
+  --dood-bg-card: rgba(30, 41, 59, 0.82);
+  --dood-border: rgba(148, 163, 184, 0.22);
+  --dood-border-hover: rgba(99, 102, 241, 0.55);
+
+  --dood-text-main: #f8fafc;
+  --dood-text-sub: #94a3b8;
+  --dood-success: #10b981;
+  --dood-danger: #ef4444;
+  --dood-warning: #f59e0b;
+
+  --dood-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --dood-radius-sm: 6px;
+  --dood-radius-md: 10px;
+  --dood-radius-lg: 16px;
+  --dood-radius-full: 9999px;
+  --dood-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+}
+
+/* Floating Overlay Button on Player / Embed */
+.dood-dl-floating-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2147483640;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--dood-bg-obsidian);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--dood-border);
+  border-radius: var(--dood-radius-full);
+  color: var(--dood-text-main);
+  font-family: var(--dood-font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--dood-shadow);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.dood-dl-floating-btn:hover {
+  background: var(--dood-accent-600);
+  border-color: var(--dood-accent-400);
+  box-shadow:
+    0 0 16px var(--dood-accent-glow),
+    var(--dood-shadow);
+  transform: translateY(-1px);
+}
+
+.dood-dl-floating-btn:active {
+  transform: translateY(1px);
+}
+
+.dood-dl-floating-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+/* Direct Web (/d/) Hero Action Button */
+.dood-web-hero-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--dood-radius-md);
+  font-family: var(--dood-font);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 20px -5px rgba(79, 70, 229, 0.5);
+  transition: all 0.25s ease;
+}
+
+.dood-web-hero-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px -5px rgba(124, 58, 237, 0.6);
+  filter: brightness(1.1);
+}
+
+.dood-web-hero-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Floating Mini Progress Widget (Pause, Resume, Cancel) */
+.dood-progress-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483645;
+  width: 320px;
+  background: var(--dood-bg-obsidian);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--dood-border);
+  border-radius: var(--dood-radius-lg);
+  box-shadow: var(--dood-shadow);
+  font-family: var(--dood-font);
+  color: var(--dood-text-main);
+  padding: 14px 16px;
+  animation: doodFadeInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes doodFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dood-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.dood-widget-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dood-text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.dood-widget-percent {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dood-accent-400);
+}
+
+.dood-progress-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: var(--dood-radius-full);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.dood-progress-bar-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1 0%, #10b981 100%);
+  border-radius: var(--dood-radius-full);
+  transition: width 0.25s linear;
+}
+
+.dood-widget-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dood-widget-speed {
+  font-size: 11px;
+  color: var(--dood-text-sub);
+}
+
+.dood-widget-ctrls {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.dood-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--dood-radius-sm);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--dood-border);
+  color: var(--dood-text-main);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dood-btn-icon:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dood-btn-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}

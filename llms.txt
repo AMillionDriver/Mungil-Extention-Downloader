@@ -1,0 +1,30 @@
+# Universal Media Downloader & Stream Extractor (Manifest V3)
+
+> Production-grade Chromium Extension (Manifest V3) for high-speed multi-platform video, manga, and stream extraction with zero external runtime dependencies and native 16x multi-threaded Turbo Chunking.
+
+## Overview & Architecture
+
+- [Project Overview](README.md): Full feature showcase, 11 supported platforms, benchmark metrics, and quickstart instructions.
+- [Agent Invariants & Operating Rules](AGENTS.md): Machine-executable constraints (zero-npm runtime dependencies, NTFS path sanitization, button type hygiene, 100% test contract).
+- [Security Model & Vulnerability Policy](SECURITY.md): Threat vectors, SSRF defense, CRLF sanitization, and Declarative Net Request rules.
+- [Contributing Guidelines](CONTRIBUTING.md): Local development workflow, Conventional Commits, and test suite execution.
+
+## Core Modules & Engines
+
+- [Background Service Worker](background/service_worker.js): Central orchestrator for download events, message routing, and Declarative Net Request headers.
+- [Turbo Chunker Engine](downloader_host.js): High-concurrency 16x multi-threaded byte-range downloader with dynamic AIMD auto-tuning.
+- [Test Harness](test_extension.js): Native Node.js test suite with 38 test suites and 298 assertions covering all extraction and security logic.
+
+## Supported Platform Extractors
+
+- [TikTok Extractor](content_scripts/tiktok.js): Direct CDN video retrieval without watermarks, audio MP3 extraction.
+- [Bstation / Bilibili Extractor](content_scripts/bstation.js): DASH audio/video stream muxing, 1080p stream resolution, 403 referrer bypass.
+- [YouTube Extractor](content_scripts/youtube.js): H.264/AAC universal remuxing, dynamic filesize estimation, SPA watcher.
+- [AnoBoy Batch Extractor](content_scripts/anoboy.js): Multi-episode batch modal, Blogger 720p/1080p direct stream resolver, real-time size calculator.
+- [TeraBox Extractor](content_scripts/terabox.js): High-speed multi-part file resolution.
+- [CosplayTele Extractor](content_scripts/cosplaytele.js): High-resolution photo set gallery batch downloader.
+- [Pinterest Extractor](content_scripts/pinterest.js): Original asset video and photo scraper.
+- [Shinigami Manga Extractor](content_scripts/shinigami.js): Canvas decryptor and chapter archiver.
+- [Comic Translator](content_scripts/comic_translator.js): OCR text extraction and bilingual overlay.
+- [Doodstream Extractor](content_scripts/doodstream.js): Direct player stream resolution bypassing popups.
+- [JWPlyr Extractor](content_scripts/jwplyr.js): AES-128 HLS decryptor and batch folder downloader.

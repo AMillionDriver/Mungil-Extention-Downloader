@@ -45,6 +45,42 @@
     }
   } catch (_) {}
 
+  // Defuse Anti-Devtools debugger loops & F12 / shortcut interceptors
+  try {
+    const origFunction = window.Function;
+    window.Function = function (...args) {
+      if (args.length > 0 && typeof args[args.length - 1] === 'string') {
+        const body = args[args.length - 1];
+        if (body.includes('debugger')) {
+          args[args.length - 1] = body.replace(/debugger\s*;?/g, '/* defused */');
+        }
+      }
+      return origFunction.apply(this, args);
+    };
+    window.Function.prototype = origFunction.prototype;
+  } catch (_) {}
+
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (
+        e.key === 'F12' ||
+        (e.ctrlKey &&
+          e.shiftKey &&
+          (e.key === 'I' ||
+            e.key === 'i' ||
+            e.key === 'J' ||
+            e.key === 'j' ||
+            e.key === 'C' ||
+            e.key === 'c')) ||
+        (e.ctrlKey && (e.key === 'U' || e.key === 'u'))
+      ) {
+        e.stopImmediatePropagation();
+      }
+    },
+    true
+  );
+
   // Track recent genuine user clicks and clicked element
   let lastUserClickTimestamp = 0;
   let lastClickedElement = null;

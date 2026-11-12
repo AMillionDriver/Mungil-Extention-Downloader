@@ -1295,55 +1295,87 @@ function recordDownloadTelemetry(params = {}) {
     }
 
     try {
-      chrome.storage.local.get(['downloadCount', 'recentDownloads', 'downloadHistory'], (data) => {
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
-          console.warn('[TikTok Downloader SW] Storage get error:', chrome.runtime.lastError);
-        }
-
-        const rawCount = Number(data && data.downloadCount);
-        const count = !isNaN(rawCount) && rawCount >= 0 ? Math.floor(rawCount) + 1 : 1;
-        const recent = data && Array.isArray(data.recentDownloads) ? data.recentDownloads : [];
-        const history =
-          data && data.downloadHistory && typeof data.downloadHistory === 'object'
-            ? data.downloadHistory
-            : {};
-
-        recent.unshift({
-          downloadId,
-          filename: safeFilename,
-          author: safeAuthor,
-          videoId: safeVideoId,
-          timestamp: Date.now()
-        });
-
-        history[safeVideoId] = {
-          videoId: safeVideoId,
-          filename: safeFilename,
-          author: safeAuthor,
-          timestamp: Date.now()
-        };
-        if (videoId && videoId !== safeVideoId) {
-          history[videoId] = history[safeVideoId];
-        }
-
-        chrome.storage.local.set(
-          {
-            downloadCount: count,
-            recentDownloads: recent.slice(0, 50),
-            downloadHistory: history
-          },
-          () => {
-            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
-              console.warn('[TikTok Downloader SW] Storage set error:', chrome.runtime.lastError);
-            }
-            resolve({
-              success: true,
-              downloadCount: count,
-              filename: safeFilename
-            });
+      chrome.storage.local.get(
+        ['downloadCount', 'recentDownloads', 'downloadHistory', 'smartDownloadHistory'],
+        (data) => {
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+            console.warn('[TikTok Downloader SW] Storage get error:', chrome.runtime.lastError);
           }
-        );
-      });
+
+          const rawCount = Number(data && data.downloadCount);
+          const count = !isNaN(rawCount) && rawCount >= 0 ? Math.floor(rawCount) + 1 : 1;
+          const recent = data && Array.isArray(data.recentDownloads) ? data.recentDownloads : [];
+          const history =
+            data && data.downloadHistory && typeof data.downloadHistory === 'object'
+              ? data.downloadHistory
+              : {};
+          const smartHistory =
+            data && Array.isArray(data.smartDownloadHistory) ? data.smartDownloadHistory : [];
+
+          recent.unshift({
+            downloadId,
+            filename: safeFilename,
+            author: safeAuthor,
+            videoId: safeVideoId,
+            timestamp: Date.now()
+          });
+
+          history[safeVideoId] = {
+            videoId: safeVideoId,
+            filename: safeFilename,
+            author: safeAuthor,
+            timestamp: Date.now()
+          };
+          if (videoId && videoId !== safeVideoId) {
+            history[videoId] = history[safeVideoId];
+          }
+
+          const histId = `hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          const defaultFolder = 'C:\\Users\\flami\\Downloads';
+          const resolvedPath =
+            p.originalPath ||
+            (p.folder ? `${p.folder}\\${safeFilename}` : `${defaultFolder}\\${safeFilename}`);
+
+          smartHistory.unshift({
+            id: histId,
+            filename: safeFilename,
+            title: p.title || safeFilename.replace(/\.[a-zA-Z0-9]+$/, ''),
+            author: safeAuthor,
+            platform: p.platform || 'video',
+            sourceUrl: p.url || p.sourceUrl || null,
+            downloadedAt: Date.now(),
+            originalPath: resolvedPath,
+            folder: p.folder || defaultFolder,
+            size: p.size || '',
+            sizeBytes: typeof p.sizeBytes === 'number' ? p.sizeBytes : null,
+            resolution: p.quality || p.resolution || null,
+            fileStatus: {
+              state: 'EXISTS_ORIGINAL',
+              currentPath: resolvedPath,
+              lastChecked: Date.now()
+            }
+          });
+
+          chrome.storage.local.set(
+            {
+              downloadCount: count,
+              recentDownloads: recent.slice(0, 50),
+              downloadHistory: history,
+              smartDownloadHistory: smartHistory.slice(0, 500)
+            },
+            () => {
+              if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+                console.warn('[TikTok Downloader SW] Storage set error:', chrome.runtime.lastError);
+              }
+              resolve({
+                success: true,
+                downloadCount: count,
+                filename: safeFilename
+              });
+            }
+          );
+        }
+      );
     } catch (err) {
       console.warn('[TikTok Downloader SW] Storage exception:', err);
       resolve({
@@ -2096,6 +2128,7 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
         };
         broadcastToAllTabs(progPayload);
         broadcastToAllTabs({ ...progPayload, type: 'NATIVE_DOWNLOAD_PROGRESS' });
+        broadcastToAllTabs({ ...progPayload, type: 'DOOD_NATIVE_PROGRESS' });
         return;
       }
 
@@ -2294,13 +2327,23 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
  */
 async function downloadViaNativeChunker(params, _tabId) {
   const videoId =
+    params.jobId ||
     params.videoId ||
     params.id ||
-    `anoboy_${params.episode || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    `${params.platform || 'anoboy'}_${params.episode || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const streamUrl = params.url;
 
-  if (!streamUrl) {
+  if (!streamUrl || typeof streamUrl !== 'string') {
     throw new Error('URL stream video tidak ditemukan.');
+  }
+  const cleanStreamUrl = streamUrl.replace(/[\r\n]/g, '').trim();
+  try {
+    const p = new URL(cleanStreamUrl);
+    if (p.protocol !== 'https:' && p.protocol !== 'http:') {
+      throw new Error(`Protokol tidak aman atau tidak didukung: ${p.protocol}`);
+    }
+  } catch (err) {
+    throw new Error('URL stream tidak valid: ' + err.message);
   }
 
   return new Promise((resolve, reject) => {
@@ -2339,7 +2382,8 @@ async function downloadViaNativeChunker(params, _tabId) {
       // Handle intermediate progress updates
       if (msg.type === 'PROGRESS') {
         const percent = typeof msg.percent === 'number' ? msg.percent : 0;
-        const part = msg.part || 'Turbo Chunker';
+        const concurrencyStr = msg.concurrency ? ` (${msg.concurrency}x Adaptive)` : '';
+        const part = msg.part || `Turbo Chunker${concurrencyStr}`;
 
         if (activeDownloads[videoId]) {
           activeDownloads[videoId].part = part;
@@ -2347,6 +2391,7 @@ async function downloadViaNativeChunker(params, _tabId) {
           activeDownloads[videoId].speed = msg.speed || '';
           activeDownloads[videoId].totalSize = msg.totalSize || '';
           activeDownloads[videoId].eta = msg.eta || '';
+          activeDownloads[videoId].concurrency = msg.concurrency || null;
           activeDownloads[videoId].status = msg.status === 'paused' ? 'paused' : 'downloading';
         }
 
@@ -2360,6 +2405,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         const progPayload = {
           type: 'ANOBOY_NATIVE_PROGRESS',
           platform,
+          jobId: videoId,
           videoId: videoId,
           title: params.title,
           part: part,
@@ -2367,11 +2413,13 @@ async function downloadViaNativeChunker(params, _tabId) {
           speed: msg.speed,
           totalSize: msg.totalSize,
           eta: msg.eta,
+          concurrency: msg.concurrency || null,
           status: msg.status,
           message: msg.message
         };
         broadcastToAllTabs(progPayload);
         broadcastToAllTabs({ ...progPayload, type: 'NATIVE_DOWNLOAD_PROGRESS' });
+        broadcastToAllTabs({ ...progPayload, type: 'DOOD_NATIVE_PROGRESS' });
         return;
       }
 
@@ -2425,6 +2473,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         const completePayload = {
           type: 'ANOBOY_NATIVE_COMPLETE',
           platform,
+          jobId: videoId,
           videoId: videoId,
           filename: finalName,
           title: params.title,
@@ -2437,6 +2486,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         };
         broadcastToAllTabs(completePayload);
         broadcastToAllTabs({ ...completePayload, type: 'NATIVE_DOWNLOAD_COMPLETE' });
+        broadcastToAllTabs({ ...completePayload, type: 'DOOD_NATIVE_COMPLETE' });
 
         await recordDownloadTelemetry({
           author: params.author || 'AnoBoy',
@@ -2494,6 +2544,15 @@ async function downloadViaNativeChunker(params, _tabId) {
 
         broadcastToAllTabs({
           type: 'ANOBOY_NATIVE_ERROR',
+          jobId: videoId,
+          videoId: videoId,
+          title: params.title,
+          error: displayError,
+          errorCode: errorCode
+        });
+        broadcastToAllTabs({
+          type: 'DOOD_NATIVE_ERROR',
+          jobId: videoId,
           videoId: videoId,
           title: params.title,
           error: displayError,
@@ -2525,15 +2584,37 @@ async function downloadViaNativeChunker(params, _tabId) {
       reject(new Error(err));
     });
 
+    const forwardHeaders = {};
+    if (params.headers && typeof params.headers === 'object') {
+      for (const [k, v] of Object.entries(params.headers)) {
+        if (typeof k === 'string' && v !== null && v !== undefined) {
+          const cleanK = k.replace(/[\r\n]/g, '').trim();
+          const cleanV = String(v)
+            .replace(/[\r\n]/g, '')
+            .trim();
+          if (cleanK) forwardHeaders[cleanK] = cleanV;
+        }
+      }
+    }
+    if (params.referer && typeof params.referer === 'string') {
+      forwardHeaders['Referer'] = params.referer.replace(/[\r\n]/g, '').trim();
+    }
+    if (params.userAgent && typeof params.userAgent === 'string') {
+      forwardHeaders['User-Agent'] = params.userAgent.replace(/[\r\n]/g, '').trim();
+    }
+
     // Send FAST_RANGE_DOWNLOAD to native host
     port.postMessage({
       action: 'FAST_RANGE_DOWNLOAD',
-      url: streamUrl,
+      url: cleanStreamUrl,
       filename: params.filename,
-      referer: params.referer || 'https://anoboy.at/',
+      referer: params.referer || forwardHeaders['Referer'] || 'https://anoboy.at/',
+      headers: forwardHeaders,
+      customHeaders: forwardHeaders,
       videoId: videoId,
+      jobId: videoId,
       title: params.title,
-      author: params.author || 'AnoBoy',
+      author: params.author || (params.platform === 'doodstream' ? 'Doodstream' : 'AnoBoy'),
       userAgent: params.userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
       bloggerToken: params.bloggerToken || null,
       episodeUrl: params.episodeUrl || params.url || null
@@ -2549,7 +2630,8 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
   if (!bloggerHtml || typeof bloggerHtml !== 'string') return null;
 
   // Strict regex: domain must directly be *.googlevideo.com
-  const re = /https?:\/\/[a-zA-Z0-9.\-_]+?\.googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
+  const re =
+    /https?:\/\/(?:[a-zA-Z0-9.\-_]+\.)?googlevideo\.com(?:\/|\\\/)videoplayback[^"'\s<>&;]+/g;
   let match;
   const streams = [];
 
@@ -2572,7 +2654,7 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
 
   if (streams.length === 0) return null;
 
-  if (preferredRes && preferredRes.includes('720')) {
+  if (preferredRes && (preferredRes.includes('1080') || preferredRes.includes('720'))) {
     const s720 = streams.find((s) => s.itag === 22);
     if (s720) return s720.url;
   }
@@ -2586,30 +2668,111 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
   return streams[0].url;
 }
 
+function isValidAnoBoyToken(token) {
+  if (!token || typeof token !== 'string') return false;
+  const clean = token.trim().toLowerCase();
+  return (
+    clean !== 'none' &&
+    clean !== 'null' &&
+    clean !== 'undefined' &&
+    clean !== 'false' &&
+    clean.length >= 10
+  );
+}
+
+function extractAnoBoyCandidateTokens(html, preferredRes = '720p') {
+  if (!html || typeof html !== 'string') return [];
+  const isHd = !preferredRes || preferredRes.includes('720') || preferredRes.includes('1080');
+
+  // 1. Parse all <a ... id="allmiror" ...> elements
+  const mirrorRegex =
+    /<a[^>]*id=["']allmiror["'][^>]*data-video=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  const mirrors = [];
+  while ((m = mirrorRegex.exec(html)) !== null) {
+    const videoData = m[1];
+    const label = m[2].trim();
+    const tokenM =
+      videoData.match(/url=([^&"'>\s]+)/i) || videoData.match(/token=([a-zA-Z0-9_-]+)/i);
+    if (tokenM && isValidAnoBoyToken(tokenM[1])) {
+      mirrors.push({ label, token: tokenM[1], videoData });
+    }
+  }
+
+  const candidateTokens = [];
+
+  // 2. If HD requested, prioritize mirrors matching 720 / HD with valid token
+  if (isHd) {
+    const m720 = mirrors.filter((x) => /720|hd/i.test(x.label));
+    m720.forEach((item) => {
+      if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+    });
+  }
+
+  // 3. Add 360 / SD mirrors
+  const m360 = mirrors.filter((x) => /360|sd/i.test(x.label));
+  m360.forEach((item) => {
+    if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+  });
+
+  // 4. Add any remaining mirrors with valid tokens
+  mirrors.forEach((item) => {
+    if (!candidateTokens.includes(item.token)) candidateTokens.push(item.token);
+  });
+
+  // 5. Check iframe #mediaplayer fallback
+  const mediaplayerMatch = html.match(/id=["']mediaplayer["'][^>]*src=["'][^"']*url=([^&"'>\s]+)/i);
+  if (mediaplayerMatch && isValidAnoBoyToken(mediaplayerMatch[1])) {
+    if (!candidateTokens.includes(mediaplayerMatch[1])) {
+      candidateTokens.push(mediaplayerMatch[1]);
+    }
+  }
+
+  // 6. Check adsbatch fallback
+  const generalMatch = html.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/i);
+  if (generalMatch && isValidAnoBoyToken(generalMatch[1])) {
+    if (!candidateTokens.includes(generalMatch[1])) {
+      candidateTokens.push(generalMatch[1]);
+    }
+  }
+
+  return candidateTokens;
+}
+
+function extractAnoBoyTokenFromHtml(html, preferredRes = '720p') {
+  const tokens = extractAnoBoyCandidateTokens(html, preferredRes);
+  return tokens.length > 0 ? tokens[0] : null;
+}
+
 async function resolveAnoboyStream(payload = {}) {
   const targetUrl = payload.url || '';
-  let token =
-    payload.bloggerToken ||
-    (targetUrl.match(/token=([a-zA-Z0-9_-]+)/)
-      ? targetUrl.match(/token=([a-zA-Z0-9_-]+)/)[1]
-      : null);
+  const tokens = [];
+
+  if (payload.bloggerToken && isValidAnoBoyToken(payload.bloggerToken)) {
+    tokens.push(payload.bloggerToken);
+  }
+
+  const directTokenMatch = targetUrl.match(/token=([a-zA-Z0-9_-]+)/);
+  if (directTokenMatch && isValidAnoBoyToken(directTokenMatch[1])) {
+    if (!tokens.includes(directTokenMatch[1])) tokens.push(directTokenMatch[1]);
+  }
+
   const preferredRes = payload.preferredRes || payload.resolution || '720p';
 
-  // If targetUrl is an episode web page, fetch page to locate adsbatch token or mirror
-  if (!token && targetUrl && (targetUrl.includes('anoboy.at') || targetUrl.includes('anoboy.'))) {
+  // If targetUrl is an episode web page, fetch page to locate candidate tokens
+  if (targetUrl && (targetUrl.includes('anoboy.at') || targetUrl.includes('anoboy.'))) {
     try {
       const pageRes = await fetch(targetUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' }
       });
       if (pageRes.ok) {
         const pageHtml = await pageRes.text();
-        const tokenMatch =
-          pageHtml.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/) ||
-          pageHtml.match(/data-video=["'][^"']*url=([^&"'>\s]+)/) ||
-          pageHtml.match(/token=(AD6v5[a-zA-Z0-9_-]+)/);
-        if (tokenMatch && tokenMatch[1]) {
-          token = tokenMatch[1];
-        } else {
+        const extracted = extractAnoBoyCandidateTokens(pageHtml, preferredRes);
+        extracted.forEach((t) => {
+          if (!tokens.includes(t)) tokens.push(t);
+        });
+
+        if (tokens.length === 0) {
           // Check udl mirrors
           const mirrorMatch = pageHtml.match(
             /href=["'](https?:\/\/[^"']*(?:mp4upload\.com|gofile\.io)[^"']*)["']/i
@@ -2624,11 +2787,18 @@ async function resolveAnoboyStream(payload = {}) {
     }
   }
 
-  if (token) {
+  const activeReferer =
+    payload.referer ||
+    (payload.url && payload.url.startsWith('http')
+      ? new URL(payload.url).origin + '/'
+      : 'https://anoboy.at/');
+
+  for (const token of tokens) {
+    if (!isValidAnoBoyToken(token)) continue;
     try {
       const bloggerUrl = `https://www.blogger.com/video.g?token=${token}`;
       const res = await fetch(bloggerUrl, {
-        headers: { Referer: 'https://anoboy.at/' }
+        headers: { Referer: activeReferer }
       });
       if (res.ok) {
         const html = await res.text();
@@ -2637,7 +2807,10 @@ async function resolveAnoboyStream(payload = {}) {
           return {
             success: true,
             streamUrl: directUrl,
-            itag: directUrl.includes('itag=22') ? 22 : 18
+            itag: directUrl.includes('itag=22') ? 22 : 18,
+            isFallback:
+              !directUrl.includes('itag=22') &&
+              (preferredRes.includes('720') || preferredRes.includes('1080'))
           };
         }
       }
@@ -2970,7 +3143,47 @@ function handleMessage(message, sender, sendResponse) {
     return true;
   }
 
-  // Handle DOWNLOAD_VIDEO (Fallback and direct downloads)
+  // Handle RESOLVE_DOOD_STREAM (Pass MD5 Token Handshake)
+  if (actionType === 'RESOLVE_DOOD_STREAM') {
+    const passUrl = message.passUrl;
+    const referer = message.referer || 'https://dood.to/';
+    fetch(passUrl, {
+      method: 'GET',
+      headers: {
+        Referer: referer,
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Doodstream HTTP ${res.status}: ${res.statusText}`);
+        }
+        const text = await res.text();
+        sendResponse({ success: true, baseCdnUrl: text.trim() });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  // Handle DOWNLOAD_DOOD_NATIVE / NATIVE_DOWNLOAD_STREAM
+  if (actionType === 'DOWNLOAD_DOOD_NATIVE' || actionType === 'NATIVE_DOWNLOAD_STREAM') {
+    const payload =
+      message.payload && typeof message.payload === 'object' ? message.payload : message;
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+    payload.platform = 'doodstream';
+    payload.author = payload.author || 'Doodstream';
+    payload.referer = payload.referer || payload.headers?.Referer || 'https://dood.to/';
+
+    downloadViaNativeChunker(payload, tabId)
+      .then((result) => sendResponse(result))
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
   if (actionType === 'DOWNLOAD_VIDEO') {
     const payload =
       message.payload && typeof message.payload === 'object' ? message.payload : message;
@@ -3065,6 +3278,141 @@ function handleMessage(message, sender, sendResponse) {
       });
     } else {
       sendResponse({ success: true, downloadCount: 0, recentDownloads: [] });
+    }
+    return true;
+  }
+
+  // =========================================================================
+  // Smart History & File Lifecycle Tracker Handlers
+  // =========================================================================
+
+  function callNativeHostOneOff(payload) {
+    return new Promise((resolve, reject) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendNativeMessage) {
+        return reject(new Error('chrome.runtime.sendNativeMessage is unavailable'));
+      }
+      chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, payload, (response) => {
+        if (chrome.runtime.lastError) {
+          return reject(new Error(chrome.runtime.lastError.message));
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  // Handle GET_SMART_HISTORY
+  if (actionType === 'GET_SMART_HISTORY') {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['smartDownloadHistory'], (data) => {
+        const history = Array.isArray(data?.smartDownloadHistory) ? data.smartDownloadHistory : [];
+        sendResponse({ success: true, history });
+      });
+    } else {
+      sendResponse({ success: true, history: [] });
+    }
+    return true;
+  }
+
+  // Handle AUDIT_ALL_HISTORY_FILES
+  if (actionType === 'AUDIT_ALL_HISTORY_FILES') {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['smartDownloadHistory'], async (data) => {
+        const history = Array.isArray(data?.smartDownloadHistory) ? data.smartDownloadHistory : [];
+        if (history.length === 0) {
+          return sendResponse({ success: true, history: [] });
+        }
+
+        try {
+          const res = await callNativeHostOneOff({
+            action: 'AUDIT_FILE_STATUS_BATCH',
+            items: history
+          });
+
+          if (res && res.success && Array.isArray(res.results)) {
+            const resultMap = new Map(res.results.map((r) => [r.id, r]));
+            const updatedHistory = history.map((item) => {
+              if (resultMap.has(item.id)) {
+                const audited = resultMap.get(item.id);
+                return {
+                  ...item,
+                  fileStatus: {
+                    state: audited.state,
+                    currentPath: audited.currentPath,
+                    sizeBytes: audited.sizeBytes,
+                    lastChecked: audited.lastChecked
+                  }
+                };
+              }
+              return item;
+            });
+
+            chrome.storage.local.set({ smartDownloadHistory: updatedHistory }, () => {
+              sendResponse({ success: true, history: updatedHistory });
+            });
+            return;
+          }
+          sendResponse({ success: true, history });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message, history });
+        }
+      });
+    } else {
+      sendResponse({ success: false, error: 'Storage unavailable' });
+    }
+    return true;
+  }
+
+  // Handle OPEN_FILE_LOCATION
+  if (actionType === 'OPEN_FILE_LOCATION') {
+    const targetPath = message.filePath || message.path;
+    callNativeHostOneOff({ action: 'OPEN_FILE_LOCATION', filePath: targetPath })
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Handle PLAY_LOCAL_VIDEO
+  if (actionType === 'PLAY_LOCAL_VIDEO') {
+    const targetPath = message.filePath || message.path;
+    callNativeHostOneOff({ action: 'PLAY_VIDEO_FILE', filePath: targetPath })
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Handle OPEN_RECYCLE_BIN
+  if (actionType === 'OPEN_RECYCLE_BIN') {
+    callNativeHostOneOff({ action: 'OPEN_RECYCLE_BIN' })
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Handle CLEAR_SMART_HISTORY
+  if (actionType === 'CLEAR_SMART_HISTORY') {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ smartDownloadHistory: [] }, () => {
+        sendResponse({ success: true, history: [] });
+      });
+    } else {
+      sendResponse({ success: true, history: [] });
+    }
+    return true;
+  }
+
+  // Handle REMOVE_HISTORY_ITEM
+  if (actionType === 'REMOVE_HISTORY_ITEM') {
+    const itemId = message.id;
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['smartDownloadHistory'], (data) => {
+        const history = Array.isArray(data?.smartDownloadHistory) ? data.smartDownloadHistory : [];
+        const filtered = history.filter((it) => it.id !== itemId);
+        chrome.storage.local.set({ smartDownloadHistory: filtered }, () => {
+          sendResponse({ success: true, history: filtered });
+        });
+      });
+    } else {
+      sendResponse({ success: true });
     }
     return true;
   }
@@ -3806,6 +4154,7 @@ if (typeof module !== 'undefined' && module.exports) {
     sanitizeAnoboyTitle,
     formatAnoboyFilename,
     extractStreamFromBloggerHtml,
+    extractAnoBoyTokenFromHtml,
     resolveAnoboyStream,
     SHINIGAMI_CDN_RULES,
     sanitizeShinigamiTitle,
