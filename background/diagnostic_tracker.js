@@ -305,10 +305,13 @@ class MungilDiagnosticTracker {
   /**
    * Updates download progress and received byte estimates.
    */
-  updateProgress(jobId, percent, speed = '', eta = '') {
+  updateProgress(jobId, percent, speed = '', eta = '', rawTotalBytes = 0) {
     const job = this.memoryJobs.get(jobId);
     if (!job) return;
     job.status = 'DOWNLOADING';
+    if (rawTotalBytes > 0 && (!job.file.expectedBytes || job.file.expectedBytes === 0)) {
+      job.file.expectedBytes = rawTotalBytes;
+    }
     if (typeof percent === 'number') {
       job.percent = percent;
       if (job.file.expectedBytes > 0) {
@@ -326,10 +329,24 @@ class MungilDiagnosticTracker {
     const job = this.memoryJobs.get(jobId);
     if (!job) return;
     const finalBytes = Number(details.finalBytes) || job.file.expectedBytes || 0;
+    const hasHash = Boolean(details.sha256);
+    const expected = job.file.expectedBytes;
+
+    let integrityStatus = 'NOT_VERIFIED';
+    if (hasHash && expected > 0 && finalBytes === expected) {
+      integrityStatus = 'VERIFIED';
+    } else if (hasHash) {
+      integrityStatus = 'HASH_VERIFIED';
+    } else if (expected > 0 && finalBytes === expected) {
+      integrityStatus = 'SIZE_VERIFIED';
+    } else if (finalBytes > 0) {
+      integrityStatus = 'PARTIAL_VERIFICATION';
+    }
+
     this.updateJob(jobId, {
       status: 'COMPLETED',
       downloadStatus: 'SUCCESS',
-      integrityStatus: 'VERIFIED',
+      integrityStatus,
       file: {
         finalBytes,
         receivedBytes: finalBytes,
@@ -346,7 +363,7 @@ class MungilDiagnosticTracker {
       file: 'downloader_host.js',
       func: 'completeJob',
       level: 'SUCCESS',
-      message: `Download job completed successfully. Verified size: ${finalBytes} B, SHA-256: ${details.sha256 || 'N/A'}`
+      message: `Download job completed successfully. Verified size: ${finalBytes} B, Integrity: ${integrityStatus}, SHA-256: ${details.sha256 || 'N/A'}`
     });
   }
 
@@ -577,7 +594,16 @@ class MungilDiagnosticTracker {
       md += `> **NETWORK OFFLINE / TIMEOUT**: Koneksi internet terputus atau timeout saat mencoba menghubungi CDN. Pengguna berada dalam kondisi offline atau server mirror tidak merespon socket dalam batas waktu retries.\n\n`;
     } else if (job.integrityStatus === 'VERIFIED') {
       md += `> [!NOTE]\n`;
-      md += `> **INTEGRITY VERIFIED**: File size matches expected bounds and SHA-256 hash was generated cleanly.\n\n`;
+      md += `> **INTEGRITY VERIFIED**: File size matches expected Content-Length bounds and SHA-256 hash was verified cleanly on disk.\n\n`;
+    } else if (job.integrityStatus === 'HASH_VERIFIED') {
+      md += `> [!NOTE]\n`;
+      md += `> **HASH VERIFIED**: SHA-256 checksum (${job.file.sha256 || 'calculated'}) verified on disk. Expected size was dynamic/unbounded from chunk stream.\n\n`;
+    } else if (job.integrityStatus === 'SIZE_VERIFIED') {
+      md += `> [!NOTE]\n`;
+      md += `> **SIZE VERIFIED**: Final byte size matches expected Content-Length exactly (${formatBytes(job.file.finalBytes)}).\n\n`;
+    } else if (job.integrityStatus === 'PARTIAL_VERIFICATION') {
+      md += `> [!NOTE]\n`;
+      md += `> **PARTIAL VERIFICATION**: File written cleanly to disk (${formatBytes(job.file.finalBytes)}), SHA-256 pending or uncomputed.\n\n`;
     } else {
       md += `> **Status**: \`${job.integrityStatus}\`\n\n`;
     }

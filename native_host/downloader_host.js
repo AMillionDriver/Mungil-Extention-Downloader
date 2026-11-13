@@ -15,6 +15,7 @@ const os = require('os');
 const http = require('http');
 const https = require('https');
 const net = require('net');
+const nodeCrypto = require('node:crypto');
 const { spawn, execSync } = require('child_process');
 
 // Dedicated persistent HTTP / HTTPS agent pool for range chunk socket reuse
@@ -1269,7 +1270,7 @@ function computeFileSha256(filePath) {
   return new Promise((resolve) => {
     try {
       if (!fs.existsSync(filePath)) return resolve(null);
-      const hash = crypto.createHash('sha256');
+      const hash = nodeCrypto.createHash('sha256');
       const stream = fs.createReadStream(filePath);
       stream.on('data', (chunk) => hash.update(chunk));
       stream.on('end', () => resolve(hash.digest('hex')));
@@ -1970,6 +1971,7 @@ async function downloadWithRangeChunks(msg) {
         part: `Turbo Chunker (${chunks.length}x)`,
         percent: initialPct,
         totalSize: formatBytes(totalSize),
+        rawTotalBytes: totalSize,
         speed: isResuming ? 'Melanjutkan...' : 'Memulai...',
         eta: '',
         videoId: msg.videoId,
@@ -2002,6 +2004,7 @@ async function downloadWithRangeChunks(msg) {
             concurrency: currentConcurrency,
             percent: pct,
             totalSize: formatBytes(totalSize),
+            rawTotalBytes: totalSize,
             speed: `${formatBytes(speedBytes)}/s`,
             eta: formatDuration(etaSec),
             videoId: msg.videoId,
@@ -2049,7 +2052,9 @@ async function downloadWithRangeChunks(msg) {
           }
 
           incompleteChunk.inFlight = true;
+          incompleteChunk.attempts = (incompleteChunk.attempts || 0) + 1;
           job.activeWorkers++;
+          const chunkStartTime = Date.now();
 
           downloadChunkTask(
             job.url || probedUrl,
@@ -2067,6 +2072,35 @@ async function downloadWithRangeChunks(msg) {
             .then(() => {
               incompleteChunk.inFlight = false;
               if (job.activeWorkers > 0) job.activeWorkers--;
+              const chunkDurationMs = Date.now() - chunkStartTime;
+
+              // Emit chunk completion event for Mungil Diagnostic Tracker
+              sendMessage({
+                type: 'PROGRESS',
+                status: 'downloading',
+                part: `Turbo Chunker (${job.aimd ? job.aimd.concurrency : Math.min(chunks.length, 16)}x Adaptive)`,
+                concurrency: job.aimd ? job.aimd.concurrency : Math.min(chunks.length, 16),
+                percent: Math.min(99, Math.round((totalDownloaded / totalSize) * 100)),
+                totalSize: formatBytes(totalSize),
+                rawTotalBytes: totalSize,
+                speed: `${formatBytes(bytesSinceLastProgress)}/s`,
+                eta: '',
+                videoId: msg.videoId,
+                taskId,
+                title: msg.title,
+                chunk: {
+                  slotId: `chunk-worker-${String((incompleteChunk.index || 0) % 16).padStart(2, '0')}`,
+                  chunkIndex: incompleteChunk.index || 0,
+                  rangeStart: incompleteChunk.start,
+                  rangeEnd: incompleteChunk.end,
+                  httpStatus: 206,
+                  bytesReceived: incompleteChunk.written,
+                  attempt: incompleteChunk.attempts || 1,
+                  status: 'SUCCESS',
+                  durationMs: chunkDurationMs
+                }
+              });
+
               startNextWorker();
             })
             .catch((err) => {

@@ -2093,6 +2093,21 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
       eta: ''
     };
 
+    if (diagnosticTrackerInstance) {
+      try {
+        diagnosticTrackerInstance.createJob({
+          jobId: videoId,
+          platform,
+          title: params.title || 'Video',
+          rawUrl: videoUrl,
+          episodeNum: params.episode || params.episodeNum || 1,
+          resolution: params.quality || (isDataSaver ? '720p' : '1080p'),
+          expectedBytes: params.expectedBytes || 0,
+          filename: params.filename || `${params.title || videoId}.mp4`
+        });
+      } catch (_) {}
+    }
+
     updateActionBadge('0%', '#2563eb');
 
     port.onMessage.addListener(async (msg) => {
@@ -2102,6 +2117,18 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
       if (msg.type === 'PROGRESS') {
         const percent = typeof msg.percent === 'number' ? msg.percent : 0;
         const part = msg.part || (msg.status === 'merging' ? 'Muxing MP4' : 'Video');
+
+        if (diagnosticTrackerInstance) {
+          try {
+            diagnosticTrackerInstance.updateProgress(
+              videoId,
+              percent,
+              msg.speed,
+              msg.eta,
+              msg.rawTotalBytes
+            );
+          } catch (_) {}
+        }
 
         if (activeDownloads[videoId]) {
           activeDownloads[videoId].part = part;
@@ -2221,6 +2248,16 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           filename: finalName
         });
 
+        if (diagnosticTrackerInstance) {
+          try {
+            diagnosticTrackerInstance.completeJob(videoId, {
+              finalBytes: msg.rawBytes || 0,
+              sha256: msg.sha256 || null,
+              filePath: finalName
+            });
+          } catch (_) {}
+        }
+
         resolve({
           success: true,
           native: true,
@@ -2292,6 +2329,14 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
           dateStr: dateStr,
           timeStr: timeStr
         });
+
+        if (diagnosticTrackerInstance) {
+          try {
+            diagnosticTrackerInstance.failJob(videoId, displayError, {
+              errorType: errorCode || 'DOWNLOAD_ERROR'
+            });
+          } catch (_) {}
+        }
 
         reject(new Error(displayError));
         try {
@@ -2470,7 +2515,13 @@ async function downloadViaNativeChunker(params, _tabId) {
 
         if (diagnosticTrackerInstance) {
           try {
-            diagnosticTrackerInstance.updateProgress(videoId, percent, msg.speed, msg.eta);
+            diagnosticTrackerInstance.updateProgress(
+              videoId,
+              percent,
+              msg.speed,
+              msg.eta,
+              msg.rawTotalBytes
+            );
             if (msg.chunk) {
               diagnosticTrackerInstance.recordChunk(videoId, msg.chunk);
             }
@@ -3369,7 +3420,7 @@ function handleMessage(message, sender, sendResponse) {
     return true;
   }
 
-  // Handle DOWNLOAD_FACEBOOK_NATIVE (Facebook Reels Turbo Chunker)
+  // Handle DOWNLOAD_FACEBOOK_NATIVE (Facebook Reels Turbo Chunker with yt-dlp fallback)
   if (actionType === 'DOWNLOAD_FACEBOOK_NATIVE') {
     const payload =
       message.payload && typeof message.payload === 'object' ? message.payload : message;
@@ -3387,12 +3438,35 @@ function handleMessage(message, sender, sendResponse) {
       )
     });
 
-    downloadViaNativeChunker(fbPayload, tabId)
-      .then((result) => sendResponse(result))
-      .catch((err) => {
-        console.warn('[SW] Facebook Turbo Chunker error:', err.message);
-        sendResponse({ success: false, error: err.message });
-      });
+    if (fbPayload.url && typeof fbPayload.url === 'string' && fbPayload.url.startsWith('http')) {
+      downloadViaNativeChunker(fbPayload, tabId)
+        .then((result) => sendResponse(result))
+        .catch((err) => {
+          console.warn('[SW] Facebook Turbo Chunker failed, falling back to yt-dlp:', err.message);
+          downloadViaNativeYtDlp(
+            Object.assign({}, fbPayload, { url: fbPayload.pageUrl || fbPayload.url }),
+            tabId
+          )
+            .then((res) => sendResponse(res))
+            .catch((e) => sendResponse({ success: false, error: e.message }));
+        });
+    } else {
+      // Direct progressive stream was not exposed in Comet/Relay JSON:
+      // Delegate directly to Native Host's yt-dlp extractor with Chrome cookies/session
+      const targetUrl =
+        fbPayload.pageUrl ||
+        (fbPayload.reelId ? `https://www.facebook.com/reel/${fbPayload.reelId}` : null);
+      if (!targetUrl) {
+        sendResponse({ success: false, error: 'URL stream video tidak ditemukan.' });
+        return false;
+      }
+      downloadViaNativeYtDlp(Object.assign({}, fbPayload, { url: targetUrl }), tabId)
+        .then((res) => sendResponse(res))
+        .catch((err) => {
+          console.warn('[SW] Facebook yt-dlp fallback error:', err.message);
+          sendResponse({ success: false, error: err.message });
+        });
+    }
     return true;
   }
 
