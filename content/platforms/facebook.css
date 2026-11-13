@@ -3,6 +3,42 @@
  * Native dark & light mode styling conforming to Meta design system
  */
 
+/* Video Player Overlay FAB */
+.mungil-fb-video-fab {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 99999;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+  padding: 8px 16px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.mungil-fb-video-fab:hover {
+  background: #0284c7;
+  border-color: #38bdf8;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.4);
+}
+
+.mungil-fb-video-fab svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
 /* Circular Action Rail Button */
 .mungil-fb-action-btn-wrap {
   display: flex;

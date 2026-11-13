@@ -136,27 +136,80 @@
   }
 
   /**
+   * Multi-strategy locator to find the active Reel's action rail or Share button
+   */
+  function findReelActionAnchor() {
+    // 1. Share / Bagikan (case-insensitive substring)
+    const shareCandidates = Array.from(
+      document.querySelectorAll(
+        '[aria-label*="Bagikan" i], [aria-label*="Share" i], [aria-label*="Compartir" i], [aria-label*="Condividi" i], [aria-label*="Kirim" i], [aria-label*="Send" i]'
+      )
+    );
+    if (shareCandidates.length > 0) {
+      return shareCandidates[shareCandidates.length - 1];
+    }
+
+    // 2. Comment / Komentar (case-insensitive substring)
+    const commentCandidates = Array.from(
+      document.querySelectorAll('[aria-label*="Komentar" i], [aria-label*="Comment" i]')
+    );
+    if (commentCandidates.length > 0) {
+      return commentCandidates[commentCandidates.length - 1];
+    }
+
+    // 3. Like / Suka (case-insensitive substring)
+    const likeCandidates = Array.from(
+      document.querySelectorAll('[aria-label*="Suka" i], [aria-label*="Like" i]')
+    );
+    if (likeCandidates.length > 0) {
+      return likeCandidates[likeCandidates.length - 1];
+    }
+
+    // 4. More / Lainnya / Opsi (case-insensitive substring)
+    const moreCandidates = Array.from(
+      document.querySelectorAll(
+        '[aria-label*="Lainnya" i], [aria-label*="More" i], [aria-label*="Opsi" i], [aria-label*="Action" i]'
+      )
+    );
+    if (moreCandidates.length > 0) {
+      return moreCandidates[moreCandidates.length - 1];
+    }
+
+    // 5. Detect cluster of buttons near active video
+    const video = document.querySelector('video');
+    if (video) {
+      let card =
+        video.closest('div[role="main"]') ||
+        video.closest('div[data-pagelet]') ||
+        video.parentElement?.parentElement?.parentElement;
+      if (card) {
+        const buttons = Array.from(card.querySelectorAll('div[role="button"], button'));
+        if (buttons.length >= 2) {
+          return buttons[buttons.length - 1];
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Injects download button into single Reel action rail (Screenshots 1 & 2)
    */
   function injectSingleReelButton() {
     const reelId = getReelIdFromUrl();
     if (!reelId) return;
 
-    // Locate the Share button or right-hand action column
-    // Semantic selectors matching Indonesian, English, and general Meta locales
-    const shareBtn =
-      document.querySelector('[aria-label="Bagikan"]') ||
-      document.querySelector('[aria-label="Share"]') ||
-      document.querySelector('[aria-label="Bagikan sekarang"]') ||
-      document.querySelector('[aria-label="Compartir"]');
-
-    if (!shareBtn) return;
+    const anchor = findReelActionAnchor();
+    if (!anchor) return;
 
     // Find parent container in rail
-    const actionContainer = shareBtn.closest('div[role="complementary"]') || shareBtn.parentElement;
-    if (!actionContainer) return;
+    const actionContainer =
+      anchor.closest('div[role="complementary"]') ||
+      anchor.closest('div[role="toolbar"]') ||
+      anchor.parentElement?.parentElement ||
+      anchor.parentElement;
 
-    // Check if button already injected
+    if (!actionContainer) return;
     if (actionContainer.querySelector('.mungil-fb-action-btn-wrap')) return;
 
     const wrap = document.createElement('div');
@@ -214,12 +267,85 @@
       }
     });
 
-    // Inject immediately adjacent to Share button's parent element
-    if (shareBtn.parentElement && shareBtn.parentElement.parentElement) {
-      shareBtn.parentElement.parentElement.insertBefore(wrap, shareBtn.parentElement.nextSibling);
+    if (anchor.parentElement && anchor.parentElement.parentElement === actionContainer) {
+      actionContainer.insertBefore(wrap, anchor.parentElement.nextSibling);
     } else {
       actionContainer.appendChild(wrap);
     }
+  }
+
+  /**
+   * Video Player Overlay FAB: Injects persistent top-right download button directly onto the video container
+   */
+  function injectVideoOverlayFab() {
+    const reelId = getReelIdFromUrl();
+    if (!reelId) return;
+
+    const video = document.querySelector('video');
+    if (!video) return;
+
+    let container = video.parentElement;
+    while (container && container !== document.body && container.clientWidth < 200) {
+      container = container.parentElement;
+    }
+    if (!container || container === document.body) return;
+
+    if (container.querySelector('.mungil-fb-video-fab')) return;
+
+    const computedPos = window.getComputedStyle ? window.getComputedStyle(container).position : '';
+    if (computedPos === 'static') {
+      container.style.position = 'relative';
+    }
+
+    const fab = document.createElement('button');
+    fab.type = 'button';
+    fab.className = 'mungil-fb-video-fab';
+    fab.setAttribute('data-reel-id', reelId);
+    fab.innerHTML = `${FB_ICONS.download} <span>Unduh Reel</span>`;
+
+    fab.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      fab.innerHTML = `${FB_ICONS.loading} <span>Memeriksa...</span>`;
+      fab.disabled = true;
+
+      const streamRes = await requestStreamFromBridge(reelId);
+      const author = sanitizeWindowsFilename(getAuthorFromDom());
+      const caption = sanitizeWindowsFilename(getCaptionFromDom());
+      const filename = `facebook_${author}_${reelId}_${caption}.mp4`;
+
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            action: 'DOWNLOAD_FACEBOOK_NATIVE',
+            url: streamRes?.streamUrl || null,
+            reelId,
+            filename,
+            title: `${author} - Reel ${reelId}`,
+            author,
+            quality: streamRes?.quality || 'HD',
+            pageUrl: window.location.href
+          },
+          (res) => {
+            if (res && res.success) {
+              fab.innerHTML = `${FB_ICONS.success} <span>Tersimpan!</span>`;
+              setTimeout(() => {
+                fab.disabled = false;
+                fab.innerHTML = `${FB_ICONS.download} <span>Unduh Reel</span>`;
+              }, 3000);
+            } else {
+              fab.innerHTML = `${FB_ICONS.error} <span>Gagal</span>`;
+              setTimeout(() => {
+                fab.disabled = false;
+                fab.innerHTML = `${FB_ICONS.download} <span>Unduh Reel</span>`;
+              }, 3500);
+            }
+          }
+        );
+      }
+    });
+
+    container.appendChild(fab);
   }
 
   /**
@@ -387,14 +513,15 @@
     });
   }
 
-  // 250ms debouncer observer
+  // 200ms debouncer observer
   let debounceTimer = null;
   function scanAndInject() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       injectSingleReelButton();
+      injectVideoOverlayFab();
       injectProfileGridFeatures();
-    }, 250);
+    }, 200);
   }
 
   if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
@@ -408,6 +535,10 @@
         scanAndInject();
       });
     }
+    // Periodic safety retries for dynamic React SPA hydration
+    setTimeout(scanAndInject, 300);
+    setTimeout(scanAndInject, 1000);
+    setTimeout(scanAndInject, 2500);
   }
 
   // Export for Unit Testing
@@ -417,6 +548,7 @@
       sanitizeWindowsFilename,
       getReelIdFromUrl,
       injectSingleReelButton,
+      injectVideoOverlayFab,
       setButtonState
     };
   }
