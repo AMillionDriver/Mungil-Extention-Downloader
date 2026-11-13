@@ -278,6 +278,13 @@
   color: #121214;
 }
 
+.mungil-sn-options-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .mungil-sn-format-picker {
   display: flex;
   align-items: center;
@@ -296,6 +303,30 @@
   color: var(--sn-text-main);
   font-size: 12px;
   font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+.mungil-sn-worker-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mungil-sn-worker-picker label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sn-text-muted);
+}
+
+.mungil-sn-worker-picker select {
+  background: var(--sn-bg-surface);
+  border: 1px solid var(--sn-border);
+  color: var(--sn-accent-gold);
+  font-size: 12px;
+  font-weight: 700;
   padding: 6px 12px;
   border-radius: 8px;
   cursor: pointer;

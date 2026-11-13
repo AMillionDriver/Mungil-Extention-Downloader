@@ -248,18 +248,30 @@
           ? window.location.href
           : 'https://11.shinigami.asia/';
 
-      const apiUrl = `https://api.shngm.io/v1/chapter/${mangaId}/list?page=1&page_size=100&sort_by=chapter_number&sort_order=asc`;
-      const res = await fetch(apiUrl, {
-        headers: {
-          Origin: origin,
-          Referer: referer
-        }
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (!json || !Array.isArray(json.data)) return [];
+      let allData = [];
+      let page = 1;
+      let hasMore = true;
 
-      return json.data
+      while (hasMore && page <= 15) {
+        const apiUrl = `https://api.shngm.io/v1/chapter/${mangaId}/list?page=${page}&page_size=100&sort_by=chapter_number&sort_order=asc`;
+        const res = await fetch(apiUrl, {
+          headers: {
+            Origin: origin,
+            Referer: referer
+          }
+        });
+        if (!res.ok) break;
+        const json = await res.json();
+        if (!json || !Array.isArray(json.data) || json.data.length === 0) break;
+        allData = allData.concat(json.data);
+        if (json.data.length < 100) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+
+      return allData
         .map((c) => {
           const num = c.chapter_number || 1;
           const title = (c.chapter_title && c.chapter_title.trim()) || `Chapter ${num}`;
@@ -394,34 +406,76 @@
   }
 
   /**
+   * Helper: Parallel Worker Pool executor
+   * Concurrently processes items through worker slots while maintaining strict input order.
+   */
+  async function mapConcurrent(items, concurrency, asyncFn, onProgress) {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const results = new Array(items.length);
+    let nextIdx = 0;
+    let completed = 0;
+
+    async function worker() {
+      while (nextIdx < items.length) {
+        const i = nextIdx++;
+        try {
+          results[i] = await asyncFn(items[i], i);
+        } catch (err) {
+          console.warn(`${LOG_PREFIX} Item worker error at index ${i}:`, err.message);
+          results[i] = null;
+        } finally {
+          completed++;
+          if (typeof onProgress === 'function') {
+            onProgress(completed, items.length);
+          }
+        }
+      }
+    }
+
+    const workerLimit = Math.max(1, Math.min(concurrency || 8, items.length));
+    const workers = [];
+    for (let w = 0; w < workerLimit; w++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    return results;
+  }
+
+  /**
    * Generates a valid standard PDF 1.4 file containing all chapter images.
    */
   async function generateChapterPdf(images, onProgress) {
-    // Collect JPEG byte buffers from each image
-    const pageDataList = [];
+    // Collect JPEG byte buffers from each image using parallel image workers
+    const rawPages = await mapConcurrent(
+      images,
+      8,
+      async (imgUrl) => {
+        const img = await loadImageElement(imgUrl);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0);
 
-    for (let i = 0; i < images.length; i++) {
-      if (typeof onProgress === 'function') {
-        onProgress(i + 1, images.length, 'Mengonversi halaman...');
+        const jpegBlob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+        const jpegBuffer = await jpegBlob.arrayBuffer();
+
+        return {
+          width: canvas.width,
+          height: canvas.height,
+          bytes: new Uint8Array(jpegBuffer)
+        };
+      },
+      (curr, total) => {
+        if (typeof onProgress === 'function') {
+          onProgress(curr, total, 'Mengonversi halaman...');
+        }
       }
-      const img = await loadImageElement(images[i]);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, 0, 0);
+    );
 
-      const jpegBlob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.98));
-      const jpegBuffer = await jpegBlob.arrayBuffer();
-
-      pageDataList.push({
-        width: canvas.width,
-        height: canvas.height,
-        bytes: new Uint8Array(jpegBuffer)
-      });
-    }
+    const pageDataList = rawPages.filter(Boolean);
 
     if (typeof onProgress === 'function') {
       onProgress(images.length, images.length, 'Merakit PDF...');
@@ -521,16 +575,24 @@
    * Stitches all chapter panels vertically into a single continuous WebP image.
    */
   async function generateLongImage(images, onProgress) {
-    const loadedImages = [];
+    const rawImages = await mapConcurrent(
+      images,
+      8,
+      async (url) => {
+        return await loadImageElement(url);
+      },
+      (curr, total) => {
+        if (typeof onProgress === 'function') {
+          onProgress(curr, total, 'Memuat panel gambar...');
+        }
+      }
+    );
+
+    const loadedImages = rawImages.filter(Boolean);
     let totalHeight = 0;
     let maxWidth = 0;
 
-    for (let i = 0; i < images.length; i++) {
-      if (typeof onProgress === 'function') {
-        onProgress(i + 1, images.length, 'Memuat panel gambar...');
-      }
-      const img = await loadImageElement(images[i]);
-      loadedImages.push(img);
+    for (const img of loadedImages) {
       const w = img.naturalWidth || img.width;
       const h = img.naturalHeight || img.height;
       if (w > maxWidth) maxWidth = w;
@@ -573,8 +635,6 @@
    * Packages all chapter panels into a pure PKZIP archive (.cbz / .zip).
    */
   async function generateCbzArchive(images, onProgress) {
-    const fileEntries = [];
-
     // Helper: Simple CRC32 implementation
     const makeCrcTable = () => {
       let c;
@@ -597,19 +657,27 @@
       return (crc ^ -1) >>> 0;
     };
 
-    for (let i = 0; i < images.length; i++) {
-      if (typeof onProgress === 'function') {
-        onProgress(i + 1, images.length, 'Mengunduh panel WebP...');
+    const rawEntries = await mapConcurrent(
+      images,
+      12,
+      async (url, i) => {
+        const buf = await fetchImageBuffer(url);
+        const bytes = new Uint8Array(buf);
+        const filename = `page_${String(i + 1).padStart(3, '0')}.webp`;
+        return {
+          name: filename,
+          data: bytes,
+          crc: crc32(bytes)
+        };
+      },
+      (curr, total) => {
+        if (typeof onProgress === 'function') {
+          onProgress(curr, total, 'Mengunduh panel WebP...');
+        }
       }
-      const buf = await fetchImageBuffer(images[i]);
-      const bytes = new Uint8Array(buf);
-      const filename = `page_${String(i + 1).padStart(3, '0')}.webp`;
-      fileEntries.push({
-        name: filename,
-        data: bytes,
-        crc: crc32(bytes)
-      });
-    }
+    );
+
+    const fileEntries = rawEntries.filter(Boolean);
 
     if (typeof onProgress === 'function') {
       onProgress(images.length, images.length, 'Mengompresi CBZ/ZIP...');
@@ -772,13 +840,23 @@
             <button type="button" class="mungil-sn-chip" data-filter="next">Ch ≥ ${currentChNum}</button>
             <button type="button" class="mungil-sn-chip" data-filter="none">Batal</button>
           </div>
-          <div class="mungil-sn-format-picker">
-            <label for="mungil-sn-format-select">Format:</label>
-            <select id="mungil-sn-format-select">
-              <option value="cbz" selected>CBZ / ZIP Archive (Lossless Original HD)</option>
-              <option value="pdf">PDF Document (E-Book HD)</option>
-              <option value="long_image">Long Image (Webtoon Strip)</option>
-            </select>
+          <div class="mungil-sn-options-group">
+            <div class="mungil-sn-format-picker">
+              <label for="mungil-sn-format-select">Format:</label>
+              <select id="mungil-sn-format-select">
+                <option value="cbz" selected>CBZ / ZIP Archive (Lossless Original HD)</option>
+                <option value="pdf">PDF Document (E-Book HD)</option>
+                <option value="long_image">Long Image (Webtoon Strip)</option>
+              </select>
+            </div>
+            <div class="mungil-sn-worker-picker">
+              <label for="mungil-sn-workers-select">Workers:</label>
+              <select id="mungil-sn-workers-select">
+                <option value="2">2x Slots</option>
+                <option value="4" selected>4x Turbo</option>
+                <option value="8">8x Extreme</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -870,20 +948,24 @@
         startBtn.innerHTML = `<span>Memproses (${selected.length})...</span>`;
 
         const formatSelect = modal.querySelector('#mungil-sn-format-select');
-        const format = formatSelect ? formatSelect.value : 'pdf';
+        const format = formatSelect ? formatSelect.value : 'cbz';
 
-        executeBatchMangaDownload(data.title, selected, format, modal);
+        const workersSelect = modal.querySelector('#mungil-sn-workers-select');
+        const workers = workersSelect ? parseInt(workersSelect.value, 10) || 4 : 4;
+
+        executeBatchMangaDownload(data.title, selected, format, modal, workers);
       });
     }
   }
 
   // =========================================================================
-  // 5. Paced Sequential Chapter Download Execution
+  // 5. High-Throughput Multi-Worker Chapter Download Execution
   // =========================================================================
 
-  async function executeBatchMangaDownload(mangaTitle, items, format, modalEl) {
+  async function executeBatchMangaDownload(mangaTitle, items, format, modalEl, maxWorkers = 4) {
     let active = 0;
     let idx = 0;
+    let slotCounter = 0;
 
     const runNext = async () => {
       if (idx >= items.length && active === 0) {
@@ -895,13 +977,14 @@
         return;
       }
 
-      while (active < 2 && idx < items.length) {
+      while (active < maxWorkers && idx < items.length) {
         const item = items[idx++];
         active++;
+        const workerId = (slotCounter++ % maxWorkers) + 1;
 
         const statusEl = modalEl?.querySelector(`#sn-status-${item.chapterNumber}`);
         if (statusEl) {
-          statusEl.textContent = 'Memuat Info...';
+          statusEl.textContent = `W#${workerId}: Memuat...`;
           statusEl.style.color = 'var(--sn-text-muted, #9E9E9E)';
         }
 
@@ -922,24 +1005,24 @@
             if (format === 'long_image') {
               ext = 'webp';
               blob = await generateLongImage(detail.imageUrls, (curr, total, _msg) => {
-                if (statusEl) statusEl.textContent = `${curr}/${total}`;
+                if (statusEl) statusEl.textContent = `W#${workerId}: ${curr}/${total}`;
               });
             } else if (format === 'cbz') {
               ext = 'cbz';
               blob = await generateCbzArchive(detail.imageUrls, (curr, total, _msg) => {
-                if (statusEl) statusEl.textContent = `${curr}/${total}`;
+                if (statusEl) statusEl.textContent = `W#${workerId}: ${curr}/${total}`;
               });
             } else {
               ext = 'pdf';
               blob = await generateChapterPdf(detail.imageUrls, (curr, total, _msg) => {
-                if (statusEl) statusEl.textContent = `${curr}/${total}`;
+                if (statusEl) statusEl.textContent = `W#${workerId}: ${curr}/${total}`;
               });
             }
 
             if (!blob) throw new Error('Blob generation failed');
 
             if (statusEl) {
-              statusEl.textContent = 'Menyimpan...';
+              statusEl.textContent = `W#${workerId}: Menyimpan...`;
               statusEl.style.color = '#FFB300';
             }
 
@@ -953,7 +1036,7 @@
 
             if (statusEl) {
               if (saved) {
-                statusEl.textContent = '✓ Saved';
+                statusEl.textContent = `✓ Ch ${item.chapterNumber} Saved`;
                 statusEl.style.color = '#00E676';
               } else {
                 statusEl.textContent = 'Failed';
