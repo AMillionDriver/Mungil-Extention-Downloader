@@ -9306,6 +9306,217 @@ async function runAllSuites() {
   );
 
   // --------------------------------------------------------------------------
+  // SUITE 39: Cloudflare Worker Hybrid Control Plane & Resilient Failover
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 39: Cloudflare Worker Hybrid Control Plane & Resilient Failover',
+    async ({ test }) => {
+      const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+
+      test('Service Worker exports Cloudflare Worker Control Plane contracts', () => {
+        assert.ok(
+          typeof sw.resolveViaWorker === 'function',
+          'resolveViaWorker must be exported as an async function'
+        );
+        assert.strictEqual(
+          typeof sw.WORKER_CONTROL_PLANE_URL,
+          'string',
+          'WORKER_CONTROL_PLANE_URL must be a valid string'
+        );
+        assert.ok(
+          sw.WORKER_CONTROL_PLANE_URL.includes('mungil-si-validator'),
+          'WORKER_CONTROL_PLANE_URL points to mungil-si-validator'
+        );
+        assert.strictEqual(
+          sw.WORKER_CLIENT_HANDSHAKE,
+          'mungil-extension/v1.0',
+          'Worker handshake token is mungil-extension/v1.0'
+        );
+      });
+
+      test('resolveViaWorker propagates handshake header and parses edge cache layer', async () => {
+        const originalFetch = global.fetch;
+        let capturedHeaders = null;
+        let capturedUrl = null;
+
+        try {
+          global.fetch = async (url, opts) => {
+            capturedUrl = url;
+            capturedHeaders = opts?.headers;
+            return {
+              ok: true,
+              status: 200,
+              headers: {
+                get: (header) =>
+                  header.toLowerCase() === 'x-cache-layer' ? 'HIT_COLO_CACHE_API' : null
+              },
+              json: async () => ({
+                success: true,
+                source: 'anoboy',
+                resolvedQuality: '720p',
+                directUrl: 'https://www.blogger.com/video.g?token=edgeResolvedToken123456'
+              })
+            };
+          };
+
+          const result = await sw.resolveViaWorker(
+            'https://anoboy.at/2026/10/naruto-episode-1/',
+            '720p'
+          );
+          assert.ok(result, 'Result should be non-null on success');
+          assert.strictEqual(result.success, true);
+          assert.strictEqual(result.source, 'worker');
+          assert.strictEqual(result.cacheLayer, 'HIT_COLO_CACHE_API');
+          assert.strictEqual(
+            result.streamUrl,
+            'https://www.blogger.com/video.g?token=edgeResolvedToken123456'
+          );
+          assert.ok(
+            capturedHeaders && capturedHeaders['x-mungil-client'] === 'mungil-extension/v1.0'
+          );
+          assert.ok(capturedUrl.includes('/api/v1/resolve/anoboy?url='));
+        } finally {
+          global.fetch = originalFetch;
+        }
+      });
+
+      test('Fail-Fast Local Failover: Worker failure seamlessly triggers local browser fallback', async () => {
+        const originalFetch = global.fetch;
+
+        try {
+          // Worker returns 502 Bad Gateway
+          global.fetch = async (url) => {
+            if (url.includes('mungil-si-validator')) {
+              return {
+                ok: false,
+                status: 502,
+                headers: { get: () => null },
+                json: async () => ({ success: false, error: 'Upstream down' })
+              };
+            }
+            // Local fallback blogger fetch
+            if (url.includes('blogger.com/video.g?token=')) {
+              return {
+                ok: true,
+                status: 200,
+                headers: { get: () => null },
+                text: async () =>
+                  `<html><video><source src="https://redirector.googlevideo.com/videoplayback?itag=22&fallback=true" type="video/mp4"></video></html>`
+              };
+            }
+            return { ok: false, status: 404 };
+          };
+
+          const result = await sw.resolveAnoboyStream({
+            url: 'https://anoboy.at/2026/10/naruto-episode-1/',
+            bloggerToken: 'validLocalToken123456',
+            preferredRes: '720p'
+          });
+
+          assert.strictEqual(result.success, true, 'Resolution must succeed via local fallback');
+          assert.ok(
+            result.streamUrl.includes('itag=22'),
+            'Fallback resolves local stream URL correctly'
+          );
+        } finally {
+          global.fetch = originalFetch;
+        }
+      });
+
+      test('Server SSRF Validator permits whitelisted hosts and rejects arbitrary targets', () => {
+        const serverDir = path.join(PROJECT_ROOT, 'server');
+        // Validate URL validator logic
+        const { validateTargetUrl } = require(path.join(serverDir, 'src/utils/url_validator.ts'));
+
+        // Whitelisted HTTPS hosts
+        assert.strictEqual(validateTargetUrl('https://anoboy.at/2026/10/naruto-1/'), true);
+        assert.strictEqual(validateTargetUrl('https://anoboy.ninja/2026/10/naruto-1/'), true);
+        assert.strictEqual(validateTargetUrl('https://anoboy.quest/episode-1/'), true);
+        assert.strictEqual(validateTargetUrl('https://doodstream.com/e/abc123xyz'), true);
+
+        // Disallowed targets (SSRF attempts)
+        assert.strictEqual(
+          validateTargetUrl('http://anoboy.at/'),
+          false,
+          'Non-HTTPS must be rejected'
+        );
+        assert.strictEqual(
+          validateTargetUrl('https://169.254.169.254/latest/meta-data/'),
+          false,
+          'AWS metadata IP rejected'
+        );
+        assert.strictEqual(
+          validateTargetUrl('https://127.0.0.1:8787/internal'),
+          false,
+          'Loopback IP rejected'
+        );
+        assert.strictEqual(
+          validateTargetUrl('https://localhost:8787/admin'),
+          false,
+          'Localhost rejected'
+        );
+        assert.strictEqual(
+          validateTargetUrl('https://attacker-c2.com/payload'),
+          false,
+          'Arbitrary domain rejected'
+        );
+        assert.strictEqual(
+          validateTargetUrl('invalid-url-string'),
+          false,
+          'Malformed URL rejected'
+        );
+      });
+
+      test('Server Token Validator strictly filters none, null, undefined and short tokens', () => {
+        const serverDir = path.join(PROJECT_ROOT, 'server');
+        const { isValidAnoBoyToken } = require(
+          path.join(serverDir, 'src/utils/token_validator.ts')
+        );
+
+        assert.strictEqual(isValidAnoBoyToken('none'), false);
+        assert.strictEqual(isValidAnoBoyToken('NONE'), false);
+        assert.strictEqual(isValidAnoBoyToken('null'), false);
+        assert.strictEqual(isValidAnoBoyToken('undefined'), false);
+        assert.strictEqual(isValidAnoBoyToken('abc'), false);
+        assert.strictEqual(isValidAnoBoyToken(''), false);
+        assert.strictEqual(isValidAnoBoyToken(null), false);
+        assert.strictEqual(isValidAnoBoyToken(undefined), false);
+        assert.strictEqual(isValidAnoBoyToken('validBloggerToken12345'), true);
+      });
+
+      test('SingleFlight coalescer collapses concurrent calls into a single execution', async () => {
+        const serverDir = path.join(PROJECT_ROOT, 'server');
+        const { SingleFlight } = require(path.join(serverDir, 'src/utils/single_flight.ts'));
+
+        const sf = new SingleFlight();
+        let executionCount = 0;
+
+        const slowTask = async () => {
+          executionCount++;
+          await new Promise((r) => setTimeout(r, 50));
+          return 'result-done';
+        };
+
+        // Fire 5 concurrent requests with identical key
+        const [r1, r2, r3, r4, r5] = await Promise.all([
+          sf.do('key:episode-1', slowTask),
+          sf.do('key:episode-1', slowTask),
+          sf.do('key:episode-1', slowTask),
+          sf.do('key:episode-1', slowTask),
+          sf.do('key:episode-1', slowTask)
+        ]);
+
+        assert.strictEqual(executionCount, 1, 'Only 1 execution must occur for 5 concurrent calls');
+        assert.strictEqual(r1, 'result-done');
+        assert.strictEqual(r2, 'result-done');
+        assert.strictEqual(r3, 'result-done');
+        assert.strictEqual(r4, 'result-done');
+        assert.strictEqual(r5, 'result-done');
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // --------------------------------------------------------------------------
   // TEST REPORT SUMMARY & EXIT CODE
   // --------------------------------------------------------------------------

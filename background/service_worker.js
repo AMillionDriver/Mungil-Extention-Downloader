@@ -2744,8 +2744,66 @@ function extractAnoBoyTokenFromHtml(html, preferredRes = '720p') {
   return tokens.length > 0 ? tokens[0] : null;
 }
 
+const WORKER_CONTROL_PLANE_URL = 'https://mungil-si-validator.nanangnurmansah2.workers.dev';
+const WORKER_CLIENT_HANDSHAKE = 'mungil-extension/v1.0';
+
+/**
+ * Attempts fast edge resolution via Cloudflare Worker Control Plane with 600ms fail-fast budget.
+ *
+ * @param {string} targetUrl
+ * @param {string} preferredRes
+ * @param {string} [workerBase]
+ * @returns {Promise<object|null>}
+ */
+async function resolveViaWorker(
+  targetUrl,
+  preferredRes = '720p',
+  workerBase = WORKER_CONTROL_PLANE_URL
+) {
+  if (!targetUrl || typeof targetUrl !== 'string') return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 600);
+
+  try {
+    const endpoint = `${workerBase}/api/v1/resolve/anoboy?url=${encodeURIComponent(targetUrl)}&res=${encodeURIComponent(preferredRes)}`;
+    const res = await fetch(endpoint, {
+      headers: {
+        'x-mungil-client': WORKER_CLIENT_HANDSHAKE
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success && data.directUrl) {
+        return {
+          success: true,
+          streamUrl: data.directUrl,
+          source: 'worker',
+          resolvedQuality: data.resolvedQuality || preferredRes,
+          cacheLayer: res.headers.get('x-cache-layer') || 'UNKNOWN'
+        };
+      }
+    }
+  } catch (_e) {
+    clearTimeout(timer);
+  }
+  return null;
+}
+
 async function resolveAnoboyStream(payload = {}) {
   const targetUrl = payload.url || '';
+  const preferredRes = payload.preferredRes || payload.resolution || '720p';
+
+  // Step 0: Try Edge Worker Control Plane (600ms fail-fast budget)
+  if (targetUrl && (targetUrl.includes('anoboy.at') || targetUrl.includes('anoboy.'))) {
+    const edgeResolved = await resolveViaWorker(targetUrl, preferredRes);
+    if (edgeResolved && edgeResolved.success) {
+      return edgeResolved;
+    }
+  }
+
   const tokens = [];
 
   if (payload.bloggerToken && isValidAnoBoyToken(payload.bloggerToken)) {
@@ -2756,8 +2814,6 @@ async function resolveAnoboyStream(payload = {}) {
   if (directTokenMatch && isValidAnoBoyToken(directTokenMatch[1])) {
     if (!tokens.includes(directTokenMatch[1])) tokens.push(directTokenMatch[1]);
   }
-
-  const preferredRes = payload.preferredRes || payload.resolution || '720p';
 
   // If targetUrl is an episode web page, fetch page to locate candidate tokens
   if (targetUrl && (targetUrl.includes('anoboy.at') || targetUrl.includes('anoboy.'))) {
@@ -4156,6 +4212,9 @@ if (typeof module !== 'undefined' && module.exports) {
     extractStreamFromBloggerHtml,
     extractAnoBoyTokenFromHtml,
     resolveAnoboyStream,
+    resolveViaWorker,
+    WORKER_CONTROL_PLANE_URL,
+    WORKER_CLIENT_HANDSHAKE,
     SHINIGAMI_CDN_RULES,
     sanitizeShinigamiTitle,
     formatShinigamiFilename

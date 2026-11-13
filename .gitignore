@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 package-lock.json.bak
+.wrangler/
+server/dist/
 
 # Native Host Binaries & Heavy Assets (Provisioned dynamically by install_host.bat)
 native_host/bin/
