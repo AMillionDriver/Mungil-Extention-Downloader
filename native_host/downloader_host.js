@@ -1229,6 +1229,21 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
   });
 }
 
+function computeFileSha256(filePath) {
+  return new Promise((resolve) => {
+    try {
+      if (!fs.existsSync(filePath)) return resolve(null);
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(filePath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', () => resolve(null));
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
 function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
   return new Promise((resolve, reject) => {
     const cleanUrl = urlStr.replace(/\\+$/, '').trim();
@@ -1283,6 +1298,24 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
           return reject(new Error(`Download stream failed with HTTP ${res.statusCode}`));
         }
 
+        // Strict Content-Type check: Reject HTML or plain text error pages pretending to be video
+        const ct = (res.headers['content-type'] || '').toLowerCase();
+        if (
+          ct.includes('text/html') ||
+          ct.includes('application/xhtml') ||
+          ct.includes('text/plain')
+        ) {
+          try {
+            outStream.close();
+            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+          } catch (_) {}
+          return reject(
+            new Error(
+              `CORRUPTED_STREAM: Server mengembalikan dokumen web (${ct}) bukan video stream MP4`
+            )
+          );
+        }
+
         activeSockets.add(res);
         if (res.socket) activeSockets.add(res.socket);
         res.on('close', () => {
@@ -1319,13 +1352,23 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
         });
 
         res.pipe(outStream);
-        outStream.on('finish', () => {
+        outStream.on('finish', async () => {
           activeFilePath = null;
           if (downloaded === 0) {
             try {
               if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
             } catch (_) {}
             return reject(new Error('Downloaded file is empty (0 bytes)'));
+          }
+          if (downloaded < 100 * 1024 && destPath.toLowerCase().endsWith('.mp4')) {
+            try {
+              if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+            } catch (_) {}
+            return reject(
+              new Error(
+                `CORRUPTED_STREAM: Ukuran file (${Math.round(downloaded / 1024)} KB) terlalu kecil untuk sebuah video MP4. Ditolak untuk mencegah file corrupt.`
+              )
+            );
           }
           if (downloaded < 1024) {
             let errorText = '';
@@ -1349,12 +1392,15 @@ function downloadSingleStream(urlStr, destPath, headers, totalSize, msg) {
               new Error(`Stream terputus prematur: baru ${downloaded}/${totalSize} byte`)
             );
           }
+          const hashHex = await computeFileSha256(destPath);
           sendMessage({
             success: true,
             status: 'complete',
             filename: path.basename(destPath),
             folder: path.dirname(destPath),
             size: formatBytes(downloaded),
+            rawBytes: downloaded,
+            sha256: hashHex,
             videoId: msg.videoId,
             title: msg.title,
             message: 'Video berhasil diunduh!'
@@ -1742,6 +1788,18 @@ async function downloadWithRangeChunks(msg) {
         throw new Error(`Probe failed with HTTP ${res.statusCode}`);
       }
 
+      // Strict Integrity Guard: Content-Type & Minimum Video File Size
+      const contentType = (res.headers['content-type'] || '').toLowerCase();
+      if (
+        contentType.includes('text/html') ||
+        contentType.includes('application/xhtml') ||
+        contentType.includes('text/plain')
+      ) {
+        throw new Error(
+          `CORRUPTED_STREAM: Server mengembalikan dokumen web (${contentType}) bukan video stream MP4`
+        );
+      }
+
       const cr = res.headers['content-range'];
       if (cr) {
         const m = cr.match(/\/(\d+)$/);
@@ -1754,6 +1812,12 @@ async function downloadWithRangeChunks(msg) {
         supportsRange = res.headers['accept-ranges'] === 'bytes' || res.statusCode === 206;
       }
       res.resume();
+
+      if (totalSize > 0 && totalSize < 100 * 1024 && finalDestPath.toLowerCase().endsWith('.mp4')) {
+        throw new Error(
+          `CORRUPTED_STREAM: Ukuran file (${Math.round(totalSize / 1024)} KB) terlalu kecil untuk sebuah video MP4. Ditolak untuk mencegah file corrupt.`
+        );
+      }
 
       if (!supportsRange || totalSize < 2 * 1024 * 1024) {
         if (totalSize > 0 && totalSize < 1024) {
@@ -2001,7 +2065,7 @@ async function downloadWithRangeChunks(msg) {
         };
 
         job.startWorkers();
-      }).then(() => {
+      }).then(async () => {
         activeJobs.delete(taskId);
         if (fd !== null) {
           try {
@@ -2044,12 +2108,16 @@ async function downloadWithRangeChunks(msg) {
           }
         } catch (_) {}
 
+        const hashHex = await computeFileSha256(finalDestPath);
+
         sendMessage({
           success: true,
           status: 'complete',
           filename: safeFilename,
           folder: targetSubdir,
           size: formatBytes(totalSize),
+          rawBytes: totalSize,
+          sha256: hashHex,
           videoId: msg.videoId,
           taskId,
           title: msg.title,

@@ -18,4 +18,3 @@ export async function rateLimitMiddleware(c: Context<{ Bindings: Env }>, next: N
   }
   await next();
 }
-

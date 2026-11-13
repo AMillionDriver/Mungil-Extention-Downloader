@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "mungil-si-validator",
+  "account_id": "86b150f285e815616a0f9b9baa31f427",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-13",
   "observability": {
@@ -10,7 +11,7 @@
   "kv_namespaces": [
     {
       "binding": "APP_STORAGE",
-      "id": "51550627dd5d4b1a9b2aec57d70fc818"
+      "id": "5c6017751c5d46099227871f53590bce"
     }
   ],
   "ratelimits": [
@@ -24,4 +25,3 @@
     }
   ]
 }
-

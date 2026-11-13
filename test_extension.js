@@ -9517,6 +9517,196 @@ async function runAllSuites() {
   );
 
   // --------------------------------------------------------------------------
+  // SUITE 40: Download Diagnostics & Anti-HTML Integrity Guard Validation
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 40: Download Diagnostics & Anti-HTML Integrity Guard Validation',
+    async ({ test }) => {
+      const { MungilDiagnosticTracker, sanitizeStreamUrl } = require(
+        path.join(PROJECT_ROOT, 'background/diagnostic_tracker.js')
+      );
+      const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+
+      test('URL Sanitizer redacts sensitive query keys while preserving structure and fingerprint', () => {
+        const sensitive =
+          'https://rr3---sn-4g5edn6r.googlevideo.com/videoplayback?expire=1731481234&ei=xyz&ip=1.2.3.4&id=abc&itag=22&source=youtube&requiressl=yes&vprv=1&mime=video%2Fmp4&token=SUPER_SECRET_TOKEN&sig=A1B2C3D4E5F6&key=cms1';
+        const res = sanitizeStreamUrl(sensitive);
+
+        assert.strictEqual(res.cdnHost, 'rr3---sn-4g5edn6r.googlevideo.com');
+        assert.strictEqual(res.streamPath, '/videoplayback');
+        assert.ok(
+          res.sanitizedUrl.includes('token=%5BREDACTED%5D') ||
+            res.sanitizedUrl.includes('token=[REDACTED]'),
+          'token must be redacted'
+        );
+        assert.ok(
+          res.sanitizedUrl.includes('sig=%5BREDACTED%5D') ||
+            res.sanitizedUrl.includes('sig=[REDACTED]'),
+          'sig must be redacted'
+        );
+        assert.ok(
+          !res.sanitizedUrl.includes('SUPER_SECRET_TOKEN'),
+          'Raw secret token must not leak into log'
+        );
+        assert.ok(res.urlFingerprint.startsWith('fp_'), 'Valid fingerprint generated');
+      });
+
+      test('MungilDiagnosticTracker records full job lifecycle, chunk matrix, and breadcrumbs', () => {
+        const tracker = new MungilDiagnosticTracker();
+        const job = tracker.createJob({
+          jobId: 'job_test_001',
+          platform: 'anoboy',
+          title: 'Tensei shitara Ken Deshita Season 2',
+          episodeNum: 7,
+          rawUrl: 'https://rr3---sn.googlevideo.com/videoplayback?itag=22&token=secret123',
+          resolution: '720p',
+          expectedBytes: 241172480,
+          filename: 'Tensei shitara Ken Deshita Season 2_07.mp4'
+        });
+
+        assert.strictEqual(job.jobId, 'job_test_001');
+        assert.strictEqual(job.file.episodeNum, '07');
+        assert.strictEqual(job.file.expectedBytes, 241172480);
+        assert.strictEqual(job.status, 'INITIALIZING');
+
+        // Record chunks
+        tracker.recordChunk('job_test_001', {
+          slotId: 'chunk-worker-01',
+          chunkIndex: 0,
+          rangeStart: 0,
+          rangeEnd: 5242879,
+          httpStatus: 206,
+          bytesReceived: 5242880,
+          durationMs: 450,
+          status: 'SUCCESS'
+        });
+        tracker.recordChunk('job_test_001', {
+          slotId: 'chunk-worker-02',
+          chunkIndex: 1,
+          rangeStart: 5242880,
+          rangeEnd: 10485759,
+          httpStatus: 206,
+          bytesReceived: 5242880,
+          durationMs: 480,
+          status: 'SUCCESS'
+        });
+
+        assert.strictEqual(tracker.getJob('job_test_001').chunks.length, 2);
+
+        // Update progress
+        tracker.updateProgress('job_test_001', 50, '4.2 MB/s', '12s');
+        assert.strictEqual(tracker.getJob('job_test_001').status, 'DOWNLOADING');
+
+        // Complete job
+        tracker.completeJob('job_test_001', {
+          finalBytes: 241172480,
+          sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          filePath: 'Tensei shitara Ken Deshita Season 2_07.mp4'
+        });
+
+        const completedJob = tracker.getJob('job_test_001');
+        assert.strictEqual(completedJob.status, 'COMPLETED');
+        assert.strictEqual(completedJob.integrityStatus, 'VERIFIED');
+        assert.strictEqual(
+          completedJob.file.sha256,
+          'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+        );
+      });
+
+      test('MungilDiagnosticTracker generates comprehensive 13-section Markdown forensic report', () => {
+        const tracker = new MungilDiagnosticTracker();
+        tracker.createJob({
+          jobId: 'job_test_report',
+          platform: 'anoboy',
+          title: 'Tensei shitara Ken Deshita Season 2',
+          episodeNum: 3,
+          rawUrl: 'https://rr1---sn.googlevideo.com/videoplayback?itag=22&token=abc',
+          resolution: '720p',
+          expectedBytes: 240000000
+        });
+        tracker.failJob('job_test_report', 'CORRUPTED_STREAM: Server mengembalikan halaman HTML', {
+          httpStatus: 200,
+          errorType: 'FAILED_CORRUPT_HTML'
+        });
+
+        const md = tracker.generateMarkdownReport('job_test_report');
+        assert.ok(md.includes('# Mungil Download Forensic & Diagnostic Report'), 'Contains title');
+        assert.ok(md.includes('## 1. Executive Diagnostic Summary'), 'Section 1 exists');
+        assert.ok(md.includes('## 2. Download Job Card'), 'Section 2 exists');
+        assert.ok(md.includes('## 3. Source & Stream Information'), 'Section 3 exists');
+        assert.ok(md.includes('## 4. File & Media Specifications'), 'Section 4 exists');
+        assert.ok(md.includes('## 5. Storage & Filesystem Footprint'), 'Section 5 exists');
+        assert.ok(md.includes('## 6. Execution Components'), 'Section 6 exists');
+        assert.ok(md.includes('## 7. Chunk Activity Matrix'), 'Section 7 exists');
+        assert.ok(md.includes('## 8. Execution Trace Timeline'), 'Section 8 exists');
+        assert.ok(md.includes('## 9. Integrity Verification Summary'), 'Section 9 exists');
+        assert.ok(md.includes('CORRUPTED STREAM DETECTED'), 'Highlights corruption caution');
+      });
+
+      test('cleanAnoBoyToken sanitizes raw ads query parameters and rejects poisoned tokens', () => {
+        assert.strictEqual(
+          sw.cleanAnoBoyToken('/uploads/adsbatch720.php?url=AD6v5dzqabcdef12345'),
+          'AD6v5dzqabcdef12345'
+        );
+        assert.strictEqual(
+          sw.cleanAnoBoyToken('/uploads/adsbatch720.php?url=none'),
+          null,
+          'Rejects ads url=none'
+        );
+        assert.strictEqual(
+          sw.cleanAnoBoyToken('/uploads/adsbatch.php?url=none'),
+          null,
+          'Rejects adsbatch.php?url=none'
+        );
+        assert.strictEqual(sw.cleanAnoBoyToken('none'), null);
+        assert.strictEqual(sw.cleanAnoBoyToken('null'), null);
+        assert.strictEqual(sw.cleanAnoBoyToken('short'), null);
+      });
+
+      test('anoboy.js contains Log Diagnostik (.md) UI button and click exporter', () => {
+        const anoboySrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/anoboy.js'),
+          'utf8'
+        );
+        assert.ok(
+          anoboySrc.includes('id="mungil-ab-export-log-btn"'),
+          'Batch modal footer contains mungil-ab-export-log-btn'
+        );
+        assert.ok(
+          anoboySrc.includes("action: 'DIAGNOSTIC_EXPORT_MD'"),
+          'UI queries DIAGNOSTIC_EXPORT_MD IPC action'
+        );
+        assert.ok(
+          anoboySrc.includes('mungil_diagnostic_report_'),
+          'Downloads report as markdown file'
+        );
+
+        const cssSrc = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/styles/anoboy.css'),
+          'utf8'
+        );
+        assert.ok(
+          cssSrc.includes('.mungil-ab-btn-log'),
+          'anoboy.css declares dedicated styling for .mungil-ab-btn-log'
+        );
+      });
+
+      test('Service Worker registers diagnostic IPC handlers', async () => {
+        let responseReceived = null;
+        const mockSendResponse = (res) => {
+          responseReceived = res;
+        };
+
+        const handled = sw.handleMessage({ action: 'DIAGNOSTIC_EXPORT_MD' }, {}, mockSendResponse);
+        assert.strictEqual(handled, true);
+        assert.ok(responseReceived !== null);
+        assert.strictEqual(responseReceived.success, true);
+        assert.ok(typeof responseReceived.markdown === 'string');
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // --------------------------------------------------------------------------
   // TEST REPORT SUMMARY & EXIT CODE
   // --------------------------------------------------------------------------

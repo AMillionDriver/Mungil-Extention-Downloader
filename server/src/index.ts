@@ -61,9 +61,10 @@ app.get('/api/v1/domains', async (c) => {
 
 // Protected Edge Resolvers (Soft-gate Handshake + SSRF whitelist)
 app.use('/api/v1/resolve/*', authMiddleware);
+app.use('/api/v2/resolve/*', authMiddleware);
 
-// AnoBoy Resolver
-app.get('/api/v1/resolve/anoboy', tieredCache, async (c) => {
+// AnoBoy Resolver (v1 & v2)
+const handleAnoBoy = async (c: any) => {
   const url = c.req.query('url');
   const res = c.req.query('res') || '720p';
 
@@ -85,10 +86,13 @@ app.get('/api/v1/resolve/anoboy', tieredCache, async (c) => {
   // Deduplicate concurrent requests in this isolate
   const flightKey = `anoboy:${url}:${res}`;
   return anoboyFlight.do(flightKey, () => resolveAnoBoyEdge(c, url, res));
-});
+};
 
-// Doodstream Resolver
-app.get('/api/v1/resolve/doodstream', tieredCache, async (c) => {
+app.get('/api/v1/resolve/anoboy', tieredCache, handleAnoBoy);
+app.get('/api/v2/resolve/anoboy', tieredCache, handleAnoBoy);
+
+// Doodstream Resolver (v1 & v2)
+const handleDoodstream = async (c: any) => {
   const url = c.req.query('url');
 
   if (!url) {
@@ -108,7 +112,9 @@ app.get('/api/v1/resolve/doodstream', tieredCache, async (c) => {
 
   const flightKey = `doodstream:${url}`;
   return doodstreamFlight.do(flightKey, () => resolveDoodstreamEdge(c, url));
-});
+};
+
+app.get('/api/v1/resolve/doodstream', tieredCache, handleDoodstream);
+app.get('/api/v2/resolve/doodstream', tieredCache, handleDoodstream);
 
 export default app;
-

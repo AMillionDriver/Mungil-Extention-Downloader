@@ -13,4 +13,3 @@ export async function authMiddleware(c: Context, next: Next) {
   }
   await next();
 }
-

@@ -38,10 +38,13 @@ jobs:
           npm run typecheck
 
       - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: 'server'
-          command: deploy --minify
-
+        run: |
+          cd server
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::warning ::CLOUDFLARE_API_TOKEN is not set in GitHub Repository Secrets. Skipping remote deployment."
+            exit 0
+          fi
+          npx wrangler deploy --minify
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

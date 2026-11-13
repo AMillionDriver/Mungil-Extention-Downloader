@@ -15,4 +15,3 @@ export class SingleFlight<T> {
     return promise;
   }
 }
-
