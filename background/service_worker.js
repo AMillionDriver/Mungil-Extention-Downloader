@@ -8,6 +8,22 @@
  * 5. Persistent download telemetry in chrome.storage.local.
  */
 
+// Diagnostic Tracker Module (Manifest V3 Service Worker + Node.js Dual Support)
+let diagnosticTrackerInstance = null;
+if (typeof importScripts === 'function') {
+  try {
+    importScripts('diagnostic_tracker.js');
+    if (typeof self !== 'undefined' && self.diagnosticTracker) {
+      diagnosticTrackerInstance = self.diagnosticTracker;
+    }
+  } catch (_e) {}
+} else if (typeof require === 'function') {
+  try {
+    const dt = require('./diagnostic_tracker.js');
+    diagnosticTrackerInstance = dt.diagnosticTracker;
+  } catch (_e) {}
+}
+
 // Dynamic declarativeNetRequest rules ensuring CDN requests include valid Referer
 const TIKTOK_CDN_RULES = [
   {
@@ -2296,6 +2312,13 @@ async function executeNativeDownloadWorker(params = {}, _tabId = null) {
       const err = chrome.runtime.lastError
         ? chrome.runtime.lastError.message
         : 'Native host disconnected unexpectedly';
+      if (diagnosticTrackerInstance) {
+        try {
+          diagnosticTrackerInstance.failJob(videoId, err, {
+            errorType: 'NATIVE_HOST_DISCONNECT'
+          });
+        } catch (_) {}
+      }
       delete activeDownloads[videoId];
       updateActionBadge('');
       reject(new Error(err));
@@ -2331,12 +2354,37 @@ async function downloadViaNativeChunker(params, _tabId) {
     params.videoId ||
     params.id ||
     `${params.platform || 'anoboy'}_${params.episode || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const streamUrl = params.url;
+  let cleanStreamUrl = (params.url || '').replace(/[\r\n]/g, '').trim();
 
-  if (!streamUrl || typeof streamUrl !== 'string') {
+  if (!cleanStreamUrl) {
     throw new Error('URL stream video tidak ditemukan.');
   }
-  const cleanStreamUrl = streamUrl.replace(/[\r\n]/g, '').trim();
+
+  // Emergency resolution guard: If cleanStreamUrl points to Blogger iframe embed or raw ads token,
+  // resolve it to a direct video stream first to prevent 16 KB HTML corruption.
+  if (
+    cleanStreamUrl.includes('blogger.com/video.g?token=') ||
+    cleanStreamUrl.includes('adsbatch')
+  ) {
+    try {
+      const resolved = await resolveAnoboyStream({
+        url: cleanStreamUrl,
+        preferredRes: params.resolution || '720p',
+        referer: params.referer || 'https://anoboy.at/'
+      });
+      if (resolved && resolved.success && resolved.streamUrl) {
+        cleanStreamUrl = resolved.streamUrl;
+        params.url = resolved.streamUrl;
+      } else {
+        throw new Error(
+          'CORRUPTED_STREAM: Server upstream tidak menyediakan stream video yang valid.'
+        );
+      }
+    } catch (resErr) {
+      throw new Error('Gagal meresolusi stream ke server Google Video: ' + resErr.message);
+    }
+  }
+
   try {
     const p = new URL(cleanStreamUrl);
     if (p.protocol !== 'https:' && p.protocol !== 'http:') {
@@ -2344,6 +2392,22 @@ async function downloadViaNativeChunker(params, _tabId) {
     }
   } catch (err) {
     throw new Error('URL stream tidak valid: ' + err.message);
+  }
+
+  // Initialize Diagnostic Job
+  if (diagnosticTrackerInstance) {
+    try {
+      diagnosticTrackerInstance.createJob({
+        jobId: videoId,
+        platform: params.platform || 'anoboy',
+        title: params.title || 'Video',
+        rawUrl: cleanStreamUrl,
+        episodeNum: params.episode || 1,
+        resolution: params.resolution || '720p',
+        expectedBytes: params.expectedBytes || 0,
+        filename: params.filename || `${params.title || videoId}.mp4`
+      });
+    } catch (_) {}
   }
 
   return new Promise((resolve, reject) => {
@@ -2354,6 +2418,15 @@ async function downloadViaNativeChunker(params, _tabId) {
       port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
       activeNativePorts.set(videoId, port);
     } catch (err) {
+      if (diagnosticTrackerInstance) {
+        diagnosticTrackerInstance.failJob(
+          videoId,
+          'Gagal menghubungkan ke Native Host: ' + err.message,
+          {
+            errorType: 'NATIVE_HOST_CONNECT_FAIL'
+          }
+        );
+      }
       return reject(new Error('Gagal menghubungkan ke Native Host: ' + err.message));
     }
 
@@ -2384,6 +2457,15 @@ async function downloadViaNativeChunker(params, _tabId) {
         const percent = typeof msg.percent === 'number' ? msg.percent : 0;
         const concurrencyStr = msg.concurrency ? ` (${msg.concurrency}x Adaptive)` : '';
         const part = msg.part || `Turbo Chunker${concurrencyStr}`;
+
+        if (diagnosticTrackerInstance) {
+          try {
+            diagnosticTrackerInstance.updateProgress(videoId, percent, msg.speed, msg.eta);
+            if (msg.chunk) {
+              diagnosticTrackerInstance.recordChunk(videoId, msg.chunk);
+            }
+          } catch (_) {}
+        }
 
         if (activeDownloads[videoId]) {
           activeDownloads[videoId].part = part;
@@ -2496,6 +2578,16 @@ async function downloadViaNativeChunker(params, _tabId) {
           filename: finalName
         });
 
+        if (diagnosticTrackerInstance) {
+          try {
+            diagnosticTrackerInstance.completeJob(videoId, {
+              finalBytes: msg.rawBytes || 0,
+              sha256: msg.sha256 || null,
+              filePath: finalName
+            });
+          } catch (_) {}
+        }
+
         activeNativePorts.delete(videoId);
         resolve({
           success: true,
@@ -2532,6 +2624,14 @@ async function downloadViaNativeChunker(params, _tabId) {
           updateActionBadge('');
           delete activeDownloads[videoId];
         }, 6000);
+
+        if (diagnosticTrackerInstance) {
+          try {
+            diagnosticTrackerInstance.failJob(videoId, displayError, {
+              errorType: errorCode
+            });
+          } catch (_) {}
+        }
 
         showDesktopNotification({
           success: false,
@@ -2579,6 +2679,13 @@ async function downloadViaNativeChunker(params, _tabId) {
       const err = chrome.runtime.lastError
         ? chrome.runtime.lastError.message
         : 'Native host disconnected unexpectedly';
+      if (diagnosticTrackerInstance) {
+        try {
+          diagnosticTrackerInstance.failJob(videoId, err, {
+            errorType: 'NATIVE_HOST_DISCONNECT'
+          });
+        } catch (_) {}
+      }
       delete activeDownloads[videoId];
       updateActionBadge('');
       reject(new Error(err));
@@ -2668,16 +2775,44 @@ function extractStreamFromBloggerHtml(bloggerHtml, preferredRes = '720p') {
   return streams[0].url;
 }
 
+function cleanAnoBoyToken(raw) {
+  if (typeof raw !== 'string') return null;
+  const str = raw.trim();
+  if (!str) return null;
+
+  const urlParamMatch = str.match(/[?&]url=([^&'"\s]+)/i);
+  let candidate = urlParamMatch ? urlParamMatch[1] : str;
+
+  const tokenParamMatch = candidate.match(/[?&]token=([^&'"\s]+)/i);
+  if (tokenParamMatch) {
+    candidate = tokenParamMatch[1];
+  }
+
+  candidate = candidate.split('&')[0].split('?')[0].split('#')[0].trim();
+  return isValidAnoBoyToken(candidate) ? candidate : null;
+}
+
 function isValidAnoBoyToken(token) {
   if (!token || typeof token !== 'string') return false;
-  const clean = token.trim().toLowerCase();
-  return (
-    clean !== 'none' &&
-    clean !== 'null' &&
-    clean !== 'undefined' &&
-    clean !== 'false' &&
-    clean.length >= 10
-  );
+  const clean = token.trim();
+  const lower = clean.toLowerCase();
+
+  if (
+    !clean ||
+    lower === 'none' ||
+    lower.includes('none') ||
+    lower === 'null' ||
+    lower === 'undefined' ||
+    lower === 'false' ||
+    lower.includes('adsbatch') ||
+    lower.includes('/') ||
+    lower.includes('\\') ||
+    lower.includes('.php') ||
+    lower.includes('.html')
+  ) {
+    return false;
+  }
+  return clean.length >= 10;
 }
 
 function extractAnoBoyCandidateTokens(html, preferredRes = '720p') {
@@ -2692,10 +2827,9 @@ function extractAnoBoyCandidateTokens(html, preferredRes = '720p') {
   while ((m = mirrorRegex.exec(html)) !== null) {
     const videoData = m[1];
     const label = m[2].trim();
-    const tokenM =
-      videoData.match(/url=([^&"'>\s]+)/i) || videoData.match(/token=([a-zA-Z0-9_-]+)/i);
-    if (tokenM && isValidAnoBoyToken(tokenM[1])) {
-      mirrors.push({ label, token: tokenM[1], videoData });
+    const tokenClean = cleanAnoBoyToken(videoData);
+    if (tokenClean) {
+      mirrors.push({ label, token: tokenClean, videoData });
     }
   }
 
@@ -2721,18 +2855,20 @@ function extractAnoBoyCandidateTokens(html, preferredRes = '720p') {
   });
 
   // 5. Check iframe #mediaplayer fallback
-  const mediaplayerMatch = html.match(/id=["']mediaplayer["'][^>]*src=["'][^"']*url=([^&"'>\s]+)/i);
-  if (mediaplayerMatch && isValidAnoBoyToken(mediaplayerMatch[1])) {
-    if (!candidateTokens.includes(mediaplayerMatch[1])) {
-      candidateTokens.push(mediaplayerMatch[1]);
+  const mediaplayerMatch = html.match(/id=["']mediaplayer["'][^>]*src=["']([^"']+)["']/i);
+  if (mediaplayerMatch) {
+    const clean = cleanAnoBoyToken(mediaplayerMatch[1]);
+    if (clean && !candidateTokens.includes(clean)) {
+      candidateTokens.push(clean);
     }
   }
 
   // 6. Check adsbatch fallback
   const generalMatch = html.match(/adsbatch(?:720)?\.php\?url=([^&"'>\s]+)/i);
-  if (generalMatch && isValidAnoBoyToken(generalMatch[1])) {
-    if (!candidateTokens.includes(generalMatch[1])) {
-      candidateTokens.push(generalMatch[1]);
+  if (generalMatch) {
+    const clean = cleanAnoBoyToken(generalMatch[1]);
+    if (clean && !candidateTokens.includes(clean)) {
+      candidateTokens.push(clean);
     }
   }
 
@@ -2765,7 +2901,7 @@ async function resolveViaWorker(
   const timer = setTimeout(() => controller.abort(), 600);
 
   try {
-    const endpoint = `${workerBase}/api/v1/resolve/anoboy?url=${encodeURIComponent(targetUrl)}&res=${encodeURIComponent(preferredRes)}`;
+    const endpoint = `${workerBase}/api/v2/resolve/anoboy?url=${encodeURIComponent(targetUrl)}&res=${encodeURIComponent(preferredRes)}`;
     const res = await fetch(endpoint, {
       headers: {
         'x-mungil-client': WORKER_CLIENT_HANDSHAKE
@@ -2777,6 +2913,22 @@ async function resolveViaWorker(
     if (res.ok) {
       const data = await res.json();
       if (data && data.success && data.directUrl) {
+        // If directUrl returned is still an embed page, resolve it locally
+        if (data.directUrl.includes('blogger.com/video.g?token=')) {
+          const bloggerDirect = await resolveAnoboyStream({
+            url: data.directUrl,
+            preferredRes: data.resolvedQuality || preferredRes
+          });
+          if (bloggerDirect && bloggerDirect.success && bloggerDirect.streamUrl) {
+            return {
+              success: true,
+              streamUrl: bloggerDirect.streamUrl,
+              source: 'worker+blogger',
+              resolvedQuality: bloggerDirect.itag === 22 ? '720p' : '360p',
+              cacheLayer: res.headers.get('x-cache-layer') || 'UNKNOWN'
+            };
+          }
+        }
         return {
           success: true,
           streamUrl: data.directUrl,
@@ -3196,6 +3348,53 @@ function handleMessage(message, sender, sendResponse) {
         console.warn('[SW] Turbo Chunker error:', err.message);
         sendResponse({ success: false, error: err.message });
       });
+    return true;
+  }
+
+  // Diagnostic Telemetry & Forensic Export Handlers
+  if (actionType === 'DIAGNOSTIC_RECORD_JOB') {
+    if (diagnosticTrackerInstance) {
+      const job = diagnosticTrackerInstance.createJob(message.params || {});
+      sendResponse({ success: true, job });
+    } else {
+      sendResponse({ success: false, error: 'Diagnostic tracker not active' });
+    }
+    return true;
+  }
+  if (actionType === 'DIAGNOSTIC_GET_JOB') {
+    if (diagnosticTrackerInstance) {
+      const job = diagnosticTrackerInstance.getJob(message.jobId);
+      sendResponse({ success: true, job });
+    } else {
+      sendResponse({ success: false, error: 'Diagnostic tracker not active' });
+    }
+    return true;
+  }
+  if (actionType === 'DIAGNOSTIC_GET_ALL') {
+    if (diagnosticTrackerInstance) {
+      const jobs = diagnosticTrackerInstance.getAllJobs();
+      sendResponse({ success: true, jobs });
+    } else {
+      sendResponse({ success: false, error: 'Diagnostic tracker not active' });
+    }
+    return true;
+  }
+  if (actionType === 'DIAGNOSTIC_EXPORT_MD') {
+    if (diagnosticTrackerInstance) {
+      const markdown = diagnosticTrackerInstance.generateMarkdownReport(message.jobId || null);
+      sendResponse({ success: true, markdown });
+    } else {
+      sendResponse({ success: false, error: 'Diagnostic tracker not active' });
+    }
+    return true;
+  }
+  if (actionType === 'DIAGNOSTIC_CLEAR') {
+    if (diagnosticTrackerInstance) {
+      diagnosticTrackerInstance.clearJobs();
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: 'Diagnostic tracker not active' });
+    }
     return true;
   }
 
@@ -4217,6 +4416,10 @@ if (typeof module !== 'undefined' && module.exports) {
     WORKER_CLIENT_HANDSHAKE,
     SHINIGAMI_CDN_RULES,
     sanitizeShinigamiTitle,
-    formatShinigamiFilename
+    formatShinigamiFilename,
+    cleanAnoBoyToken,
+    isValidAnoBoyToken,
+    extractAnoBoyCandidateTokens,
+    diagnosticTrackerInstance
   };
 }

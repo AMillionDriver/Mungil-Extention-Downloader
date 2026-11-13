@@ -705,6 +705,9 @@
             <button type="button" class="mungil-ab-btn mungil-ab-btn-stop" id="mungil-ab-cancel-all-btn" style="display:none;" title="Batalkan unduhan">
               <span>✕ Batalkan</span>
             </button>
+            <button type="button" class="mungil-ab-btn mungil-ab-btn-log" id="mungil-ab-export-log-btn" title="Ekspor Log Diagnostik (.md) untuk analisis mendalam">
+              <span>📋 Unduh Log (.md)</span>
+            </button>
             <button type="button" class="mungil-ab-btn mungil-ab-btn-secondary" id="mungil-ab-copy-gofile-btn">
               <span>📋 Salin Link Gofile</span>
             </button>
@@ -867,6 +870,34 @@
             copyGofileBtn.innerHTML = `<span>📋 Salin Link Gofile</span>`;
           }
         }, 3000);
+      });
+    }
+
+    // Export Diagnostic Log (.md)
+    const exportLogBtn = modal.querySelector('#mungil-ab-export-log-btn');
+    if (exportLogBtn) {
+      exportLogBtn.addEventListener('click', () => {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          exportLogBtn.disabled = true;
+          exportLogBtn.innerHTML = `<span>Menyusun Log...</span>`;
+          chrome.runtime.sendMessage({ action: 'DIAGNOSTIC_EXPORT_MD' }, (res) => {
+            exportLogBtn.disabled = false;
+            exportLogBtn.innerHTML = `<span>📋 Unduh Log (.md)</span>`;
+            if (res && res.success && res.markdown) {
+              const blob = new Blob([res.markdown], { type: 'text/markdown;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `mungil_diagnostic_report_${Date.now()}.md`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            } else {
+              alert('Belum ada log diagnostik tersimpan atau sesi baru dimulai.');
+            }
+          });
+        }
       });
     }
 

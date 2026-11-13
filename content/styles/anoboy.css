@@ -880,3 +880,15 @@
 .mungil-ab-btn-secondary:hover {
   background: rgba(255, 255, 255, 0.14);
 }
+
+.mungil-ab-btn-log {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.mungil-ab-btn-log:hover {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #93c5fd;
+}

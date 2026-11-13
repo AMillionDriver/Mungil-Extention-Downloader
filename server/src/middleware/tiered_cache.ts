@@ -7,7 +7,9 @@ export async function tieredCache(c: Context<{ Bindings: Env }>, next: Next) {
   }
 
   const cache = (caches as any).default;
-  const cacheKey = new Request(c.req.url, c.req.raw);
+  const parsedReqUrl = new URL(c.req.url);
+  parsedReqUrl.searchParams.set('mungil_cv', '3');
+  const cacheKey = new Request(parsedReqUrl.toString(), c.req.raw);
 
   // Layer 1: Cache API (Per-Colo Edge Memory, < 5ms)
   try {
@@ -23,7 +25,7 @@ export async function tieredCache(c: Context<{ Bindings: Env }>, next: Next) {
 
   // Layer 2: Cloudflare KV (Global Fallback, 30-70ms)
   const targetUrl = c.req.query('url') || '';
-  const kvKey = `stream:${new URL(c.req.url).pathname}:${encodeURIComponent(targetUrl)}`;
+  const kvKey = `v3_stream:${new URL(c.req.url).pathname}:${encodeURIComponent(targetUrl)}`;
 
   if (c.env.APP_STORAGE) {
     try {
@@ -58,13 +60,19 @@ export async function tieredCache(c: Context<{ Bindings: Env }>, next: Next) {
       c.executionCtx.waitUntil(cache.put(cacheKey, forCache));
     } catch {}
 
-    // Populate Layer 2 (KV) only if result is valid success
+    // Populate Layer 2 (KV) only if result is valid success and NOT an embed page or poison
     if (c.env.APP_STORAGE) {
       c.executionCtx.waitUntil(
         forKV
           .json()
           .then((json: any) => {
-            if (json && json.success === true) {
+            if (
+              json &&
+              json.success === true &&
+              typeof json.directUrl === 'string' &&
+              !json.directUrl.includes('blogger.com') &&
+              !json.directUrl.includes('none')
+            ) {
               return c.env.APP_STORAGE.put(kvKey, JSON.stringify(json), {
                 expirationTtl: 86400
               });
