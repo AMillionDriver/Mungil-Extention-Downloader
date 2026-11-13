@@ -34,4 +34,3 @@ export function validateTargetUrl(rawUrl: string, dynamicHosts?: string[]): bool
     return false;
   }
 }
-

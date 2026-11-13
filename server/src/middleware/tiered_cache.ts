@@ -75,4 +75,3 @@ export async function tieredCache(c: Context<{ Bindings: Env }>, next: Next) {
     }
   }
 }
-

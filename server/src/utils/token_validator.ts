@@ -6,4 +6,3 @@ export function isValidAnoBoyToken(token: unknown): boolean {
   }
   return clean.length >= 10;
 }
-

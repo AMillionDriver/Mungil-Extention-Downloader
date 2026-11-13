@@ -27,4 +27,3 @@ export interface DomainHealthStatus {
   lastChecked: number;
   latencyMs: number;
 }
-
