@@ -3222,6 +3222,14 @@ function handleMessage(message, sender, sendResponse) {
         activeNativePorts.get(videoId).postMessage({ action: 'CANCEL_FAST_DOWNLOAD', videoId });
         delete activeDownloads[videoId];
         activeNativePorts.delete(videoId);
+        if (diagnosticTrackerInstance) {
+          try {
+            diagnosticTrackerInstance.failJob(videoId, 'Pengunduhan dibatalkan oleh pengguna', {
+              errorType: 'CANCELLED_BY_USER',
+              httpStatus: 499
+            });
+          } catch (_) {}
+        }
         broadcastToAllTabs({
           type: 'ANOBOY_NATIVE_PROGRESS',
           videoId,
