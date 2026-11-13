@@ -2744,7 +2744,7 @@ function extractAnoBoyTokenFromHtml(html, preferredRes = '720p') {
   return tokens.length > 0 ? tokens[0] : null;
 }
 
-const WORKER_CONTROL_PLANE_URL = 'https://mungil-si-validator.nanangnurmansah2.workers.dev';
+const WORKER_CONTROL_PLANE_URL = 'https://mungil-si-validator.nanangnurmansah5.workers.dev';
 const WORKER_CLIENT_HANDSHAKE = 'mungil-extension/v1.0';
 
 /**
