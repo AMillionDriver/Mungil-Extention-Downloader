@@ -80,6 +80,9 @@ function sanitizeStreamUrl(rawUrl) {
 class MungilDiagnosticTracker {
   constructor() {
     this.memoryJobs = new Map();
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      this.loadJobs().catch(() => {});
+    }
   }
 
   /**
@@ -358,19 +361,52 @@ class MungilDiagnosticTracker {
       errorType === 'FAILED_CORRUPT_HTML' ||
       (reason && reason.includes('CORRUPTED_STREAM')) ||
       (reason && reason.includes('halaman HTML'));
+    const isCancelled =
+      errorType === 'CANCELLED_BY_USER' ||
+      (reason && reason.toLowerCase().includes('batal')) ||
+      (reason && reason.toLowerCase().includes('cancel'));
+    const isNetworkOffline =
+      errorType === 'NETWORK_OFFLINE' ||
+      errorType === 'NETWORK_TIMEOUT' ||
+      (reason &&
+        (reason.includes('ETIMEDOUT') ||
+          reason.includes('ENOTFOUND') ||
+          reason.includes('ECONNRESET') ||
+          reason.includes('EHOSTUNREACH') ||
+          reason.includes('ENETUNREACH') ||
+          reason.toLowerCase().includes('offline') ||
+          reason.toLowerCase().includes('timeout')));
+
+    let finalStatus = 'FAILED';
+    let integrityStatus = isCorruptHtml ? 'FAILED_CORRUPT_HTML' : 'FAILED_ERROR';
+    let downloadStatus = 'ERROR';
+    let httpStatus = details.httpStatus || 500;
+
+    if (isCancelled) {
+      finalStatus = 'CANCELLED';
+      integrityStatus = 'CANCELLED_BY_USER';
+      downloadStatus = 'CANCELLED';
+      httpStatus = 499;
+    } else if (isNetworkOffline) {
+      finalStatus = 'FAILED_NETWORK_TIMEOUT';
+      integrityStatus = 'FAILED_NETWORK_OFFLINE';
+      downloadStatus = 'TIMEOUT';
+      httpStatus = details.httpStatus || 504;
+    }
 
     this.updateJob(jobId, {
-      status: 'FAILED',
-      httpStatus: details.httpStatus || 500,
-      downloadStatus: 'ERROR',
-      integrityStatus: isCorruptHtml ? 'FAILED_CORRUPT_HTML' : 'FAILED_ERROR'
+      status: finalStatus,
+      httpStatus,
+      downloadStatus,
+      integrityStatus
     });
     this.appendTimelineEvent(jobId, {
       component: 'service-worker',
       file: 'service_worker.js',
       func: 'failJob',
-      level: 'ERROR',
-      message: `Job failed: ${reason}`
+      level: isCancelled ? 'WARN' : 'ERROR',
+      message: `Job ${isCancelled ? 'cancelled' : 'failed'}: ${reason}`,
+      context: { errorType, details }
     });
   }
 
@@ -533,6 +569,12 @@ class MungilDiagnosticTracker {
     if (job.integrityStatus === 'FAILED_CORRUPT_HTML') {
       md += `> [!CAUTION]\n`;
       md += `> **CORRUPTED STREAM DETECTED**: The download payload received was a small HTML document (${formatBytes(job.file.finalBytes)}) rather than a binary MP4 video. This happens when an upstream mirror returns an error or ad redirect page. The file writing was halted or quarantined.\n\n`;
+    } else if (job.integrityStatus === 'CANCELLED_BY_USER') {
+      md += `> [!WARNING]\n`;
+      md += `> **DOWNLOAD CANCELLED**: Pengunduhan dihentikan atau dibatalkan oleh pengguna sebelum berkas selesai diunduh (${formatBytes(job.file.receivedBytes)} / ${formatBytes(job.file.expectedBytes)}).\n\n`;
+    } else if (job.integrityStatus === 'FAILED_NETWORK_OFFLINE') {
+      md += `> [!WARNING]\n`;
+      md += `> **NETWORK OFFLINE / TIMEOUT**: Koneksi internet terputus atau timeout saat mencoba menghubungi CDN. Pengguna berada dalam kondisi offline atau server mirror tidak merespon socket dalam batas waktu retries.\n\n`;
     } else if (job.integrityStatus === 'VERIFIED') {
       md += `> [!NOTE]\n`;
       md += `> **INTEGRITY VERIFIED**: File size matches expected bounds and SHA-256 hash was generated cleanly.\n\n`;

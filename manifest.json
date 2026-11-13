@@ -63,6 +63,8 @@
     "*://*.dood.cx/*",
     "*://*.dood.sh/*",
     "*://*.dood.video/*",
+    "*://*.facebook.com/*",
+    "*://*.fbcdn.net/*",
     "https://translate.googleapis.com/*",
     "https://api.ocr.space/*"
   ],
@@ -332,6 +334,28 @@
       ],
       "world": "MAIN",
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.facebook.com/*"
+      ],
+      "js": [
+        "content/injected/facebook_bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.facebook.com/*"
+      ],
+      "js": [
+        "content/platforms/facebook.js"
+      ],
+      "css": [
+        "content/platforms/facebook.css"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -444,6 +468,17 @@
       "matches": [
         "*://*.shinigami.asia/*",
         "*://11.shinigami.asia/*"
+      ]
+    },
+    {
+      "resources": [
+        "content/injected/facebook_bridge.js",
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": [
+        "*://*.facebook.com/*"
       ]
     }
   ],

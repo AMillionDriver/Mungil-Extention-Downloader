@@ -1,0 +1,269 @@
+/**
+ * Mungil Facebook Reels Downloader Stylesheet
+ * Native dark & light mode styling conforming to Meta design system
+ */
+
+/* Video Player Overlay FAB */
+.mungil-fb-video-fab {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 99999;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+  padding: 8px 16px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.mungil-fb-video-fab:hover {
+  background: #0284c7;
+  border-color: #38bdf8;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.4);
+}
+
+.mungil-fb-video-fab svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* Circular Action Rail Button */
+.mungil-fb-action-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0;
+  user-select: none;
+  position: relative;
+  z-index: 10;
+}
+
+.mungil-fb-dl-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #e4e6eb;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.mungil-fb-dl-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.08);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.mungil-fb-dl-btn:active {
+  transform: scale(0.95);
+}
+
+.mungil-fb-dl-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+  transition: transform 0.2s ease;
+}
+
+.mungil-fb-dl-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e4e6eb;
+  margin-top: 6px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  letter-spacing: 0.02em;
+}
+
+/* Button States */
+.mungil-fb-dl-btn.is-loading {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  cursor: wait;
+}
+
+.mungil-fb-dl-btn.is-loading svg {
+  animation: mungil-fb-spin 1s linear infinite;
+  color: #38bdf8;
+}
+
+.mungil-fb-dl-btn.is-success {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.mungil-fb-dl-btn.is-error {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+@keyframes mungil-fb-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Profile Grid Hover Button */
+.mungil-fb-card-hover-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: all 0.2s ease;
+  z-index: 20;
+}
+
+.mungil-fb-card-hover-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+  transform: translateY(0) scale(1.05);
+}
+
+div:hover > .mungil-fb-card-hover-btn,
+a:hover > .mungil-fb-card-hover-btn {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Profile Header Batch Button */
+.mungil-fb-profile-batch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+  transition: all 0.2s ease;
+  margin-left: 12px;
+}
+
+.mungil-fb-profile-batch-btn:hover {
+  background: linear-gradient(135deg, #0369a1 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.4);
+}
+
+/* Modal Overlay & Card Container */
+.mungil-fb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.mungil-fb-modal-box {
+  background: #18191a;
+  border: 1px solid #3a3b3c;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 640px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  color: #e4e6eb;
+  overflow: hidden;
+}
+
+.mungil-fb-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #3a3b3c;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mungil-fb-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.mungil-fb-modal-close {
+  background: none;
+  border: none;
+  color: #b0b3b8;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.mungil-fb-modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mungil-fb-modal-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #242526;
+  border: 1px solid #3a3b3c;
+}
+
+.mungil-fb-modal-item:hover {
+  background: #303031;
+}
+
+.mungil-fb-modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid #3a3b3c;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #242526;
+}

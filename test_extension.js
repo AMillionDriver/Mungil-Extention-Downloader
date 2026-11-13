@@ -845,6 +845,8 @@ async function runAllSuites() {
         'content/platforms/anoboy.js',
         'content/platforms/comic_translator.js',
         'content/platforms/doodstream.js',
+        'content/platforms/facebook.js',
+        'content/injected/facebook_bridge.js',
         'test_extension.js',
         'test_adversarial_bstation.js'
       ];
@@ -9702,6 +9704,122 @@ async function runAllSuites() {
         assert.ok(responseReceived !== null);
         assert.strictEqual(responseReceived.success, true);
         assert.ok(typeof responseReceived.markdown === 'string');
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // SUITE 41: Facebook Reels Direct & Batch Downloader Validation
+  // --------------------------------------------------------------------------
+  await runSuite(
+    'Suite 41: Facebook Reels Direct & Batch Downloader Validation',
+    async ({ test }) => {
+      const fbScript = require(path.join(PROJECT_ROOT, 'content/platforms/facebook.js'));
+      const manifestPath = path.join(PROJECT_ROOT, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+      test('Manifest V3 registers Facebook host permissions and content scripts', () => {
+        assert.ok(
+          manifest.host_permissions.includes('*://*.facebook.com/*'),
+          'Facebook host permission declared'
+        );
+        assert.ok(
+          manifest.host_permissions.includes('*://*.fbcdn.net/*'),
+          'Meta CDN host permission declared'
+        );
+
+        const fbIsolated = manifest.content_scripts.find(
+          (cs) => cs.matches.includes('*://*.facebook.com/*') && cs.world !== 'MAIN'
+        );
+        assert.ok(fbIsolated, 'Facebook ISOLATED world content script registered');
+        assert.ok(fbIsolated.js.includes('content/platforms/facebook.js'));
+        assert.ok(fbIsolated.css.includes('content/platforms/facebook.css'));
+
+        const fbMain = manifest.content_scripts.find(
+          (cs) => cs.matches.includes('*://*.facebook.com/*') && cs.world === 'MAIN'
+        );
+        assert.ok(fbMain, 'Facebook MAIN world bridge registered');
+        assert.ok(fbMain.js.includes('content/injected/facebook_bridge.js'));
+      });
+
+      test('Facebook Windows NTFS filename sanitization unit tests', () => {
+        const { sanitizeWindowsFilename } = fbScript;
+        assert.strictEqual(
+          sanitizeWindowsFilename('The Computer Guy: Every File System Explained?'),
+          'The Computer Guy_ Every File System Explained'
+        );
+        assert.strictEqual(
+          sanitizeWindowsFilename('Fabian.videograf/Interview*Shot<Angles>'),
+          'Fabian.videograf_Interview_Shot_Angles'
+        );
+        assert.strictEqual(sanitizeWindowsFilename(''), 'facebook_reel');
+      });
+
+      test('Extracts Reel ID accurately from standard and localized Facebook URLs', () => {
+        const { getReelIdFromUrl } = fbScript;
+        assert.strictEqual(
+          getReelIdFromUrl('https://www.facebook.com/reel/1113377094371708?locale=id_ID'),
+          '1113377094371708'
+        );
+        assert.strictEqual(
+          getReelIdFromUrl('https://www.facebook.com/reel/3381785382008922/'),
+          '3381785382008922'
+        );
+        assert.strictEqual(getReelIdFromUrl('https://www.facebook.com/watch/?v=9876543210'), null);
+      });
+
+      test('Strict DOM Button Hygiene: facebook.js and facebook_bridge.js enforce type="button"', () => {
+        const fbCode = fs.readFileSync(
+          path.join(PROJECT_ROOT, 'content/platforms/facebook.js'),
+          'utf8'
+        );
+        const buttonCreations = fbCode.match(/createElement\(['"]button['"]\)/g) || [];
+        assert.ok(buttonCreations.length > 0, 'Buttons created in script');
+        const explicitTypes = fbCode.match(/\.type\s*=\s*['"]button['"]/g) || [];
+        assert.strictEqual(
+          buttonCreations.length,
+          explicitTypes.length,
+          'Every button must declare explicit type="button"'
+        );
+      });
+
+      test('Facebook Action Rail Button state machine transitions cleanly', () => {
+        const { setButtonState, FB_ICONS } = fbScript;
+        const btn = new MockElement('button');
+        const iconBox = new MockElement('div');
+        iconBox.classList.add('mungil-fb-btn-icon');
+        btn.appendChild(iconBox);
+
+        setButtonState(btn, 'idle');
+        assert.strictEqual(btn.disabled, false);
+        assert.strictEqual(iconBox.innerHTML, FB_ICONS.download);
+
+        setButtonState(btn, 'loading', 'Memeriksa...');
+        assert.strictEqual(btn.disabled, true);
+        assert.ok(btn.classList.contains('is-loading'));
+
+        setButtonState(btn, 'error', 'Gagal');
+        assert.strictEqual(btn.disabled, false);
+        assert.ok(btn.classList.contains('is-error'));
+      });
+
+      test('Service Worker registers DOWNLOAD_FACEBOOK_NATIVE handler with Referer hygiene', () => {
+        const sw = require(path.join(PROJECT_ROOT, 'background/service_worker.js'));
+        assert.ok(typeof sw.handleMessage === 'function');
+
+        let sentRes = null;
+        const handled = sw.handleMessage(
+          {
+            action: 'DOWNLOAD_FACEBOOK_NATIVE',
+            reelId: '1113377094371708',
+            url: 'https://video.xx.fbcdn.net/v/t39.1234/test.mp4'
+          },
+          { tab: { id: 101 } },
+          (res) => {
+            sentRes = res;
+          }
+        );
+        assert.strictEqual(handled, true, 'DOWNLOAD_FACEBOOK_NATIVE handled asynchronously');
       });
     }
   );
