@@ -43,6 +43,7 @@
     "*://*.anoboy.online/*",
     "*://*.anoboy.ninja/*",
     "*://*.blogger.com/*",
+    "https://*.workers.dev/*",
     "*://*.shinigami.asia/*",
     "*://*.shngm.io/*",
     "*://*.shngm.id/*",

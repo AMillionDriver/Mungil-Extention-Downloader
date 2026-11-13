@@ -15,6 +15,7 @@ export default [
       'scratch/**',
       '.agents/**',
       'coverage/**',
+      'server/**',
       '**/*.min.js'
     ]
   },
