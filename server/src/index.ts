@@ -48,6 +48,36 @@ app.get('/version', (c) => {
   });
 });
 
+// Dynamic configuration endpoint for Facebook Reels rules & selectors
+app.get('/api/v1/config/facebook', (c) => {
+  return c.json({
+    success: true,
+    version: '1.0.0',
+    platform: 'facebook',
+    selectors: {
+      share_buttons: [
+        '[aria-label="Bagikan"]',
+        '[aria-label="Share"]',
+        '[aria-label="Bagikan sekarang"]',
+        '[aria-label="Compartir"]',
+        '[aria-label="Condividi"]',
+        '[aria-label="Teilen"]'
+      ],
+      video_elements: ['video', 'div[data-video-id] video'],
+      profile_reels_tab: ['[role="tab"][href*="reels"]', 'a[href*="sk=reels_tab"]']
+    },
+    relay_keys: [
+      'browser_native_hd_url',
+      'browser_native_sd_url',
+      'playable_url_quality_hd',
+      'playable_url',
+      'hd_src',
+      'sd_src'
+    ],
+    timestamp: Date.now()
+  });
+});
+
 // Active domains directory
 app.get('/api/v1/domains', async (c) => {
   if (c.env.APP_STORAGE) {

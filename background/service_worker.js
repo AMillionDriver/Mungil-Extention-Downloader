@@ -3369,6 +3369,60 @@ function handleMessage(message, sender, sendResponse) {
     return true;
   }
 
+  // Handle DOWNLOAD_FACEBOOK_NATIVE (Facebook Reels Turbo Chunker)
+  if (actionType === 'DOWNLOAD_FACEBOOK_NATIVE') {
+    const payload =
+      message.payload && typeof message.payload === 'object' ? message.payload : message;
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+
+    const fbPayload = Object.assign({}, payload, {
+      platform: 'facebook',
+      folder: 'Facebook_Reels',
+      headers: Object.assign(
+        {
+          Referer: 'https://www.facebook.com/',
+          Origin: 'https://www.facebook.com'
+        },
+        payload.headers || {}
+      )
+    });
+
+    downloadViaNativeChunker(fbPayload, tabId)
+      .then((result) => sendResponse(result))
+      .catch((err) => {
+        console.warn('[SW] Facebook Turbo Chunker error:', err.message);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  // Handle DOWNLOAD_FACEBOOK_BATCH (Profile Reels Queue)
+  if (actionType === 'DOWNLOAD_FACEBOOK_BATCH') {
+    const items = Array.isArray(message.items) ? message.items : [];
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+    (async () => {
+      for (const item of items) {
+        const itemPayload = {
+          platform: 'facebook',
+          folder: 'Facebook_Reels',
+          reelId: item.reelId,
+          url: item.url,
+          filename: `facebook_${item.author || 'creator'}_${item.reelId}.mp4`,
+          title: `Facebook Reel ${item.reelId}`,
+          headers: {
+            Referer: 'https://www.facebook.com/',
+            Origin: 'https://www.facebook.com'
+          }
+        };
+        try {
+          await downloadViaNativeChunker(itemPayload, tabId);
+        } catch (_) {}
+      }
+    })();
+    sendResponse({ success: true, count: items.length });
+    return false;
+  }
+
   // Diagnostic Telemetry & Forensic Export Handlers
   if (actionType === 'DIAGNOSTIC_RECORD_JOB') {
     if (diagnosticTrackerInstance) {
