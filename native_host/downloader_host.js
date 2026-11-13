@@ -870,7 +870,7 @@ function stealWork(chunks) {
     if (c.inFlight) {
       const curPos = c.start + (c.written || 0);
       const remaining = c.end - curPos + 1;
-      if (remaining >= 2 * 1024 * 1024 && remaining > maxRemaining) {
+      if (remaining >= 4 * 1024 * 1024 && remaining > maxRemaining) {
         maxRemaining = remaining;
         bestCandidate = c;
       }
@@ -880,10 +880,13 @@ function stealWork(chunks) {
   if (!bestCandidate) return null;
 
   const curPos = bestCandidate.start + (bestCandidate.written || 0);
-  const halfRemaining = Math.floor(maxRemaining / 2);
-  const splitPoint = curPos + halfRemaining - 1;
+  const remaining = bestCandidate.end - curPos + 1;
+  const halfRemaining = Math.floor(remaining / 2);
+  if (halfRemaining < 1024 * 1024) return null;
 
+  const splitPoint = curPos + halfRemaining - 1;
   const oldEnd = bestCandidate.end;
+
   bestCandidate.end = splitPoint;
   bestCandidate.length = bestCandidate.end - bestCandidate.start + 1;
 
@@ -1121,6 +1124,7 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
             }
           }
 
+          let isChunkComplete = false;
           res.on('data', (buf) => {
             if (job && job.status !== 'downloading') {
               try {
@@ -1134,11 +1138,43 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
               } catch (_) {}
               return;
             }
+            if (isChunkComplete) return;
+
+            const remaining = chunk.length - chunk.written;
+            if (remaining <= 0) {
+              isChunkComplete = true;
+              try {
+                res.destroy();
+              } catch (_) {}
+              try {
+                if (res.socket) res.socket.destroy();
+              } catch (_) {}
+              try {
+                req.destroy();
+              } catch (_) {}
+              return resolve();
+            }
+
+            const toWrite = Math.min(buf.length, remaining);
             const writeOffset = chunk.start + chunk.written;
             try {
-              fs.writeSync(fd, buf, 0, buf.length, writeOffset);
-              chunk.written += buf.length;
-              onBytes(buf.length);
+              fs.writeSync(fd, buf, 0, toWrite, writeOffset);
+              chunk.written += toWrite;
+              onBytes(toWrite);
+
+              if (chunk.written >= chunk.length) {
+                isChunkComplete = true;
+                try {
+                  res.destroy();
+                } catch (_) {}
+                try {
+                  if (res.socket) res.socket.destroy();
+                } catch (_) {}
+                try {
+                  req.destroy();
+                } catch (_) {}
+                return resolve();
+              }
             } catch (writeErr) {
               try {
                 res.destroy(writeErr);
@@ -1151,7 +1187,7 @@ function downloadChunkTask(urlStr, chunk, headers, fd, onBytes, job = null, retr
           });
 
           res.on('end', () => {
-            if (chunk.written >= chunk.length) {
+            if (isChunkComplete || chunk.written >= chunk.length) {
               resolve();
             } else if (job && job.status !== 'downloading') {
               reject(new Error('PAUSED_OR_CANCELLED'));
@@ -1819,6 +1855,12 @@ async function downloadWithRangeChunks(msg) {
         );
       }
 
+      if (totalSize > 0 && totalSize < 100 * 1024 && finalDestPath.toLowerCase().endsWith('.mp4')) {
+        throw new Error(
+          `CORRUPTED_STREAM: Ukuran file (${Math.round(totalSize / 1024)} KB) terlalu kecil untuk sebuah video MP4. Ditolak untuk mencegah file corrupt.`
+        );
+      }
+
       if (!supportsRange || totalSize < 2 * 1024 * 1024) {
         if (totalSize > 0 && totalSize < 1024) {
           throw new Error(
@@ -1848,12 +1890,16 @@ async function downloadWithRangeChunks(msg) {
               index: c.index,
               start: c.start,
               end: c.end,
-              written: c.written || 0,
+              written: Math.min(c.written || 0, c.length),
               length: c.length,
               inFlight: false
             }));
             totalDownloaded = chunks.reduce((acc, c) => acc + (c.written || 0), 0);
             fd = fs.openSync(partPath, 'r+');
+            const currentPartStat = fs.statSync(partPath);
+            if (currentPartStat.size > totalSize) {
+              fs.ftruncateSync(fd, totalSize);
+            }
             isResuming = true;
           } else if (etagMismatch) {
             // ETag mismatch: Resource changed on server! Discard old chunks to prevent corruption

@@ -15,6 +15,7 @@ if (typeof importScripts === 'function') {
     importScripts('diagnostic_tracker.js');
     if (typeof self !== 'undefined' && self.diagnosticTracker) {
       diagnosticTrackerInstance = self.diagnosticTracker;
+      diagnosticTrackerInstance.loadJobs().catch(() => {});
     }
   } catch (_e) {}
 } else if (typeof require === 'function') {
@@ -2402,7 +2403,7 @@ async function downloadViaNativeChunker(params, _tabId) {
         platform: params.platform || 'anoboy',
         title: params.title || 'Video',
         rawUrl: cleanStreamUrl,
-        episodeNum: params.episode || 1,
+        episodeNum: params.episode || params.episodeNum || 1,
         resolution: params.resolution || '720p',
         expectedBytes: params.expectedBytes || 0,
         filename: params.filename || `${params.title || videoId}.mp4`
@@ -2418,6 +2419,15 @@ async function downloadViaNativeChunker(params, _tabId) {
       port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
       activeNativePorts.set(videoId, port);
     } catch (err) {
+      if (diagnosticTrackerInstance) {
+        diagnosticTrackerInstance.failJob(
+          videoId,
+          'Gagal menghubungkan ke Native Host: ' + err.message,
+          {
+            errorType: 'NATIVE_HOST_CONNECT_FAIL'
+          }
+        );
+      }
       if (diagnosticTrackerInstance) {
         diagnosticTrackerInstance.failJob(
           videoId,
@@ -3363,8 +3373,15 @@ function handleMessage(message, sender, sendResponse) {
   }
   if (actionType === 'DIAGNOSTIC_GET_JOB') {
     if (diagnosticTrackerInstance) {
-      const job = diagnosticTrackerInstance.getJob(message.jobId);
-      sendResponse({ success: true, job });
+      (async () => {
+        if (diagnosticTrackerInstance.memoryJobs.size === 0) {
+          await diagnosticTrackerInstance.loadJobs();
+        }
+        const job = diagnosticTrackerInstance.getJob(message.jobId);
+        sendResponse({ success: true, job });
+      })().catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
     } else {
       sendResponse({ success: false, error: 'Diagnostic tracker not active' });
     }
@@ -3372,8 +3389,15 @@ function handleMessage(message, sender, sendResponse) {
   }
   if (actionType === 'DIAGNOSTIC_GET_ALL') {
     if (diagnosticTrackerInstance) {
-      const jobs = diagnosticTrackerInstance.getAllJobs();
-      sendResponse({ success: true, jobs });
+      (async () => {
+        if (diagnosticTrackerInstance.memoryJobs.size === 0) {
+          await diagnosticTrackerInstance.loadJobs();
+        }
+        const jobs = diagnosticTrackerInstance.getAllJobs();
+        sendResponse({ success: true, jobs });
+      })().catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
     } else {
       sendResponse({ success: false, error: 'Diagnostic tracker not active' });
     }
@@ -3381,8 +3405,15 @@ function handleMessage(message, sender, sendResponse) {
   }
   if (actionType === 'DIAGNOSTIC_EXPORT_MD') {
     if (diagnosticTrackerInstance) {
-      const markdown = diagnosticTrackerInstance.generateMarkdownReport(message.jobId || null);
-      sendResponse({ success: true, markdown });
+      (async () => {
+        if (diagnosticTrackerInstance.memoryJobs.size === 0) {
+          await diagnosticTrackerInstance.loadJobs();
+        }
+        const markdown = diagnosticTrackerInstance.generateMarkdownReport(message.jobId || null);
+        sendResponse({ success: true, markdown });
+      })().catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
     } else {
       sendResponse({ success: false, error: 'Diagnostic tracker not active' });
     }

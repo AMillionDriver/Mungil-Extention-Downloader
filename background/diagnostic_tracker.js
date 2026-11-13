@@ -80,6 +80,9 @@ function sanitizeStreamUrl(rawUrl) {
 class MungilDiagnosticTracker {
   constructor() {
     this.memoryJobs = new Map();
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      this.loadJobs().catch(() => {});
+    }
   }
 
   /**
